@@ -103,25 +103,118 @@ IocpBuffer *IocpBufferNew(int capacity)
 /*
  *------------------------------------------------------------------------
  *
- * IocpChannelInit --
+ * IocpChannelNew --
  *
- *    Initializes a IocpChannel structure. The reference count of the
- *    structure is initialized to 1.
+ *    Allocates and initializes a IocpChannel structure. The reference count of
+ *    the structure is initialized to 1. 
  *
  * Results:
- *    None.
+ *    Returns a pointer to the allocated IocpChannel.
  *
  * Side effects:
  *    None.
  *
  *------------------------------------------------------------------------
  */
-void IocpChannelInit(IocpChannel *chanPtr)
+IocpChannel *IocpChannelNew(
+    Tcl_Interp *interp,
+    const IocpChannelVtbl *vtblPtr) /* See IocpChannelVtbl definition comments.
+                                     * Must point to static memory */
 {
+    IocpChannel *chanPtr;
+    chanPtr = ckalloc(vtblPtr->allocationSize);
     IocpListInit(&chanPtr->inputBuffers);
+    IocpLinkInit(&chanPtr->readyLink);
     chanPtr->tsdPtr = NULL;
+    InitializeConditionVariable(&chanPtr->cv);
     IocpLockInit(&chanPtr->lock);
     chanPtr->numRefs = 1;
+    chanPtr->vtblPtr = vtblPtr;
+    if (vtblPtr->initialize) {
+        vtblPtr->initialize(interp, chanPtr);
+    }
+    return chanPtr;
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpChannelDrop --
+ *
+ *    Decrements the reference count for a IocpChannel. If no more references
+ *    are outstanding, the IocpChannel's finalizer is called and all resources
+ *    freed. The IocpChannel must NOT linked to any IocpTsd, either through
+ *    the tsdPtr field or through the TSD's readyChannels list.
+ *
+ * Results:
+ *    None.
+ *
+ * Side effects:
+ *    The IocpChannel is unlocked and potentially freed.
+ *
+ *------------------------------------------------------------------------
+ */
+void IocpChannelDrop(
+    Tcl_Interp *interp,
+    IocpChannel *lockedChanPtr)       /* Must be locked on entry. Unlocked
+                                       * and potentially freed on return */
+{
+    // TBD assert(lockedChanPtr->tsdPtr == NULL)
+    // TBD assert(lockedChanPtr->readyLink.next == lockedChanPtr->readyLink.prev == NULL)
+    if (--lockedChanPtr->numRefs <= 0) {
+        if (lockedChanPtr->vtblPtr->finalize)
+            lockedChanPtr->vtblPtr->finalize(interp, lockedChanPtr);
+        IocpChannelUnlock(lockedChanPtr);
+        IocpLockDelete(&lockedChanPtr->lock);
+        ckfree(lockedChanPtr);
+    }
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpChannelSleepForIO --
+ *
+ *    Releases the lock on a IocpChannel and then blocks until an I/O
+ *    completion is signaled. On returning the IocpChannel lock is reacquired.
+ *
+ * Results:
+ *    None.
+ *
+ * Side effects:
+ *    Because the lock on the IocpChannel is released and reacquired,
+ *    the channel state might have changed before returning.
+ *
+ *------------------------------------------------------------------------
+ */
+void IocpChannelAwaitCompletion(IocpChannel *lockedChanPtr)    /* Must be locked on entry */
+{
+    lockedChanPtr->flags   |= IOCP_CHAN_F_BLOCKED_FOR_IO;
+    IocpConditionVariableWaitShared(&lockedChanPtr->cv, &lockedChanPtr->lock, INFINITE);
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpChannelWakeForIO --
+ *
+ *    Wakes up a thread (if any) blocked on some I/O operation to complete.
+ *
+ * Results:
+ *    None.
+ *
+ * Side effects:
+ *    The thread (if any) blocked on the channel is awoken.
+ *
+ *------------------------------------------------------------------------
+ */
+void IocpChannelWakeAfterCompletion(IocpChannel *lockedChanPtr)   /* Must be locked on entry */
+{
+    /* Checking the flag, saves a potential unnecessary kernel transition */
+    if (lockedChanPtr->flags & IOCP_CHAN_F_BLOCKED_FOR_IO) {
+        lockedChanPtr->flags &= ~IOCP_CHAN_F_BLOCKED_FOR_IO;
+        WakeConditionVariable(&lockedChanPtr->cv);
+    }
 }
 
 

@@ -44,6 +44,18 @@ typedef CRITICAL_SECTION IocpLock;
 #define IocpLockReleaseShared(lockPtr)    LeaveCriticalSection(lockPtr)
 #define IocpLockReleaseExclusive(lockPtr) LeaveCriticalSection(lockPtr)
 #define IocpLockDelete(lockPtr)           DeleteCriticalSection(lockPtr)
+IOCP_INLINE BOOL IocpConditionVariableWaitShared(
+    PCONDITION_VARIABLE cvPtr,
+    PCRITICAL_SECTION lockPtr,
+    DWORD timeout) {
+    return SleepConditionVariableCS(cvPtr, lockPtr, timeout);
+}
+IOCP_INLINE BOOL IocpConditionVariableWaitExclusive(
+    PCONDITION_VARIABLE cvPtr,
+    PCRITICAL_SECTION lockPtr,
+    DWORD timeout) {
+    return SleepConditionVariableCS(cvPtr, lockPtr, timeout);
+}
 #else
 typedef SRWLOCK IocpLock;
 #define IocpLockInit(lockPtr)             InitializeSRWLock(lockPtr)
@@ -52,16 +64,29 @@ typedef SRWLOCK IocpLock;
 #define IocpLockReleaseShared(lockPtr)    ReleaseSRWLockShared(lockPtr)
 #define IocpLockReleaseExclusive(lockPtr) ReleaseSRWLockExclusive(lockPtr)
 #define IocpLockDelete(lockPtr)           (void) 0
+IOCP_INLINE BOOL IocpConditionVariableWaitShared(
+    PCONDITION_VARIABLE cvPtr,
+    PSRWLOCK lockPtr,
+    DWORD timeout) {
+    return SleepConditionVariableSRW(cvPtr, lockPtr, timeout, CONDITION_VARIABLE_LOCKMODE_SHARED);
+}
+IOCP_INLINE BOOL IocpConditionVariableWaitExclusive(
+    PCONDITION_VARIABLE cvPtr,
+    PSRWLOCK lockPtr,
+    DWORD timeout) {
+    return SleepConditionVariableSRW(cvPtr, lockPtr, timeout, 0);
+}
 #endif
 
 /*
  * Forward declarations for structures
  */
-typedef struct IocpList       IocpList;
-typedef struct IocpTsd        IocpTsd;
-typedef struct IocpChannel    IocpChannel;
-typedef struct IocpDataBuffer IocpDataBuffer;
-typedef struct IocpBuffer     IocpBuffer;
+typedef struct IocpList        IocpList;
+typedef struct IocpTsd         IocpTsd;
+typedef struct IocpChannel     IocpChannel;
+typedef struct IocpChannelVtbl IocpChannelVtbl;
+typedef struct IocpDataBuffer  IocpDataBuffer;
+typedef struct IocpBuffer      IocpBuffer;
 
 /*
  * Typedefs used by one-time initialization utilities.
@@ -76,6 +101,11 @@ typedef struct IocpLink {
     struct IocpLink *nextPtr;
     struct IocpLink *prevPtr;
 } IocpLink;
+IOCP_INLINE void IocpLinkInit(IocpLink *linkPtr) {
+    linkPtr->nextPtr = NULL;
+    linkPtr->prevPtr = NULL;
+}
+
 typedef struct IocpList {
     IocpLink *headPtr;
     IocpLink *tailPtr;
@@ -251,18 +281,30 @@ typedef struct IocpBuffer {
  * freed at which point the IocpChannel reference count will also drop to 0
  * resulting in it being freed.
  *
+ * For blocked operations, e.g. a blocking connect or read, the Tcl thread will
+ * wait on the cv condition variable which will be triggered by the I/O
+ * completion thread when the operation completes.
+ *
  * Access to the structure is synchronized through the
  * IocpChannelLock/IocpChannelUnlock functions.
  */
 typedef struct IocpChannel {
+    const IocpChannelVtbl *vtblPtr; /* Dispatch for specific IocpChannel types */
     IocpList  inputBuffers; /* Input buffers whose data is to be
                              * passed up to the Tcl channel layer. The list
                              * lock also serves as the lock for the IocpChannel
                              * fields */
+    IocpLink  readyLink;    /* Links entries on a IocpTsd readyChannels list */
     IocpTsd  *tsdPtr;       /* Pointer to owning thread data. Needed so we know
                              * which thread to notify of I/O completions. */
     IocpLock  lock;         /* Synchronization */
+    CONDITION_VARIABLE cv;  /* Used to wake up blocked Tcl thread waiting on an I/O
+                             * completion */
     LONG      numRefs;      /* Reference count */
+    int       flags;
+#define IOCP_CHAN_F_BLOCKED_FOR_IO 0x1 /* Set to indicate Tcl thread blocked
+                                        * pending an I/O completion */
+
 } IocpChannel;
 IOCP_INLINE void IocpChannelLock(IocpChannel *chanPtr) {
     /* inputBuffers.lock does double duty to lock the channel as a whole */
@@ -272,6 +314,36 @@ IOCP_INLINE void IocpChannelUnlock(IocpChannel *chanPtr) {
     IocpLockReleaseExclusive(&chanPtr->lock);
 }
 
+/*
+ * IocpChannelVtbl serves as a poor man's C++ virtual table dispatcher.
+ * Concrete Iocp channel types define their own tables to handle type-specific
+ * functionality which is called from common IocpChannel code.
+ */
+typedef struct IocpChannelVtbl {
+    /*
+     * initialize() is called to initialize the type-specific parts of the
+     * IocpChannel. On entry, the base IocpChannel will be initialized but the
+     * structure will not be locked as no other thread will hold references.
+     */
+    void (*initialize)(
+        Tcl_Interp *interp,  /* May be NULL */
+        IocpChannel *chanPtr /* Unlocked on entry */
+        );        /* May be NULL */
+    /*
+     * finalizer() is called when the IocpChannel is about to be
+     * deallocated. It should do any final type-specific cleanup required.
+     * On entry, the structure will be unlocked and no other references to the
+     * structure will exist and hence no thread synchronization is required.
+     * After the function returns, the memory will be deallocated.
+     */
+    void (*finalize)(            /* May be NULL */
+        Tcl_Interp *interp,    /* May be NULL */
+        IocpChannel *chanPtr); /* Unlocked on entry */
+
+    int   allocationSize; /* Size of structure. Used by IocpChannelNew to
+                           * allocate memory */
+
+} IocpChannelVtbl;
 
 /*
  * Prototypes for IOCP internal functions.
@@ -288,7 +360,9 @@ Tcl_Obj *Iocp_MapWindowsError(DWORD error, HANDLE moduleHandle);
 IocpResultCode Iocp_ReportLastError(Tcl_Interp *interp);
 
 /* Generic channel functions */
-void IocpChannelInit(IocpChannel *chanPtr);
+IocpChannel *IocpChannelNew(Tcl_Interp *interp, const IocpChannelVtbl *vtblPtr);
+void IocpChannelAwaitCompletion(IocpChannel *chanPtr);
+void IocpChannelWakeAfterCompletion(IocpChannel *chanPtr);
 
 /* Tcl commands */
 Tcl_ObjCmdProc	Iocp_SocketObjCmd;

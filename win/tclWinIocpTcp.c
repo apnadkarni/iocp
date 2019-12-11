@@ -30,28 +30,43 @@ typedef struct IocpTcpChannel {
     struct addrinfo *localAddrList;  /* List of potential local addresses */
     struct addrinfo *localAddr;      /* Local address in use
                                       * Points into localAddrList */
+    int              flags;     /* Miscellaneous flags */
+#define IOCP_TCP_CONNECT_ASYNC 0x1
 } IocpTcpChannel;
+
+void IocpTcpChannelInit(Tcl_Interp *interp, IocpChannel *basePtr);
+void IocpTcpChannelFinit(Tcl_Interp *interp, IocpChannel *chanPtr);
+
+static IocpChannelVtbl tcpVtbl =  {
+    IocpTcpChannelInit,
+    IocpTcpChannelFinit,
+    sizeof(IocpTcpChannel)
+};
 
 /*
  *------------------------------------------------------------------------
  *
- * IocpTcpChannelNew --
+ * IocpTcpChannelInit --
  *
- *    Allocates and initializes a IocpTcpChannel structure.
+ *    Initializes the IocpTcpChannel part of a IocpChannel structure.
  *
  * Results:
- *    Pointer to the allocatd structure.
+ *    None.
  *
  * Side effects:
  *    None.
  *
  *------------------------------------------------------------------------
  */
-IocpTcpChannel *IocpTcpChannelNew()
+void IocpTcpChannelInit(Tcl_Interp *interp, IocpChannel *basePtr)
 {
-    IocpTcpChannel *chanPtr = ckalloc(sizeof(*chanPtr));
-    IocpChannelInit(&chanPtr->base);
-    chanPtr->so = INVALID_SOCKET;
+    IocpTcpChannel *chanPtr = (IocpTcpChannel *) basePtr;
+    chanPtr->so             = INVALID_SOCKET;
+    chanPtr->remoteAddrList = NULL;
+    chanPtr->remoteAddr     = NULL;
+    chanPtr->localAddrList  = NULL;
+    chanPtr->localAddr      = NULL;
+    chanPtr->flags          = 0;
 }
 
 /*
@@ -124,7 +139,7 @@ IocpOpenTcpClient(
         return NULL;
     }
 
-    chanPtr = IocpTcpChannelNew();
+    chanPtr = (IocpTcpChannel *) IocpChannelNew(interp, &tcpVtbl);
     if (chanPtr == NULL) {
         if (remoteAddrs != NULL) {
             freeaddrinfo(remoteAddrs);
@@ -138,7 +153,13 @@ IocpOpenTcpClient(
         return NULL;
     }
     chanPtr->remoteAddrList = remoteAddrs;
+    chanPtr->remoteAddr     = remoteAddrs; /* First in remote address list */
     chanPtr->localAddrList  = localAddrs;
+    chanPtr->localAddr      = localAddrs; /* First in local address list */
+
+    if (async)
+        chanPtr->flags |= IOCP_TCP_CONNECT_ASYNC;
+
 
 #ifdef TBD
     statePtr = NewSocketInfo(INVALID_SOCKET);
