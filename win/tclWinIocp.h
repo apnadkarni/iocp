@@ -28,6 +28,8 @@
 # define IOCP_INLINE static inline
 #endif
 
+#define IOCP_ASSERT(cond_) (void) 0 /* TBD */
+
 /* Typedef just to make it obvious a function is returning a TCL_xxx return code */
 typedef int IocpResultCode;
 
@@ -128,12 +130,32 @@ IOCP_INLINE void IocpListInit(IocpList *listPtr) {
  * be held by the pointer from Tcl_GetThreadData and any IocpChannel structures
  * corresponding to channels that are owned by that thread.
  *
+ * Locking:
+ *
  * Multi-thread synchronization: access to fields of the structure is controlled
- * through IocpTsdLock/IocpTsdUnlock.
+ * through a single *global* lock accessed through IocpTsdLock/IocpTsdUnlock.
+ * A single global lock is preferred to a per-IocpTsd lock because it greatly
+ * simplifies the code without a cost in contention (if any). If a per-IocpTsd
+ * lock were used, it would require the following steps when enqueuing a
+ * IocpChannel on the IocpTsd readyChannels field:
+ *   - obtain the IocpChannel lock
+ *   - read its IocpTsd pointer to locate its owning IocpTsd
+ *   - unlock the IocpChannel lock (required for lock hierarchy reasons)
+ *   - lock the IocpTsd
+ *   - relock the IocpChannel (again, following lock hierarchy)
+ *   - check its state was not changed while it was unlocked
+ *   - append to IocpTsd.readyChannels
+ *   - unlock all locks
+ * A global lock simplfies this to
+ *   - lock the (global) IocpTsd lock
+ *   - lock the IocpChannel (following the lock hierarchy)
+ *   - append to IocpTsd.readyChannels
+ *   - unlock all
+ * The cost of contention from a global lock is mitigated by the fact that
+ * it is held only for a minimal time and involves fewer lock/unlock operations.
  *
  * Primary functions:
  *   IocpTsdNew           - allocates and initializes
- *   IocpTsdDrop          - drops a reference and deallocates if last reference.
  *   IocpTsdUnlinkThread  - Disassociates a thread from the TSD
  *   IocpTsdAddChannel    - Add a IocpChannel on the ready channel queue
  *   IocpTsdUnlinkChannel - Removes a IocpChannel from the ready channel queue
@@ -148,7 +170,6 @@ typedef struct IocpTsd {
                                  * will dequeue elements. The readyLink field in
                                  * IocpChannel is used for linking.
                                  */
-    IocpLock     lock;          /* Synchronize access */
     Tcl_ThreadId threadId;      /* Thread id of owning thread */
     long         numRefs;       /* Reference count */
 } IocpTsd;
@@ -156,13 +177,6 @@ typedef IocpTsd *IocpTsdPtr;
 #define IOCP_TSD_INIT(keyPtr)                                   \
     (IocpTsdPtr *)Tcl_GetThreadData((keyPtr), sizeof(IocpTsdPtr))
 
-IOCP_INLINE void IocpTsdLock(IocpTsd *tsdPtr) {
-    /* readyChannels.lock does double duty to lock the tsd as a whole */
-    IocpLockAcquireExclusive(&tsdPtr->lock);
-}
-IOCP_INLINE void IocpTsdUnlock(IocpTsd *tsdPtr) {
-    IocpLockReleaseExclusive(&tsdPtr->lock);
-}
 
 /*
  * Common data shared across the IOCP implementation. This structure is
@@ -170,20 +184,38 @@ IOCP_INLINE void IocpTsdUnlock(IocpTsd *tsdPtr) {
  * as the IOCP worker threads.
  */
 typedef struct IocpModuleState {
-    HANDLE completion_port; /* The completion port around which life revolves */
+    HANDLE completion_port;   /* The completion port around which life revolves */
     HANDLE completion_thread; /* Handle of thread servicing completions */
+    IocpLock tsd_lock;        /* Global lock for TSD's - see IocpTsd comments */
+    int    initialized;       /* Whether initialized */
 } IocpSubSystem;
+extern IocpSubSystem iocpModuleState;
+
+IOCP_INLINE void IocpTsdLock(void) {
+    IocpLockAcquireExclusive(&iocpModuleState.tsd_lock);
+}
+IOCP_INLINE void IocpTsdUnlock(void) {
+    IocpLockReleaseExclusive(&iocpModuleState.tsd_lock);
+}
 
 /*
  * Structure to hold the actual data being passed around. This is always owned
  * by a IocpBuffer and allocated/freed with that owning IocpBuffer.
  */
 typedef struct IocpDataBuffer {
-    char *dataPtr;     /* Pointer to storage area */
+    char *bytes;       /* Pointer to storage area */
     int   capacity;    /* Capacity of storage area */
     int   begin;       /* Offset where data begins */
     int   len;         /* Number of bytes of data */
 } IocpDataBuffer;
+#define IOCP_BUFFER_DEFAULT_SIZE 4096
+
+/* Values used in IocpBuffer.operation */
+enum IocpBufferOp {
+    IOCP_BUFFER_OP_NONE,
+    IOCP_BUFFER_OP_READ,       /* Input operation */
+    IOCP_BUFFER_OP_WRITE,      /* Output operation */
+};
 
 /*
  * An IocpBuffer is used to queue I/O requests and pass data between
@@ -193,8 +225,8 @@ typedef struct IocpDataBuffer {
  *
  * As such, the IocpBuffer may be referenced from the Tcl thread via
  * the IocpChannel structure, the Windows kernel within the overlapped I/O
- * execution, and the completion thread. A reference count is used to ensure
- * it is not deallocated while a reference to it still exists.
+ * execution, and the completion thread but only from one of these at
+ * any instant.
  *
  * During I/O, it is passed to the Windows function (WSASend etc.) as
  * the OVERLAP parameter. On completion of the I/O, it is recovered by the
@@ -223,12 +255,17 @@ typedef struct IocpDataBuffer {
  */
 typedef struct IocpBuffer {
     union {
-        WSAOVERLAPPED wsa_overlap; /* Used for WinSock API */
+        WSAOVERLAPPED wsaOverlap; /* Used for WinSock API */
         OVERLAPPED    overlap;     /* Used for general Win32 API's */
     } u;
-    IocpChannel   *channelPtr;  /* Holds a counted reference to the
-                                   associated IocpChannel */
-    IocpDataBuffer data;        /* Data buffer */
+    IocpChannel      *channelPtr;  /* Holds a counted reference to the
+                                    * associated IocpChannel */
+    IocpDataBuffer    data;        /* Data buffer */
+    DWORD             winError;    /* Error code (0 on success) */
+    enum IocpBufferOp operation;   /* I/O operation */
+    int               flags;
+    #define IOCP_BUFFER_F_WINSOCK 0x1 /* Buffer used for a Winsock operation.
+                                      *  (meaning wsaOverlap, not overlap) */
 } IocpBuffer;
 
 /*
@@ -276,7 +313,7 @@ typedef struct IocpBuffer {
  * - On the actual close, the IocpCloseProc function is called which decrements
  * the IocpChannel reference count corresponding to the initial allocation
  * reference. NOTE this does not mean the IocpChannel structure itself is freed
- * since its reference count may not have reached 0 due to existingg references
+ * since its reference count may not have reached 0 due to existing references
  * from IocpBuffer's queued for I/O. When those buffers complete, they will be
  * freed at which point the IocpChannel reference count will also drop to 0
  * resulting in it being freed.
@@ -290,10 +327,9 @@ typedef struct IocpBuffer {
  */
 typedef struct IocpChannel {
     const IocpChannelVtbl *vtblPtr; /* Dispatch for specific IocpChannel types */
+    Tcl_Channel channel;            /* Tcl channel. TBD - needed ? */
     IocpList  inputBuffers; /* Input buffers whose data is to be
-                             * passed up to the Tcl channel layer. The list
-                             * lock also serves as the lock for the IocpChannel
-                             * fields */
+                             * passed up to the Tcl channel layer. */
     IocpLink  readyLink;    /* Links entries on a IocpTsd readyChannels list */
     IocpTsd  *tsdPtr;       /* Pointer to owning thread data. Needed so we know
                              * which thread to notify of I/O completions. */
@@ -302,12 +338,13 @@ typedef struct IocpChannel {
                              * completion */
     LONG      numRefs;      /* Reference count */
     int       flags;
+    int outstanding_reads;  /* Number of outstanding posted reads */
+    int outstanding_writes; /* Number of outstanding posted writes */
 #define IOCP_CHAN_F_BLOCKED_FOR_IO 0x1 /* Set to indicate Tcl thread blocked
-                                        * pending an I/O completion */
+                                        * pending an I/O completion TBD - used? */
 
 } IocpChannel;
 IOCP_INLINE void IocpChannelLock(IocpChannel *chanPtr) {
-    /* inputBuffers.lock does double duty to lock the channel as a whole */
     IocpLockAcquireExclusive(&chanPtr->lock);
 }
 IOCP_INLINE void IocpChannelUnlock(IocpChannel *chanPtr) {
@@ -346,6 +383,11 @@ typedef struct IocpChannelVtbl {
 } IocpChannelVtbl;
 
 /*
+ * Tcl channel function dispatch structure.
+ */
+extern Tcl_ChannelType IocpChannelDispatch;
+
+/*
  * Prototypes for IOCP internal functions.
  */
 
@@ -357,12 +399,22 @@ void IocpLinkDetach(IocpList *listPtr, IocpLink *linkPtr);
 
 /* Error utilities */
 Tcl_Obj *Iocp_MapWindowsError(DWORD error, HANDLE moduleHandle);
-IocpResultCode Iocp_ReportLastError(Tcl_Interp *interp);
+IocpResultCode Iocp_ReportWindowsError(Tcl_Interp *interp, DWORD winerr);
+IocpResultCode Iocp_ReportLastWindowsError(Tcl_Interp *interp);
+
+/* Buffer utilities */
+IocpBuffer *IocpBufferNew(int capacity);
+void IocpBufferFree(IocpBuffer *bufPtr);
+IOCP_INLINE void IocpInitWSABUF(WSABUF *wsaPtr, const IocpBuffer *bufPtr) {
+    wsaPtr->buf = bufPtr->data.bytes;
+    wsaPtr->len = bufPtr->data.capacity;
+}
 
 /* Generic channel functions */
 IocpChannel *IocpChannelNew(Tcl_Interp *interp, const IocpChannelVtbl *vtblPtr);
-void IocpChannelAwaitCompletion(IocpChannel *chanPtr);
-void IocpChannelWakeAfterCompletion(IocpChannel *chanPtr);
+void IocpChannelAwaitCompletion(IocpChannel *lockedChanPtr);
+void IocpChannelWakeAfterCompletion(IocpChannel *lockedChanPtr);
+void IocpChannelDrop(Tcl_Interp *interp, IocpChannel *lockedChanPtr);
 
 /* Tcl commands */
 Tcl_ObjCmdProc	Iocp_SocketObjCmd;
@@ -387,6 +439,5 @@ int TclSockGetPort(Tcl_Interp *interp,
  * Prototypes for IOCP exported functions.
  */
 EXTERN int Iocp_Init(Tcl_Interp *interp);
-
 
 #endif /* _TCLWINIOCP */

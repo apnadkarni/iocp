@@ -51,19 +51,29 @@ Tcl_Obj *Iocp_MapWindowsError(DWORD error, HANDLE moduleHandle)
 }
 
 /*
+ * Stores the Windows error message corresponding to winerr
+ * in the passed interpreter.
+ *
+ * Always returns TCL_ERROR (convenient for caller to just return).
+ */
+IocpResultCode Iocp_ReportWindowsError(Tcl_Interp *interp, DWORD winerr)
+{
+    if (interp) {
+        Tcl_SetObjResult(interp,
+                         Iocp_MapWindowsError(winerr, NULL));
+    }
+    return TCL_ERROR;
+}
+
+/*
  * Stores the Windows error message corresponding to GetLastError()
  * in the passed interpreter.
  *
  * Always returns TCL_ERROR (convenient for caller to just return).
  */
-IocpResultCode Iocp_ReportLastError(Tcl_Interp *interp)
+IocpResultCode Iocp_ReportLastWindowsError(Tcl_Interp *interp)
 {
-    if (interp) {
-        Tcl_SetObjResult(interp,
-                         Iocp_MapWindowsError(GetLastError(),
-                                              NULL));
-    }
-    return TCL_ERROR;
+    return Iocp_ReportWindowsError(interp, GetLastError());
 }
 
 /*

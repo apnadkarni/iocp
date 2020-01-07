@@ -19,6 +19,10 @@ static void IocpThreadExitHandler (ClientData clientData);
  */
 static Tcl_ThreadDataKey iocpTsdDataKey;
 
+/* Holds global IOCP state */
+IocpSubSystem iocpModuleState;
+
+
 /*
  * Initializes a IocpDataBuffer to be able to hold capacity bytes worth of
  * data.
@@ -35,12 +39,12 @@ char *IocpDataBufferInit(IocpDataBuffer *dataBuf, int capacity)
     dataBuf->begin    = 0;
     dataBuf->len      = 0;
     if (capacity) {
-        dataBuf->dataPtr = attemptckalloc(capacity);
-        if (dataBuf->dataPtr == NULL)
+        dataBuf->bytes = attemptckalloc(capacity);
+        if (dataBuf->bytes == NULL)
             dataBuf->capacity = 0;
     } else
-        dataBuf->dataPtr = NULL;
-    return dataBuf->dataPtr;
+        dataBuf->bytes = NULL;
+    return dataBuf->bytes;
 }
 
 /*
@@ -51,8 +55,8 @@ char *IocpDataBufferInit(IocpDataBuffer *dataBuf, int capacity)
  */
 void IocpDataBufferFini(IocpDataBuffer *dataBufPtr)
 {
-    if (dataBufPtr->dataPtr)
-        ckfree(dataBufPtr->dataPtr);
+    if (dataBufPtr->bytes)
+        ckfree(dataBufPtr->bytes);
 }
 
 /*
@@ -68,8 +72,8 @@ void IocpDataBufferFini(IocpDataBuffer *dataBufPtr)
 int IocpDataBufferMove(IocpDataBuffer *dataBuf, char *outPtr, int len)
 {
     int numCopied = dataBuf->len > len ? len : dataBuf->len;
-    if (dataBuf->dataPtr)
-        memcpy(outPtr, dataBuf->begin + dataBuf->dataPtr, numCopied);
+    if (dataBuf->bytes)
+        memcpy(outPtr, dataBuf->begin + dataBuf->bytes, numCopied);
     dataBuf->begin += numCopied;
     dataBuf->len   -= numCopied;
     return numCopied;
@@ -85,19 +89,44 @@ int IocpDataBufferMove(IocpDataBuffer *dataBuf, char *outPtr, int len)
  * The reference count of the returned IocpBuffer is 1.
  *
  * On success, returns a pointer that should be freed by calling
- * IocpBufferDecrRefs. On failure, returns NULL.
+ * IocpBufferDrop. On failure, returns NULL.
  */
 IocpBuffer *IocpBufferNew(int capacity)
 {
-    IocpBuffer *iocpBufPtr = attemptckalloc(sizeof(*iocpBufPtr));
-    if (iocpBufPtr == NULL)
+    IocpBuffer *bufPtr = attemptckalloc(sizeof(*bufPtr));
+    if (bufPtr == NULL)
         return NULL;
-    memset(&iocpBufPtr->u, 0, sizeof(iocpBufPtr->u));
-    if (IocpDataBufferInit(&iocpBufPtr->data, capacity) == NULL) {
-        ckfree(iocpBufPtr);
+    memset(&bufPtr->u, 0, sizeof(bufPtr->u));
+
+    bufPtr->winError  = 0;
+    bufPtr->operation = IOCP_BUFFER_OP_NONE;
+
+    if (IocpDataBufferInit(&bufPtr->data, capacity) == NULL) {
+        ckfree(bufPtr);
         return NULL;
     }
-    return iocpBufPtr;
+    return bufPtr;
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpBufferFree --
+ *
+ *    Frees a IocpBuffer structure releasing allocated resources.
+ *
+ * Results:
+ *    None.
+ *
+ * Side effects:
+ *    The underlying data buffer is also freed.
+ *
+ *------------------------------------------------------------------------
+ */
+void IocpBufferFree(IocpBuffer *bufPtr)
+{
+    IocpDataBufferFini(&bufPtr->data);
+    ckfree(bufPtr);
 }
 
 /*
@@ -122,14 +151,15 @@ IocpChannel *IocpChannelNew(
                                      * Must point to static memory */
 {
     IocpChannel *chanPtr;
-    chanPtr = ckalloc(vtblPtr->allocationSize);
+    chanPtr          = ckalloc(vtblPtr->allocationSize);
     IocpListInit(&chanPtr->inputBuffers);
     IocpLinkInit(&chanPtr->readyLink);
-    chanPtr->tsdPtr = NULL;
-    InitializeConditionVariable(&chanPtr->cv);
-    IocpLockInit(&chanPtr->lock);
+    chanPtr->channel = NULL;
+    chanPtr->tsdPtr  = NULL;
     chanPtr->numRefs = 1;
     chanPtr->vtblPtr = vtblPtr;
+    InitializeConditionVariable(&chanPtr->cv);
+    IocpLockInit(&chanPtr->lock);
     if (vtblPtr->initialize) {
         vtblPtr->initialize(interp, chanPtr);
     }
@@ -159,9 +189,9 @@ void IocpChannelDrop(
     IocpChannel *lockedChanPtr)       /* Must be locked on entry. Unlocked
                                        * and potentially freed on return */
 {
-    // TBD assert(lockedChanPtr->tsdPtr == NULL)
-    // TBD assert(lockedChanPtr->readyLink.next == lockedChanPtr->readyLink.prev == NULL)
     if (--lockedChanPtr->numRefs <= 0) {
+        // TBD assert(lockedChanPtr->tsdPtr == NULL)
+        // TBD assert(lockedChanPtr->readyLink.next == lockedChanPtr->readyLink.prev == NULL)
         if (lockedChanPtr->vtblPtr->finalize)
             lockedChanPtr->vtblPtr->finalize(interp, lockedChanPtr);
         IocpChannelUnlock(lockedChanPtr);
@@ -295,13 +325,80 @@ IocpResultCode Iocp_DoOnce(Iocp_DoOnceState *stateP, Iocp_DoOnceProc *once_fn, C
     return TCL_ERROR; /* Failed either in this thread or another */
 }
 
-/* Holds global IOCP state */
-IocpSubSystem iocpModuleState;
+static void IocpCompletionFailure(IocpBuffer *bufPtr)
+{
+    // TBD
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpCompletionRead --
+ *
+ *    Handles completion of read operations from IOCP.
+ *
+ * Results:
+ *    None.
+ *
+ * Side effects:
+ *    On successful reads the passed bufPtr is enqueued on the owning
+ *    IocpChannel and the Tcl thread notified via the event loop. If the
+ *    Tcl thread is blocked on this channel, it is woken up.
+ *
+ *------------------------------------------------------------------------
+ */
+static void IocpCompletionRead(
+    IocpBuffer *bufPtr)         /* I/O completion buffer */
+{
+    //TBD
+}
 
 static DWORD WINAPI
 IocpCompletionThread (LPVOID lpParam)
 {
-    return 0;
+    IocpBuffer *bufPtr;
+    HANDLE      iocpPort = (HANDLE) lpParam;
+    DWORD       nbytes;
+    ULONG_PTR   key;
+    OVERLAPPED *overlapPtr;
+    BOOL        ok;
+    DWORD       error;
+
+    __try {
+        while (1) {
+            ok = GetQueuedCompletionStatus(iocpPort, &nbytes, &key,
+                                           &overlapPtr, INFINITE);
+            if (!ok) {
+                if (overlapPtr) {
+                    bufPtr = CONTAINING_RECORD(overlapPtr, IocpBuffer, u);
+                    bufPtr->data.len = nbytes;
+                    bufPtr->winError = GetLastError();
+                    IocpCompletionFailure(bufPtr);
+                }
+                else {
+                    /* TBD - how to signal or log error? */
+                    break;      /* iocp port probably no longer valid */
+                }
+            } else {
+                if (overlapPtr == NULL)
+                    break;      /* Exit signal */
+                IOCP_ASSERT(overlapPtr);
+                bufPtr = CONTAINING_RECORD(overlapPtr, IocpBuffer, u);
+                bufPtr->data.len = nbytes;
+                bufPtr->winError = 0;
+                switch (bufPtr->operation) {
+                case IOCP_BUFFER_OP_READ:
+                    IocpCompletionRead(bufPtr);
+                    break;
+                }
+            }
+        }
+    }
+    __except (error = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) {
+        Tcl_Panic("Tcl IOCP thread died with exception %#x\n", error);
+    }
+
+    return error;
 }
 
 /*
@@ -314,21 +411,25 @@ IocpCompletionThread (LPVOID lpParam)
 Iocp_DoOnceState iocpProcessCleanupFlag;
 static IocpResultCode IocpProcessCleanup(ClientData clientdata)
 {
-    /* Tell completion port thread to exit and wait for it */
-    PostQueuedCompletionStatus(iocpModuleState.completion_port, 0, 0, 0);
-    if (WaitForSingleObject(iocpModuleState.completion_thread, 500)
-        == WAIT_TIMEOUT) {
-        /* 0xdead - exit code for thread */
-        TerminateThread(iocpModuleState.completion_thread, 0xdead);
+    if (iocpModuleState.initialized) {
+        /* Tell completion port thread to exit and wait for it */
+        PostQueuedCompletionStatus(iocpModuleState.completion_port, 0, 0, 0);
+        if (WaitForSingleObject(iocpModuleState.completion_thread, 500)
+            == WAIT_TIMEOUT) {
+            /* 0xdead - exit code for thread */
+            TerminateThread(iocpModuleState.completion_thread, 0xdead);
+        }
+        CloseHandle(iocpModuleState.completion_thread);
+        iocpModuleState.completion_thread = NULL;
+
+        CloseHandle(iocpModuleState.completion_port);
+        iocpModuleState.completion_port = NULL;
+
+
+        IocpLockDelete(iocpModuleState.tsd_lock);
+
+        WSACleanup();
     }
-    CloseHandle(iocpModuleState.completion_thread);
-    iocpModuleState.completion_thread = NULL;
-
-    CloseHandle(iocpModuleState.completion_port);
-    iocpModuleState.completion_port = NULL;
-
-    WSACleanup();
-
     return TCL_OK;
 }
 
@@ -356,7 +457,7 @@ static IocpResultCode IocpProcessInit(ClientData clientdata)
         CreateIoCompletionPort(
             INVALID_HANDLE_VALUE, NULL, (ULONG_PTR)NULL, 0);
     if (iocpModuleState.completion_port == NULL) {
-        Iocp_ReportLastError(interp);
+        Iocp_ReportLastWindowsError(interp);
         return TCL_ERROR;
     }
     if (WSAStartup(WSA_VERSION_REQUESTED, &wsa_data) != 0) {
@@ -367,14 +468,16 @@ static IocpResultCode IocpProcessInit(ClientData clientdata)
     }
 
     iocpModuleState.completion_thread =
-        CreateThread(NULL, 0, IocpCompletionThread, &iocpModuleState, 0, NULL);
+        CreateThread(NULL, 0, IocpCompletionThread, iocpModuleState.completion_port, 0, NULL);
     if (iocpModuleState.completion_thread == NULL) {
-        Iocp_ReportLastError(interp);
+        Iocp_ReportLastWindowsError(interp);
         CloseHandle(iocpModuleState.completion_port);
         iocpModuleState.completion_port = NULL;
         WSACleanup();
         return TCL_ERROR;
     }
+    IocpLockInit(&iocpModuleState.tsd_lock);
+    iocpModuleState.initialized = 1;
 
     Tcl_CreateExitHandler(IocpProcessExitHandler, NULL);
 
@@ -389,7 +492,7 @@ static IocpResultCode IocpProcessInit(ClientData clientdata)
  *    Allocates a new IocpTsd structure and initalizes it.
  *
  * Results:
- *    Returns an allocated LOCKED IocpTsd structure initialized
+ *    Returns an allocated IocpTsd structure initialized
  *    with a reference count of 1.
  *
  * Side effects:
@@ -401,51 +504,10 @@ static IocpTsd *IocpTsdNew()
 {
     IocpTsdPtr tsdPtr = ckalloc(sizeof(*tsdPtr));
     IocpListInit(&tsdPtr->readyChannels);
-    IocpTsdLock(tsdPtr); /* Must be AFTER IocpListInit as uses that lock */
     tsdPtr->threadId = Tcl_GetCurrentThread();
     /* TBD - This reference will be cancelled via IocpTsdUnlinkThread when thread exits */
     tsdPtr->numRefs  = 1;
     return tsdPtr;
-}
-
-/*
- *------------------------------------------------------------------------
- *
- * IocpTsdDrop --
- *
- *    Decrements the reference count on the IocpTSD and deallocates if no
- *    more references. This function should generally not be called directly.
- *    It is invoked from IocpTsdUnlinkThread or IocpTsdUnlinkChannel.
- *
- * Results:
- *    None.
- *
- * Side effects:
- *    The IocpTSD structure is (potentially) freed.
- *
- *------------------------------------------------------------------------
- */
-static void IocpTsdDrop(
-    IocpTsd *lockedTsdPtr       /* Must be LOCKED on entry, will be unlocked
-                                 * on return even if not deallocated */
-)
-{
-    int do_free;
-    lockedTsdPtr->numRefs -= 1;
-    do_free = (lockedTsdPtr->numRefs <= 0);
-    /*
-     * When invoked, the readyChannels list in the IocpTsd should be empty
-     * if the reference count drops to 0, else the function will panic as it
-     * implies something's gone wrong in the reference counting.
-     * TBD
-     */ 
-    if (do_free) {
-        if (lockedTsdPtr->readyChannels.headPtr)
-            Tcl_Panic("Attempt to free IocpTsd with channels attached.");
-    }
-    IocpTsdUnlock(lockedTsdPtr);
-    if (do_free)
-        ckfree(lockedTsdPtr);
 }
 
 /*
@@ -470,9 +532,23 @@ void IocpTsdUnlinkThread()
     if (tsdPtrPtr && *tsdPtrPtr) {
         IocpTsd *tsdPtr = *tsdPtrPtr;
         *tsdPtrPtr = NULL;
-        IocpTsdLock(tsdPtr);
+        IocpTsdLock();
         tsdPtr->threadId = 0;
-        IocpTsdDrop(tsdPtr);
+        tsdPtr->numRefs -= 1;
+        if (tsdPtr->numRefs <= 0) {
+            /*
+             * When invoked, the readyChannels list in the IocpTsd should be empty
+             * if the reference count drops to 0, else the function will panic as it
+             * implies something's gone wrong in the reference counting.
+             * TBD
+             */
+            if (tsdPtr->readyChannels.headPtr)
+                Tcl_Panic("Attempt to free IocpTsd with channels attached.");
+            IocpTsdUnlock();
+            ckfree(tsdPtr); /* Do outside of lock */
+        } else {
+            IocpTsdUnlock();
+        }
     }
 }
 
@@ -522,19 +598,20 @@ IocpThreadExitHandler (ClientData notUsed)
     Tcl_DeleteEventSource(IocpEventSetup, IocpEventCheck, NULL);
 }
 
-#if 0
 /*
  * IocpChannelDispatch
  * Defines the dispatch table for IOCP data channels.
  */
-static Tcl_DriverCloseProc	IocpCloseProc;
-static Tcl_DriverInputProc	IocpInputProc;
-static Tcl_DriverOutputProc	IocpOutputProc;
-static Tcl_DriverSetOptionProc	IocpSetOptionProc;
-static Tcl_DriverGetOptionProc	IocpGetOptionProc;
-static Tcl_DriverWatchProc	IocpWatchProc;
-static Tcl_DriverGetHandleProc	IocpGetHandleProc;
-static Tcl_DriverBlockModeProc	IocpBlockProc;
+static Tcl_DriverCloseProc	IocpChannelClose;
+static Tcl_DriverInputProc	IocpChannelInput;
+static Tcl_DriverOutputProc	IocpChannelOutput;
+static Tcl_DriverSetOptionProc	IocpChannelSetOption;
+static Tcl_DriverGetOptionProc	IocpChannelGetOption;
+static Tcl_DriverWatchProc	IocpChannelWatch;
+static Tcl_DriverGetHandleProc	IocpChannelGetHandle;
+static Tcl_DriverBlockModeProc	IocpChannelBlockMode;
+static Tcl_DriverClose2Proc	IocpChannelClose2;
+static Tcl_DriverThreadActionProc IocpChannelThreadAction;
 
 Tcl_ChannelType IocpChannelDispatch = {
     "iocpconnection", /* Channel type name */
@@ -548,14 +625,118 @@ Tcl_ChannelType IocpChannelDispatch = {
     IocpChannelWatch,
     IocpChannelGetHandle,
     IocpChannelClose2,
-    IocpChannelBlockMode,
+    IocpChannelBlockMode,
     NULL, /* FlushProc. Must be NULL as per Tcl docs */
     NULL, /* HandlerProc. Only valid for stacked channels */
     NULL, /* WideSeekProc. */
     IocpChannelThreadAction,
 };
 
-#endif // 0
+static int
+IocpChannelClose (
+    ClientData instanceData,	/* The socket to close. */
+    Tcl_Interp *interp)		/* Unused. */
+{
+    /* TBD */
+    return TCL_ERROR;
+}
+
+static int
+IocpChannelInput (
+    ClientData instanceData,	/* The socket state. */
+    char *buf,			/* Where to store data. */
+    int toRead,			/* Maximum number of bytes to read. */
+    int *errorCodePtr)		/* Where to store error codes. */
+{
+    // TBD
+    *errorCodePtr = EINVAL;
+    return -1;
+}
+
+static int
+IocpChannelOutput (
+    ClientData instanceData,	/* The socket state. */
+    CONST char *buf,		/* Where to get data. */
+    int toWrite,		/* Maximum number of bytes to write. */
+    int *errorCodePtr)		/* Where to store error codes. */
+{
+    // TBD
+    *errorCodePtr = EINVAL;
+    return -1;
+}
+
+static int
+IocpChannelSetOption (
+    ClientData instanceData,	/* Socket state. */
+    Tcl_Interp *interp,		/* For error reporting - can be NULL. */
+    CONST char *optionName,	/* Name of the option to set. */
+    CONST char *value)		/* New value for option. */
+{
+    // TBD
+    return TCL_ERROR;
+}
+
+static int
+IocpChannelGetOption (
+    ClientData instanceData,	/* Socket state. */
+    Tcl_Interp *interp,		/* For error reporting - can be NULL */
+    CONST char *optionName,	/* Name of the option to
+				 * retrieve the value for, or
+				 * NULL to get all options and
+				 * their values. */
+    Tcl_DString *dsPtr)		/* Where to store the computed
+				 * value; initialized by caller. */
+{
+    // TBD
+    return TCL_ERROR;
+}
+
+static void
+IocpChannelWatch (
+    ClientData instanceData,	/* The socket state. */
+    int mask)			/* Events of interest; an OR-ed
+				 * combination of TCL_READABLE,
+				 * TCL_WRITABLE and TCL_EXCEPTION. */
+{
+    // TBD
+    return;
+}
+
+static int
+IocpChannelClose2 (
+    ClientData instanceData,	/* The socket to close. */
+    Tcl_Interp *interp,		/* Unused. */
+    int flags)
+{
+    /* TBD */
+    return 0;
+}
+
+static int
+IocpChannelBlockMode (
+    ClientData instanceData,	/* The socket state. */
+    int mode)			/* TCL_MODE_BLOCKING or
+                                 * TCL_MODE_NONBLOCKING. */
+{
+    // TBD
+    return 0;
+}
+
+static int
+IocpChannelGetHandle (
+    ClientData instanceData,	/* The socket state. */
+    int direction,		/* TCL_READABLE or TCL_WRITABLE */
+    ClientData *handlePtr)	/* Where to store the handle.  */
+{
+    // TBD
+    return TCL_ERROR;
+}
+
+static void
+IocpChannelThreadAction (ClientData instanceData, int action)
+{
+    // TBD
+}
 
 /*
  *-----------------------------------------------------------------------
@@ -684,7 +865,7 @@ Iocp_Init (Tcl_Interp *interp)
         return TCL_ERROR;
     }
 
-    if (! IocpThreadInit(interp)) {
+    if (IocpThreadInit(interp) != TCL_OK) {
         if (Tcl_GetCharLength(Tcl_GetObjResult(interp)) == 0) {
             Tcl_SetResult(interp, "Unable to do thread initialization for " PACKAGE_NAME ".", TCL_STATIC);
         }
