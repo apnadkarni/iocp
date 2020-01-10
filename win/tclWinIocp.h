@@ -81,6 +81,15 @@ IOCP_INLINE BOOL IocpConditionVariableWaitExclusive(
 #endif
 
 /*
+ * IocpLockAction is used across interfaces to indicate whether caller
+ * wants callee to hold on to locks before returning or not.
+ */
+enum IocpLockAction {
+    IOCP_LOCK_RELEASE,
+    IOCP_LOCK_KEEP,
+};
+
+/*
  * Forward declarations for structures
  */
 typedef struct IocpList        IocpList;
@@ -157,10 +166,11 @@ IOCP_INLINE void IocpListInit(IocpList *listPtr) {
  * Primary functions:
  *   IocpTsdNew           - allocates and initializes
  *   IocpTsdUnlinkThread  - Disassociates a thread from the TSD
- *   IocpTsdAddChannel    - Add a IocpChannel on the ready channel queue
- *   IocpTsdUnlinkChannel - Removes a IocpChannel from the ready channel queue
  *   IocpTsdLock          - Locks a IocpTsd for write access
  *   IocpTsdUnlock        - Releases a lock on a IocpTsd
+ * Related functions:
+ *   IocpChannelAttachToTsd   - attaches a channel to a thread
+ *   IocpChannelDetachFromTsd - detaches a channel from a thread
  */
 typedef struct IocpTsd {
     IocpList     readyChannels; /* List of channels that have some event to
@@ -345,6 +355,7 @@ typedef struct IocpChannel {
                                      * pending an I/O completion TBD - used? */
 
 #define IOCP_CHAN_F_ON_READYQ   0x2 /* If set, the channel is on a TSD ready q */
+#define IOCP_CHAN_F_WRITE_DONE  0x4 /* If set, one or more writes completed */
 } IocpChannel;
 IOCP_INLINE void IocpChannelLock(IocpChannel *chanPtr) {
     IocpLockAcquireExclusive(&chanPtr->lock);
@@ -365,7 +376,6 @@ typedef struct IocpChannelVtbl {
      * structure will not be locked as no other thread will hold references.
      */
     void (*initialize)(         /* May be NULL */
-        Tcl_Interp  *interp,    /* May be NULL */
         IocpChannel *chanPtr    /* Unlocked on entry */
         );
     /*
@@ -376,7 +386,6 @@ typedef struct IocpChannelVtbl {
      * After the function returns, the memory will be deallocated.
      */
     void (*finalize)(           /* May be NULL */
-        Tcl_Interp  *interp,    /* May be NULL */
         IocpChannel *chanPtr);  /* Unlocked on entry */
 
     /*
@@ -385,10 +394,10 @@ typedef struct IocpChannelVtbl {
      * Tcl Channel subsystem.
      */
     int (*shutdown)(                /* Must not be NULL */
-        Tcl_Interp  *interp,         /* May be NULL */
-        IocpChannel *lockedChanPtr,  /* Locked on entry. Must be locked on
-                                      * return. */
-        int          directions); /* Combination of TCL_CLOSE_{READ,WRITE} */
+        Tcl_Interp  *interp,        /* May be NULL */
+        IocpChannel *lockedChanPtr, /* Locked on entry. Must be locked on
+                                     * return. */
+        int          directions);   /* Combination of TCL_CLOSE_{READ,WRITE} */
 
     int   allocationSize; /* Size of structure. Used by IocpChannelNew to
                            * allocate memory */
@@ -430,13 +439,16 @@ extern struct IocpTcl85IntPlatStubs *tclIntPlatStubsPtr;
 /* List utilities */
 void IocpListAppend(IocpList *listPtr, IocpLink *linkPtr);
 void IocpListPrepend(IocpList *listPtr, IocpLink *linkPtr);
-void IocpLinkDetach(IocpList *listPtr, IocpLink *linkPtr);
+void IocpListRemove(IocpList *listPtr, IocpLink *linkPtr);
 
 /* Error utilities */
 Tcl_Obj *Iocp_MapWindowsError(DWORD error, HANDLE moduleHandle);
 IocpResultCode Iocp_ReportWindowsError(Tcl_Interp *interp, DWORD winerr);
 IocpResultCode Iocp_ReportLastWindowsError(Tcl_Interp *interp);
 void IocpSetTclErrnoFromWin32(DWORD winError);
+
+/* TSD functions */
+void IocpTsdDrop(IocpTsd *tsdPtr, enum IocpLockAction);
 
 /* Buffer utilities */
 IocpBuffer *IocpBufferNew(int capacity);
@@ -450,7 +462,8 @@ IOCP_INLINE void IocpInitWSABUF(WSABUF *wsaPtr, const IocpBuffer *bufPtr) {
 IocpChannel *IocpChannelNew(Tcl_Interp *interp, const IocpChannelVtbl *vtblPtr);
 void IocpChannelAwaitCompletion(IocpChannel *lockedChanPtr);
 void IocpChannelWakeAfterCompletion(IocpChannel *lockedChanPtr);
-void IocpChannelDrop(Tcl_Interp *interp, IocpChannel *lockedChanPtr);
+void IocpChannelDrop(IocpChannel *lockedChanPtr);
+void IocpChannelAddToReadyQ(IocpChannel *lockedChanPtr);
 
 /* Tcl commands */
 Tcl_ObjCmdProc	Iocp_SocketObjCmd;

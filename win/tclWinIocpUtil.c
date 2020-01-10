@@ -158,7 +158,7 @@ void IocpListPrepend(IocpList *listPtr, IocpLink *linkPtr)
 /*
  *------------------------------------------------------------------------
  *
- * IocpLinkDetach --
+ * IocpListRemove --
  *
  *    Removes an IocpLink from a IocpList it was attached to.
  *
@@ -169,7 +169,7 @@ void IocpListPrepend(IocpList *listPtr, IocpLink *linkPtr)
  *
  *------------------------------------------------------------------------
  */
-void IocpLinkDetach(IocpList *listPtr, IocpLink *linkPtr)
+void IocpListRemove(IocpList *listPtr, IocpLink *linkPtr)
 {
     if (linkPtr->prevPtr == NULL)
         listPtr->headPtr = linkPtr->nextPtr; /* First element */

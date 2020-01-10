@@ -55,8 +55,8 @@ IOCP_INLINE IocpTcpChannel *IocpChannelToTcpChannel(IocpChannel *chanPtr) {
     return (IocpTcpChannel *) chanPtr;
 }
 
-void IocpTcpChannelInit(Tcl_Interp *interp, IocpChannel *basePtr);
-void IocpTcpChannelFinit(Tcl_Interp *interp, IocpChannel *chanPtr);
+void IocpTcpChannelInit(IocpChannel *basePtr);
+void IocpTcpChannelFinit(IocpChannel *chanPtr);
 int IocpTcpChannelShutdown(Tcl_Interp *interp, IocpChannel *chanPtr, int flags);
 
 static IocpChannelVtbl tcpVtbl =  {
@@ -81,7 +81,7 @@ static IocpChannelVtbl tcpVtbl =  {
  *
  *------------------------------------------------------------------------
  */
-void IocpTcpChannelInit(Tcl_Interp *interp, IocpChannel *chanPtr)
+void IocpTcpChannelInit(IocpChannel *chanPtr)
 {
     IocpTcpChannel *tcpPtr = IocpChannelToTcpChannel(chanPtr);
     tcpPtr->so             = INVALID_SOCKET;
@@ -112,7 +112,7 @@ void IocpTcpChannelInit(Tcl_Interp *interp, IocpChannel *chanPtr)
  *
  *------------------------------------------------------------------------
  */
-void IocpTcpChannelFinit(Tcl_Interp *interp, IocpChannel *chanPtr)
+void IocpTcpChannelFinit(IocpChannel *chanPtr)
 {
     IocpTcpChannel *tcpPtr = IocpChannelToTcpChannel(chanPtr);
 
@@ -148,7 +148,7 @@ void IocpTcpChannelFinit(Tcl_Interp *interp, IocpChannel *chanPtr)
  *------------------------------------------------------------------------
  */
 static int IocpTcpChannelShutdown(
-    Tcl_Interp *interp,
+    Tcl_Interp   *interp,        /* May be NULL */
     IocpChannel *lockedChanPtr, /* Locked pointer to the base IocpChannel */
     int          flags)         /* Combination of TCL_CLOSE_{READ,WRITE} */
 {
@@ -170,6 +170,7 @@ static int IocpTcpChannelShutdown(
         }
         lockedTcpPtr->so = INVALID_SOCKET;
         if (wsaStatus == SOCKET_ERROR) {
+            /* TBD - do we need to set a error string in interp? */
             IocpSetTclErrnoFromWin32(WSAGetLastError());
             return Tcl_GetErrno();
         }
@@ -531,7 +532,7 @@ fail:
      */
     if (tcpPtr) {
         IocpChannel *chanPtr = TcpChannelToIocpChannel(tcpPtr);
-        IocpChannelDrop(interp, chanPtr);
+        IocpChannelDrop(chanPtr);
     }
     else {
         if (remoteAddrs != NULL) {

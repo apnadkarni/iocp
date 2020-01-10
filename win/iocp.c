@@ -161,7 +161,7 @@ IocpChannel *IocpChannelNew(
     InitializeConditionVariable(&chanPtr->cv);
     IocpLockInit(&chanPtr->lock);
     if (vtblPtr->initialize) {
-        vtblPtr->initialize(interp, chanPtr);
+        vtblPtr->initialize(chanPtr);
     }
     return chanPtr;
 }
@@ -174,7 +174,8 @@ IocpChannel *IocpChannelNew(
  *    Decrements the reference count for a IocpChannel. If no more references
  *    are outstanding, the IocpChannel's finalizer is called and all resources
  *    freed. The IocpChannel must NOT linked to any IocpTsd, either through
- *    the tsdPtr field or through the TSD's readyChannels list.
+ *    the tsdPtr field or through the TSD's readyChannels list. The latter
+ *    is assured by the reference count.
  *
  * Results:
  *    None.
@@ -185,7 +186,6 @@ IocpChannel *IocpChannelNew(
  *------------------------------------------------------------------------
  */
 void IocpChannelDrop(
-    Tcl_Interp *interp,
     IocpChannel *lockedChanPtr)       /* Must be locked on entry. Unlocked
                                        * and potentially freed on return */
 {
@@ -193,7 +193,7 @@ void IocpChannelDrop(
         // TBD assert(lockedChanPtr->tsdPtr == NULL)
         // TBD assert(lockedChanPtr->readyLink.next == lockedChanPtr->readyLink.prev == NULL)
         if (lockedChanPtr->vtblPtr->finalize)
-            lockedChanPtr->vtblPtr->finalize(interp, lockedChanPtr);
+            lockedChanPtr->vtblPtr->finalize(lockedChanPtr);
         IocpChannelUnlock(lockedChanPtr);
         IocpLockDelete(&lockedChanPtr->lock);
         ckfree(lockedChanPtr);
@@ -244,6 +244,54 @@ void IocpChannelWakeAfterCompletion(IocpChannel *lockedChanPtr)   /* Must be loc
     if (lockedChanPtr->flags & IOCP_CHAN_F_BLOCKED) {
         lockedChanPtr->flags &= ~IOCP_CHAN_F_BLOCKED;
         WakeConditionVariable(&lockedChanPtr->cv);
+    }
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpChannelAddToReadyQ --
+ *
+ *    If the IocpChannel is attached to a thread and has any pending
+ *    events, it is added to the thread's ready queue if not already
+ *    on there.
+ *
+ *    Caller must be holding the IocpTsdLock() and the IocpChannel lock.
+ *    Both are still held when the function returns.
+ *
+ * Results:
+ *    None.
+ *
+ * Side effects:
+ *    The IocpChannel is placed on the thread's ready queue.
+ *
+ *------------------------------------------------------------------------
+ */
+void IocpChannelAddToReadyQ(
+    IocpChannel *lockedChanPtr  /* Must be locked on entry */
+    )
+{
+    IocpTsd *tsdPtr = lockedChanPtr->tsdPtr;
+    if (tsdPtr == NULL || /* Not attached to a thread */
+        lockedChanPtr->flags & IOCP_CHAN_F_ON_READYQ) /* Already on ready q */
+        return;
+    if (lockedChanPtr->flags & IOCP_CHAN_F_WRITE_DONE ||
+        lockedChanPtr->inputBuffers.headPtr) {
+        lockedChanPtr->readyLink.nextPtr = NULL;
+        lockedChanPtr->readyLink.prevPtr = tsdPtr->readyChannels.tailPtr;
+        if (tsdPtr->readyChannels.headPtr == NULL) {
+            /* Empty queue */
+            tsdPtr->readyChannels.headPtr = &lockedChanPtr->readyLink;
+            tsdPtr->readyChannels.tailPtr = &lockedChanPtr->readyLink;
+        }
+        else {
+            IocpLink *tailLinkPtr = tsdPtr->readyChannels.tailPtr;
+            IocpChannel *tailChanPtr = CONTAINING_RECORD(tsdPtr->readyChannels.tailPtr, IocpChannel, readyLink);
+            IocpChannelLock(tailChanPtr);
+            tailLinkPtr->nextPtr = &lockedChanPtr->readyLink;
+            tsdPtr->readyChannels.tailPtr = &lockedChanPtr->readyLink;
+            IocpChannelUnlock(tailChanPtr);
+        }
     }
 }
 
@@ -513,6 +561,47 @@ static IocpTsd *IocpTsdNew()
 /*
  *------------------------------------------------------------------------
  *
+ * IocpTsdDrop --
+ *
+ *    Decrements the reference count for a IocpTsd and frees memory
+ *    if no more references.
+ *    NOTE: Caller must be holding IocpTsdLock() before calling this function.
+ *
+ * Results:
+ *    None.
+ *
+ * Side effects:
+ *    Memory is potentially freed. The IocpTsdLock() is released
+ *    depending on lockAction.
+ *------------------------------------------------------------------------
+ */
+void IocpTsdDrop(
+    IocpTsd *tsdPtr,
+    enum IocpLockAction lockAction /* IOCP_RELEASE_LOCK => release
+                                    * lock before returning */
+    )
+{
+    tsdPtr->numRefs -= 1;
+    if (tsdPtr->numRefs <= 0) {
+        /*
+         * When invoked, the readyChannels list in the IocpTsd should be empty
+         * if the reference count drops to 0, else the function will panic as it
+         * implies something's gone wrong in the reference counting.
+         */
+        if (tsdPtr->readyChannels.headPtr)
+            Tcl_Panic("Attempt to free IocpTsd with channels attached.");
+        if (lockAction == IOCP_LOCK_RELEASE)
+            IocpTsdUnlock();
+        ckfree(tsdPtr); /* Do outside of lock to minimize blocking */
+    } else {
+        if (lockAction == IOCP_LOCK_RELEASE)
+            IocpTsdUnlock();
+    }
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
  * IocpTsdUnlinkThread --
  *
  *    Disassociates the IocpTsd for the current thread. It must NOT have
@@ -534,21 +623,10 @@ void IocpTsdUnlinkThread()
         *tsdPtrPtr = NULL;
         IocpTsdLock();
         tsdPtr->threadId = 0;
-        tsdPtr->numRefs -= 1;
-        if (tsdPtr->numRefs <= 0) {
-            /*
-             * When invoked, the readyChannels list in the IocpTsd should be empty
-             * if the reference count drops to 0, else the function will panic as it
-             * implies something's gone wrong in the reference counting.
-             * TBD
-             */
-            if (tsdPtr->readyChannels.headPtr)
-                Tcl_Panic("Attempt to free IocpTsd with channels attached.");
-            IocpTsdUnlock();
-            ckfree(tsdPtr); /* Do outside of lock */
-        } else {
-            IocpTsdUnlock();
-        }
+        /* Have Drop release lock so memory freeing blocks for less time */
+        IocpTsdDrop(tsdPtr, IOCP_LOCK_RELEASE);
+    } else {
+        IocpTsdUnlock();
     }
 }
 
@@ -630,11 +708,12 @@ IocpChannelClose (
      */
 
     /* Call specific IOCP type to close OS handles */
-    ret = (lockedChanPtr->vtblPtr->shutdown)(interp, lockedChanPtr, 0);
+    ret = (lockedChanPtr->vtblPtr->shutdown)(interp, lockedChanPtr, 
+                                             TCL_CLOSE_READ|TCL_CLOSE_WRITE);
 
     /* Irrespective of errors in above call, we're done with this channel */
     lockedChanPtr->channel = NULL;
-    IocpChannelDrop(interp, lockedChanPtr); /* Drops ref count from Tcl channel */
+    IocpChannelDrop(lockedChanPtr); /* Drops ref count from Tcl channel */
     /* Do NOT refer to lockedChanPtr beyond this point */
 
     return ret;
@@ -731,10 +810,77 @@ IocpChannelGetHandle (
     return TCL_ERROR;
 }
 
-static void
-IocpChannelThreadAction (ClientData instanceData, int action)
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpChannelThreadAction --
+ *
+ *    Called by the Tcl channel subsystem to attach or detach a channel
+ *    to a thread. See Tcl_Channel manpage for expected semantics.
+ *
+ * Results:
+ *    None.
+ *
+ * Side effects:
+ *    The channel is removed or added to a thread as per the request.
+ *
+ *------------------------------------------------------------------------
+ */
+void IocpChannelThreadAction(
+    ClientData instanceData,    /* IocpChannel * */
+    int        action           /* Whether to remove or add */
+    )
 {
-    // TBD
+    IocpTsdPtr *tsdPtrPtr = IOCP_TSD_INIT(&iocpTsdDataKey);
+    IocpTsd *tsdPtr;
+    IocpChannel *chanPtr = (IocpChannel *)instanceData;
+
+    IOCP_ASSERT(tsdPtrPtr != NULL);
+
+    tsdPtr = *tsdPtrPtr;
+    IOCP_ASSERT(tsdPtr != NULL);
+
+    /* Locks must be obtained in the this order */
+    IocpTsdLock();
+    IocpChannelLock(chanPtr);
+
+    if (action == TCL_CHANNEL_THREAD_INSERT) {
+        IOCP_ASSERT(chanPtr->tsdPtr == NULL); /* Should not already be attached */
+        IOCP_ASSERT((chanPtr->flags & IOCP_CHAN_F_ON_READYQ) == 0);
+
+        chanPtr->tsdPtr = tsdPtr;
+        tsdPtr->numRefs++;
+        /*
+         *If the channel has notification ready, ensure they are placed
+         * the new thread's notification queue.
+         */
+        IocpChannelAddToReadyQ(chanPtr);
+
+        IocpChannelUnlock(chanPtr);
+        IocpTsdUnlock();
+    } else {
+        IOCP_ASSERT(chanPtr->tsdPtr == tsdPtr);
+        chanPtr->tsdPtr = NULL;
+        if (chanPtr->flags & IOCP_CHAN_F_ON_READYQ) {
+            /*
+             * There are two references to the tsd from this channel. One
+             * from chanPtr->tsdPtr and one from being on the ready queue.
+             */
+            IOCP_ASSERT(tsdPtr->numRefs >= 2); /* chanPtr->tsdPtr and from readyq element */
+            IocpListRemove(&tsdPtr->readyChannels, &chanPtr->readyLink);
+            /*
+             * Decrement ref for list removal above. No need for IocpTsdDrop
+             * as ref count will not drop to zero. The drop for chanPtr->tsdPtr
+             * happens a few lines below.
+             */
+            tsdPtr->numRefs -= 1;  /* Corresponding to ready queue removal */
+            IocpChannelDrop(chanPtr); /* As no longer on ready queue */
+        }
+        else {
+            IocpChannelUnlock(chanPtr);
+        }
+        IocpTsdDrop(tsdPtr, IOCP_LOCK_RELEASE);    /* Corresponding to chanPtr->tsdPtr */
+    }
 }
 
 /*
