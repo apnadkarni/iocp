@@ -57,10 +57,12 @@ IOCP_INLINE IocpTcpChannel *IocpChannelToTcpChannel(IocpChannel *chanPtr) {
 
 void IocpTcpChannelInit(Tcl_Interp *interp, IocpChannel *basePtr);
 void IocpTcpChannelFinit(Tcl_Interp *interp, IocpChannel *chanPtr);
+int IocpTcpChannelShutdown(Tcl_Interp *interp, IocpChannel *chanPtr, int flags);
 
 static IocpChannelVtbl tcpVtbl =  {
     IocpTcpChannelInit,
     IocpTcpChannelFinit,
+    IocpTcpChannelShutdown,
     sizeof(IocpTcpChannel)
 };
 
@@ -91,9 +93,88 @@ void IocpTcpChannelInit(Tcl_Interp *interp, IocpChannel *chanPtr)
     tcpPtr->state          = IOCP_TCP_STATE_INIT;
 }
 
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpTcpChannelFinit --
+ *
+ *    Finalizer for a Tcp channel. Cleans up any resources.
+ *    Caller has to ensure synchronization either by holding a lock
+ *    on the containing IocpChannel or ensuring the structure is not
+ *    accessible from any other thread.
+ *
+ * Results:
+ *    None.
+ *
+ * Side effects:
+ *    Any allocated addresses are freed and socket closed if open.
+ *
+ *------------------------------------------------------------------------
+ */
 void IocpTcpChannelFinit(Tcl_Interp *interp, IocpChannel *chanPtr)
 {
-    // TBD
+    IocpTcpChannel *tcpPtr = IocpChannelToTcpChannel(chanPtr);
+
+    if (tcpPtr->remoteAddrList) {
+        freeaddrinfo(tcpPtr->remoteAddrList);
+        tcpPtr->remoteAddrList = NULL;
+        tcpPtr->remoteAddr     = NULL;
+    }
+    if (tcpPtr->localAddrList) {
+        freeaddrinfo(tcpPtr->localAddrList);
+        tcpPtr->localAddrList = NULL;
+        tcpPtr->localAddr     = NULL;
+    }
+
+    if (tcpPtr->so != INVALID_SOCKET) {
+        closesocket(tcpPtr->so);
+    }
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpTcpChannelShutdown --
+ *
+ *    Conforms to the IocpChannel shutdown interface.
+ *
+ * Results:
+ *    0 on success, else a POSIX error code.
+ *
+ * Side effects:
+ *    The Windows socket is closed in direction(s) specified by flags.
+ *
+ *------------------------------------------------------------------------
+ */
+static int IocpTcpChannelShutdown(
+    Tcl_Interp *interp,
+    IocpChannel *lockedChanPtr, /* Locked pointer to the base IocpChannel */
+    int          flags)         /* Combination of TCL_CLOSE_{READ,WRITE} */
+{
+    IocpTcpChannel *lockedTcpPtr = IocpChannelToTcpChannel(lockedChanPtr);
+    if (lockedTcpPtr->so != INVALID_SOCKET) {
+        int wsaStatus;
+        switch (flags & (TCL_CLOSE_READ|TCL_CLOSE_WRITE)) {
+        case TCL_CLOSE_READ:
+            wsaStatus = shutdown(lockedTcpPtr->so, SD_RECEIVE);
+            break;
+        case TCL_CLOSE_WRITE:
+            wsaStatus = shutdown(lockedTcpPtr->so, SD_SEND);
+            break;
+        case TCL_CLOSE_READ|TCL_CLOSE_WRITE:
+            wsaStatus = closesocket(lockedTcpPtr->so);
+            break;
+        default:                /* Not asked to close either */
+            return 0;
+        }
+        lockedTcpPtr->so = INVALID_SOCKET;
+        if (wsaStatus == SOCKET_ERROR) {
+            IocpSetTclErrnoFromWin32(WSAGetLastError());
+            return Tcl_GetErrno();
+        }
+    }
+    return 0;
 }
 
 /*

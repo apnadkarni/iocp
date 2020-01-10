@@ -219,7 +219,7 @@ void IocpChannelDrop(
  */
 void IocpChannelAwaitCompletion(IocpChannel *lockedChanPtr)    /* Must be locked on entry */
 {
-    lockedChanPtr->flags   |= IOCP_CHAN_F_BLOCKED_FOR_IO;
+    lockedChanPtr->flags   |= IOCP_CHAN_F_BLOCKED;
     IocpConditionVariableWaitShared(&lockedChanPtr->cv, &lockedChanPtr->lock, INFINITE);
 }
 
@@ -241,8 +241,8 @@ void IocpChannelAwaitCompletion(IocpChannel *lockedChanPtr)    /* Must be locked
 void IocpChannelWakeAfterCompletion(IocpChannel *lockedChanPtr)   /* Must be locked on entry */
 {
     /* Checking the flag, saves a potential unnecessary kernel transition */
-    if (lockedChanPtr->flags & IOCP_CHAN_F_BLOCKED_FOR_IO) {
-        lockedChanPtr->flags &= ~IOCP_CHAN_F_BLOCKED_FOR_IO;
+    if (lockedChanPtr->flags & IOCP_CHAN_F_BLOCKED) {
+        lockedChanPtr->flags &= ~IOCP_CHAN_F_BLOCKED;
         WakeConditionVariable(&lockedChanPtr->cv);
     }
 }
@@ -553,27 +553,6 @@ void IocpTsdUnlinkThread()
 }
 
 /*
- *------------------------------------------------------------------------
- *
- * IocpTsdLinkChannel --
- *
- *    Adds a IocpChannel to the list of ready channels for the thread
- *    associated with a IocpTsd.
- *
- * Results:
- *    
- *
- * Side effects:
- *    
- *
- *------------------------------------------------------------------------
- */
-void IocpTsdLinkChannel(IocpChannel *lockedChannelPtr)
-{
-    //TBD;
-}
-
-/*
  * Thread initialization. May be called multiple times as multiple interpreters
  * may be set up within a thread. However, no synchronization between threads
  * needed as it only initializes thread-specific data.
@@ -634,11 +613,31 @@ Tcl_ChannelType IocpChannelDispatch = {
 
 static int
 IocpChannelClose (
-    ClientData instanceData,	/* The socket to close. */
+    ClientData instanceData,	/* The channel to close. */
     Tcl_Interp *interp)		/* Unused. */
 {
-    /* TBD */
-    return TCL_ERROR;
+    IocpChannel *lockedChanPtr = (IocpChannel*)instanceData;
+    int          ret;
+
+    IocpChannelLock(lockedChanPtr);
+
+    /*
+     * Before this function is called, IocpThreadAction should have been
+     * called to remove the channel from all threads. However, just for
+     * the record in case of future changes, we do not need to remove from
+     * the TSD ready queue in any case since when the ready notification
+     * is dequeued a check is made to see if channel is already detached.
+     */
+
+    /* Call specific IOCP type to close OS handles */
+    ret = (lockedChanPtr->vtblPtr->shutdown)(interp, lockedChanPtr, 0);
+
+    /* Irrespective of errors in above call, we're done with this channel */
+    lockedChanPtr->channel = NULL;
+    IocpChannelDrop(interp, lockedChanPtr); /* Drops ref count from Tcl channel */
+    /* Do NOT refer to lockedChanPtr beyond this point */
+
+    return ret;
 }
 
 static int

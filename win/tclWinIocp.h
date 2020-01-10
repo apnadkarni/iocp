@@ -330,7 +330,8 @@ typedef struct IocpChannel {
     Tcl_Channel channel;            /* Tcl channel. TBD - needed ? */
     IocpList  inputBuffers; /* Input buffers whose data is to be
                              * passed up to the Tcl channel layer. */
-    IocpLink  readyLink;    /* Links entries on a IocpTsd readyChannels list */
+    IocpLink  readyLink;    /* Links entries on a IocpTsd readyChannels list.
+                             * When linked, IOCP_CHAN_F_ON_READYQ will be set */
     IocpTsd  *tsdPtr;       /* Pointer to owning thread data. Needed so we know
                              * which thread to notify of I/O completions. */
     IocpLock  lock;         /* Synchronization */
@@ -340,9 +341,10 @@ typedef struct IocpChannel {
     int       flags;
     int outstanding_reads;  /* Number of outstanding posted reads */
     int outstanding_writes; /* Number of outstanding posted writes */
-#define IOCP_CHAN_F_BLOCKED_FOR_IO 0x1 /* Set to indicate Tcl thread blocked
-                                        * pending an I/O completion TBD - used? */
+#define IOCP_CHAN_F_BLOCKED     0x1 /* Set to indicate Tcl thread blocked
+                                     * pending an I/O completion TBD - used? */
 
+#define IOCP_CHAN_F_ON_READYQ   0x2 /* If set, the channel is on a TSD ready q */
 } IocpChannel;
 IOCP_INLINE void IocpChannelLock(IocpChannel *chanPtr) {
     IocpLockAcquireExclusive(&chanPtr->lock);
@@ -362,10 +364,10 @@ typedef struct IocpChannelVtbl {
      * IocpChannel. On entry, the base IocpChannel will be initialized but the
      * structure will not be locked as no other thread will hold references.
      */
-    void (*initialize)(
-        Tcl_Interp *interp,  /* May be NULL */
-        IocpChannel *chanPtr /* Unlocked on entry */
-        );        /* May be NULL */
+    void (*initialize)(         /* May be NULL */
+        Tcl_Interp  *interp,    /* May be NULL */
+        IocpChannel *chanPtr    /* Unlocked on entry */
+        );
     /*
      * finalizer() is called when the IocpChannel is about to be
      * deallocated. It should do any final type-specific cleanup required.
@@ -373,9 +375,20 @@ typedef struct IocpChannelVtbl {
      * structure will exist and hence no thread synchronization is required.
      * After the function returns, the memory will be deallocated.
      */
-    void (*finalize)(            /* May be NULL */
-        Tcl_Interp *interp,    /* May be NULL */
-        IocpChannel *chanPtr); /* Unlocked on entry */
+    void (*finalize)(           /* May be NULL */
+        Tcl_Interp  *interp,    /* May be NULL */
+        IocpChannel *chanPtr);  /* Unlocked on entry */
+
+    /*
+     * shutdown() is called to close the underlying OS handle. Should return
+     * a POSIX error code as required by the CloseProc definition in the
+     * Tcl Channel subsystem.
+     */
+    int (*shutdown)(                /* Must not be NULL */
+        Tcl_Interp  *interp,         /* May be NULL */
+        IocpChannel *lockedChanPtr,  /* Locked on entry. Must be locked on
+                                      * return. */
+        int          directions); /* Combination of TCL_CLOSE_{READ,WRITE} */
 
     int   allocationSize; /* Size of structure. Used by IocpChannelNew to
                            * allocate memory */
@@ -386,6 +399,28 @@ typedef struct IocpChannelVtbl {
  * Tcl channel function dispatch structure.
  */
 extern Tcl_ChannelType IocpChannelDispatch;
+
+#ifdef BUILD_iocp
+
+/*
+ * We need to access platform-dependent internal stubs. For
+ * example, the Tcl channel system relies on specific values to be used
+ * for EAGAIN, EWOULDBLOCK etc. These are actually compiler-dependent.
+ * so the only way to make sure we are using a consistent Win32->Posix
+ * mapping is to use the internal Tcl mapping function.
+ */
+struct IocpTcl85IntPlatStubs {
+    int   magic;
+    void *hooks;
+    void (*tclWinConvertError) (DWORD errCode); /* 0 */
+    int (*fn2[29])(); /* Totally 30 fns, (index 0-29) */
+};
+extern struct IocpTcl85IntPlatStubs *tclIntPlatStubsPtr;
+#define IOCP_TCL85_INTERNAL_PLATFORM_STUB(fn_) (((struct IocpTcl85IntPlatStubs *)tclIntPlatStubsPtr)->fn_)
+
+#endif /* BUILD_iocp */
+
+
 
 /*
  * Prototypes for IOCP internal functions.
@@ -401,6 +436,7 @@ void IocpLinkDetach(IocpList *listPtr, IocpLink *linkPtr);
 Tcl_Obj *Iocp_MapWindowsError(DWORD error, HANDLE moduleHandle);
 IocpResultCode Iocp_ReportWindowsError(Tcl_Interp *interp, DWORD winerr);
 IocpResultCode Iocp_ReportLastWindowsError(Tcl_Interp *interp);
+void IocpSetTclErrnoFromWin32(DWORD winError);
 
 /* Buffer utilities */
 IocpBuffer *IocpBufferNew(int capacity);

@@ -79,6 +79,27 @@ IocpResultCode Iocp_ReportLastWindowsError(Tcl_Interp *interp)
 /*
  *------------------------------------------------------------------------
  *
+ * IocpSetTclErrnoFromWin32 --
+ *
+ *    Sets Tcl's errno value based on a Win32 error code.
+ *
+ * Results:
+ *    None.
+ *
+ * Side effects:
+ *    Sets Tcl's internal errno value.
+ *
+ *------------------------------------------------------------------------
+ */
+void IocpSetTclErrnoFromWin32(DWORD winError)
+{
+    IOCP_TCL85_INTERNAL_PLATFORM_STUB(tclWinConvertError)(winError);
+}
+
+
+/*
+ *------------------------------------------------------------------------
+ *
  * IocpListAppend --
  *
  *    Appends an element to a list.
