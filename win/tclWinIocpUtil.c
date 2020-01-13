@@ -11,6 +11,83 @@
 #include "tclWinIocp.h"
 
 /*
+ * Support for one-time initialization. The function Iocp_DoOnce
+ * can be called to execute any function that should be run exactly one
+ * time within a process. It is thread safe and when called from multiple
+ * threads (concurrently even) will execute the passed function
+ * exactly once while also blocking other threads calling it until the
+ * function completes.
+ *
+ * Parameters:
+ *   stateP     - pointer to global variable of opaque type IocpOneTimeInitState
+ *                and associated with the initialization function (*once_fn)
+ *   once_fn    - the initialization function to call. This should take one
+ *                parameter (passed clientdata) and return TCL_OK if successful
+ *                and TCL_ERROR on failure. Note any failures will also cause
+ *                further calls to fail.
+ *   clientdata - the value to pass on to (*once_fn)
+ *
+ * Return value:
+ *    TCL_OK    - initialization done
+ *    TCL_ERROR - initialization failed
+ */
+IocpResultCode Iocp_DoOnce(Iocp_DoOnceState *stateP, Iocp_DoOnceProc *once_fn, ClientData clientdata)
+{
+    Iocp_DoOnceState prev_state;
+    enum {
+        IOCP_INITSTATE_INIT = 0, /* Must be 0 corresponding globals initialization */
+        IOCP_INITSTATE_IN_PROGRESS,
+        IOCP_INITSTATE_DONE,
+        IOCP_INITSTATE_ERROR,
+    };
+
+    /* Init unless already done. */
+    switch (InterlockedCompareExchange(stateP,
+                                       IOCP_INITSTATE_IN_PROGRESS,
+                                       IOCP_INITSTATE_INIT)) {
+    case IOCP_INITSTATE_DONE:
+        return TCL_OK;               /* Already done */
+
+    case IOCP_INITSTATE_IN_PROGRESS:
+        /* Loop waiting for initialization to be done in other thread */
+        while (1) {
+            prev_state = InterlockedCompareExchange(stateP,
+                                                    IOCP_INITSTATE_IN_PROGRESS,
+                                                    IOCP_INITSTATE_IN_PROGRESS);
+            if (prev_state == IOCP_INITSTATE_DONE)
+                return TCL_OK;       /* Done after waiting */
+
+            if (prev_state != IOCP_INITSTATE_IN_PROGRESS)
+                break; /* Error but do not know what - someone else was
+                             initializing */
+
+            /*
+             * Someone is initializing, wait in a spin
+             * Note the Sleep() will yield to other threads, including
+             * the one doing the init, so this is not a hard loop
+             */
+            Sleep(1);
+        }
+        break;
+
+    case IOCP_INITSTATE_INIT:
+        /* We need to do the init */
+        if (once_fn(clientdata) == TCL_OK) {
+            InterlockedExchange(stateP, IOCP_INITSTATE_DONE);
+            return TCL_OK;               /* We init'ed successfully */
+        }
+        InterlockedExchange(stateP, IOCP_INITSTATE_ERROR);
+        break;
+
+    case IOCP_INITSTATE_ERROR:
+        /* State was already in error. No way to recover safely */
+        break;
+    }
+
+    return TCL_ERROR; /* Failed either in this thread or another */
+}
+
+/*
  * Returns a Tcl_Obj containing the message corresponding to a Windows
  * error code.
  *  error  - the Windows error code

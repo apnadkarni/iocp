@@ -155,7 +155,7 @@ IOCP_INLINE void IocpListInit(IocpList *listPtr) {
  *   - check its state was not changed while it was unlocked
  *   - append to IocpTsd.readyChannels
  *   - unlock all locks
- * A global lock simplfies this to
+ * A global lock simplifies this to
  *   - lock the (global) IocpTsd lock
  *   - lock the IocpChannel (following the lock hierarchy)
  *   - append to IocpTsd.readyChannels
@@ -265,18 +265,28 @@ enum IocpBufferOp {
  */
 typedef struct IocpBuffer {
     union {
-        WSAOVERLAPPED wsaOverlap; /* Used for WinSock API */
+        WSAOVERLAPPED wsaOverlap;  /* Used for WinSock API */
         OVERLAPPED    overlap;     /* Used for general Win32 API's */
     } u;
-    IocpChannel      *channelPtr;  /* Holds a counted reference to the
+    IocpChannel      *chanPtr;     /* Holds a counted reference to the
                                     * associated IocpChannel */
     IocpDataBuffer    data;        /* Data buffer */
+    IocpLink          link;        /* Links buffers in a queue */
     DWORD             winError;    /* Error code (0 on success) */
     enum IocpBufferOp operation;   /* I/O operation */
     int               flags;
     #define IOCP_BUFFER_F_WINSOCK 0x1 /* Buffer used for a Winsock operation.
                                       *  (meaning wsaOverlap, not overlap) */
 } IocpBuffer;
+
+/* State values for IOCP channels */
+enum IocpState {
+    IOCP_STATE_INIT,           /* Just allocated */
+    IOCP_STATE_CONNECTING,     /* Connect sent, awaiting completion */
+    IOCP_STATE_CONNECT_FAILED, /* Connect failed */
+    IOCP_STATE_OPEN,           /* Open for data transfer */
+    IOCP_STATE_CLOSED,         /* Socket closed */
+};
 
 /*
  * IocpChannel contains the generic portion of Tcl IOCP channels that is
@@ -347,6 +357,8 @@ typedef struct IocpChannel {
     IocpLock  lock;         /* Synchronization */
     CONDITION_VARIABLE cv;  /* Used to wake up blocked Tcl thread waiting on an I/O
                              * completion */
+    enum IocpTcpState state;
+
     LONG      numRefs;      /* Reference count */
     int       flags;
     int outstanding_reads;  /* Number of outstanding posted reads */
@@ -356,6 +368,8 @@ typedef struct IocpChannel {
 
 #define IOCP_CHAN_F_ON_READYQ   0x2 /* If set, the channel is on a TSD ready q */
 #define IOCP_CHAN_F_WRITE_DONE  0x4 /* If set, one or more writes completed */
+#define IOCP_CHAN_F_WATCH_INPUT  0x8  /* Notify Tcl on data arrival */
+#define IOCP_CHAN_F_WATCH_OUTPUT 0x10 /* Notify Tcl on output unblocking */
 } IocpChannel;
 IOCP_INLINE void IocpChannelLock(IocpChannel *chanPtr) {
     IocpLockAcquireExclusive(&chanPtr->lock);
@@ -434,6 +448,7 @@ extern struct IocpTcl85IntPlatStubs *tclIntPlatStubsPtr;
 /*
  * Prototypes for IOCP internal functions.
  */
+IocpResultCode Iocp_DoOnce(Iocp_DoOnceState *stateP, Iocp_DoOnceProc *once_fn, ClientData clientdata);
 
 
 /* List utilities */
@@ -461,7 +476,8 @@ IOCP_INLINE void IocpInitWSABUF(WSABUF *wsaPtr, const IocpBuffer *bufPtr) {
 /* Generic channel functions */
 IocpChannel *IocpChannelNew(Tcl_Interp *interp, const IocpChannelVtbl *vtblPtr);
 void IocpChannelAwaitCompletion(IocpChannel *lockedChanPtr);
-void IocpChannelWakeAfterCompletion(IocpChannel *lockedChanPtr);
+int IocpChannelWakeAfterCompletion(IocpChannel *lockedChanPtr);
+void IocpChannelNotifyCompletion(IocpChannel *lockedChanPtr);
 void IocpChannelDrop(IocpChannel *lockedChanPtr);
 void IocpChannelAddToReadyQ(IocpChannel *lockedChanPtr);
 

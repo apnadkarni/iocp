@@ -60,7 +60,7 @@ TclCreateSocketAddress(
     if (host != NULL && port == 0) {
         portstring = NULL;
     } else {
-        _snprintf(portbuf, RTL_NUMBER_OF(portbuf), "%d", port);
+        snprintf(portbuf, RTL_NUMBER_OF(portbuf), "%d", port);
         portstring = portbuf;
     }
 

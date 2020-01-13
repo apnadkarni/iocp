@@ -21,14 +21,6 @@
 #define SOCK_CHAN_LENGTH        (4 + sizeof(void *) * 2 + 1)
 #define SOCK_TEMPLATE           "sock%p"
 
-enum IocpTcpState {
-    IOCP_TCP_STATE_INIT,           /* Just allocated */
-    IOCP_TCP_STATE_CONNECTING,     /* Connect sent, awaiting completion */
-    IOCP_TCP_STATE_CONNECT_FAILED, /* Connect failed */
-    IOCP_TCP_STATE_OPEN,           /* Open for data transfer */
-    IOCP_TCP_STATE_CLOSED,         /* Socket closed */
-};
-
 typedef struct IocpTcpChannel {
     IocpChannel base;           /* Common IOCP channel structure. Must be
                                  * first because of how structures are
@@ -46,8 +38,8 @@ typedef struct IocpTcpChannel {
 #define IOCP_TCP_MAX_RECEIVES 3
 #define IOCP_TCP_MAX_SENDS    3
 
-    enum IocpTcpState state;
 } IocpTcpChannel;
+
 IOCP_INLINE IocpChannel *TcpChannelToIocpChannel(IocpTcpChannel *tcpPtr) {
     return (IocpChannel *) tcpPtr;
 }
@@ -90,7 +82,6 @@ void IocpTcpChannelInit(IocpChannel *chanPtr)
     tcpPtr->localAddrList  = NULL;
     tcpPtr->localAddr      = NULL;
     tcpPtr->flags          = 0;
-    tcpPtr->state          = IOCP_TCP_STATE_INIT;
 }
 
 
@@ -202,16 +193,15 @@ static DWORD IocpTcpPostReceive(IocpTcpChannel *lockedTcpPtr)
     DWORD       flags;
     DWORD       wsaError;
 
-    IOCP_ASSERT(lockedTcpPtr->state == IOCP_TCP_STATE_OPEN);
+    IOCP_ASSERT(lockedTcpPtr->base.state == IOCP_STATE_OPEN);
     bufPtr = IocpBufferNew(IOCP_BUFFER_DEFAULT_SIZE);
     if (bufPtr == NULL)
         return WSAENOBUFS;
 
     bufPtr->winError   = 0;
     bufPtr->operation  = IOCP_BUFFER_OP_READ;
-    bufPtr->channelPtr = TcpChannelToIocpChannel(lockedTcpPtr);
     bufPtr->flags     |= IOCP_BUFFER_F_WINSOCK;
-
+    bufPtr->chanPtr    = TcpChannelToIocpChannel(lockedTcpPtr);
     lockedTcpPtr->base.numRefs += 1; /* Reversed when buffer is unlinked from channel */
 
     IocpInitWSABUF(&wsaBuf, bufPtr);
@@ -226,7 +216,7 @@ static DWORD IocpTcpPostReceive(IocpTcpChannel *lockedTcpPtr)
         && (wsaError = WSAGetLastError()) != WSA_IO_PENDING) {
         /* Not good. */
         lockedTcpPtr->base.numRefs -= 1;
-        bufPtr->channelPtr    = NULL;
+        bufPtr->chanPtr    = NULL;
         IocpBufferFree(bufPtr);
         return wsaError;
     }
@@ -282,7 +272,11 @@ static IocpResultCode IocpTcpEnableTransfer(
         tcpPtr->localAddr     = NULL;
     }
 
-    /* TBD - do we need to ++numRefs since tcpPtr is "pointed" from completion port*/
+    /* TBD - do we need to ++numRefs since tcpPtr is "pointed" from completion
+       port. Actually we should just pass NULL instead of tcpPtr since it is
+       anyways accessible from the bufferPtr.
+    */
+    
     if (CreateIoCompletionPort((HANDLE) tcpPtr->so,
                                iocpModuleState.completion_port,
                                (ULONG_PTR) tcpPtr,
@@ -356,7 +350,7 @@ static IocpResultCode IocpTcpBlockingConnect(
             /* Bind local address. */
             if (bind(so, localAddr->ai_addr, localAddr->ai_addrlen) == 0 &&
                 connect(so, remoteAddr->ai_addr, remoteAddr->ai_addrlen) == 0) {
-                tcpPtr->state = IOCP_TCP_STATE_OPEN;
+                tcpPtr->base.state = IOCP_STATE_OPEN;
                 tcpPtr->so    = so;
                 return TCL_OK;
             }
