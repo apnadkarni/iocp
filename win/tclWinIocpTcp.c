@@ -47,14 +47,16 @@ IOCP_INLINE IocpTcpChannel *IocpChannelToTcpChannel(IocpChannel *chanPtr) {
     return (IocpTcpChannel *) chanPtr;
 }
 
-void IocpTcpChannelInit(IocpChannel *basePtr);
-void IocpTcpChannelFinit(IocpChannel *chanPtr);
-int IocpTcpChannelShutdown(Tcl_Interp *interp, IocpChannel *chanPtr, int flags);
+static void IocpTcpChannelInit(IocpChannel *basePtr);
+static void IocpTcpChannelFinit(IocpChannel *chanPtr);
+static int IocpTcpChannelShutdown(Tcl_Interp *, IocpChannel *chanPtr, int flags);
+static DWORD IocpTcpPostRead(IocpChannel *lockedChanPtr);
 
 static IocpChannelVtbl tcpVtbl =  {
     IocpTcpChannelInit,
     IocpTcpChannelFinit,
     IocpTcpChannelShutdown,
+    IocpTcpPostRead,
     sizeof(IocpTcpChannel)
 };
 
@@ -73,7 +75,7 @@ static IocpChannelVtbl tcpVtbl =  {
  *
  *------------------------------------------------------------------------
  */
-void IocpTcpChannelInit(IocpChannel *chanPtr)
+static void IocpTcpChannelInit(IocpChannel *chanPtr)
 {
     IocpTcpChannel *tcpPtr = IocpChannelToTcpChannel(chanPtr);
     tcpPtr->so             = INVALID_SOCKET;
@@ -82,6 +84,9 @@ void IocpTcpChannelInit(IocpChannel *chanPtr)
     tcpPtr->localAddrList  = NULL;
     tcpPtr->localAddr      = NULL;
     tcpPtr->flags          = 0;
+
+    tcpPtr->base.maxPendingReads  = IOCP_TCP_MAX_RECEIVES;
+    tcpPtr->base.maxPendingWrites = IOCP_TCP_MAX_SENDS;
 }
 
 
@@ -103,7 +108,7 @@ void IocpTcpChannelInit(IocpChannel *chanPtr)
  *
  *------------------------------------------------------------------------
  */
-void IocpTcpChannelFinit(IocpChannel *chanPtr)
+static void IocpTcpChannelFinit(IocpChannel *chanPtr)
 {
     IocpTcpChannel *tcpPtr = IocpChannelToTcpChannel(chanPtr);
 
@@ -172,22 +177,24 @@ static int IocpTcpChannelShutdown(
 /*
  *------------------------------------------------------------------------
  *
- * IocpTcpPostReceive --
+ * IocpTcpPostRead --
  *
  *    Allocates a receive buffer and posts it to the socket associated
  *    with lockedTcpPtr.
  *
  * Results:
- *    Returns 0 on success or a Winsock error code.
+ *    Returns 0 on success or a Windows error code.
  *
  * Side effects:
  *    The receive buffer is queued to the socket from where it will
- *    retrieved by the IO completion thread.
+ *    retrieved by the IO completion thread. The pending reads count
+ *    in the IocpChannel is incremented.
  *
  *------------------------------------------------------------------------
  */
-static DWORD IocpTcpPostReceive(IocpTcpChannel *lockedTcpPtr)
+static DWORD IocpTcpPostRead(IocpChannel *lockedChanPtr)
 {
+    IocpTcpChannel *lockedTcpPtr = IocpChannelToTcpChannel(lockedChanPtr);
     IocpBuffer *bufPtr;
     WSABUF      wsaBuf;
     DWORD       flags;
@@ -220,6 +227,7 @@ static DWORD IocpTcpPostReceive(IocpTcpChannel *lockedTcpPtr)
         IocpBufferFree(bufPtr);
         return wsaError;
     }
+    lockedChanPtr->pendingReads++;
 
     return 0;
 }
@@ -276,7 +284,7 @@ static IocpResultCode IocpTcpEnableTransfer(
        port. Actually we should just pass NULL instead of tcpPtr since it is
        anyways accessible from the bufferPtr.
     */
-    
+
     if (CreateIoCompletionPort((HANDLE) tcpPtr->so,
                                iocpModuleState.completion_port,
                                (ULONG_PTR) tcpPtr,
@@ -286,15 +294,7 @@ static IocpResultCode IocpTcpEnableTransfer(
 
     IocpChannelLock(TcpChannelToIocpChannel(tcpPtr));
     // TBD assert tcpPtr->state == OPEN
-    while (tcpPtr->base.outstanding_reads < IOCP_TCP_MAX_RECEIVES) {
-        wsaError = IocpTcpPostReceive(tcpPtr);
-        if (wsaError)
-            break;
-        tcpPtr->base.outstanding_reads++;
-    }
-    /* Do not error out unless there are no posted receives at all */
-    if (tcpPtr->base.outstanding_reads > 0)
-        wsaError = 0;
+    wsaError = IocpChannelPostReads(TcpChannelToIocpChannel(tcpPtr));
     IocpChannelUnlock(TcpChannelToIocpChannel(tcpPtr));
     if (wsaError)
         return Iocp_ReportWindowsError(interp, wsaError);

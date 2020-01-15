@@ -257,3 +257,33 @@ void IocpListRemove(IocpList *listPtr, IocpLink *linkPtr)
     else
         linkPtr->nextPtr->prevPtr = linkPtr->prevPtr;
 }
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpListPopFront --
+ *
+ *    Removes and returns the first element of the list.
+ *
+ * Results:
+ *    Pointer to the first element or NULL if list was empty.
+ *
+ * Side effects:
+ *    None.
+ *
+ *------------------------------------------------------------------------
+ */
+IocpLink *IocpListPopFront(
+    IocpList *listPtr
+    )
+{
+    IocpLink *firstPtr = listPtr->headPtr;
+    if (firstPtr) {
+        listPtr->headPtr = firstPtr->nextPtr;
+        if (listPtr->headPtr) 
+            listPtr->headPtr->prevPtr = NULL;
+        if (listPtr->tailPtr == firstPtr)
+            listPtr->tailPtr = NULL;
+    }
+    return firstPtr;
+}
