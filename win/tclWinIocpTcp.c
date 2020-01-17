@@ -289,7 +289,7 @@ static IocpResultCode IocpTcpEnableTransfer(
                                iocpModuleState.completion_port,
                                (ULONG_PTR) tcpPtr,
                                0) == NULL) {
-        return Iocp_ReportLastWindowsError(interp);
+        return Iocp_ReportLastWindowsError(interp, "couldn't attach socket to completion port: ");
     }
 
     IocpChannelLock(TcpChannelToIocpChannel(tcpPtr));
@@ -297,7 +297,7 @@ static IocpResultCode IocpTcpEnableTransfer(
     wsaError = IocpChannelPostReads(TcpChannelToIocpChannel(tcpPtr));
     IocpChannelUnlock(TcpChannelToIocpChannel(tcpPtr));
     if (wsaError)
-        return Iocp_ReportWindowsError(interp, wsaError);
+        return Iocp_ReportWindowsError(interp, wsaError, "couldn't post read on socket: ");
     else
         return TCL_OK;
 }
@@ -335,10 +335,11 @@ static IocpResultCode IocpTcpBlockingConnect(
 {
     struct addrinfo *localAddr;
     struct addrinfo *remoteAddr;
+    DWORD  winError = WSAHOST_NOT_FOUND; /* In case address lists are empty */
     SOCKET so = INVALID_SOCKET;
 
-    for (remoteAddr = tcpPtr->remoteAddrList; remoteAddr; remoteAddr->ai_next) {
-        for (localAddr = tcpPtr->localAddrList; localAddr; localAddr->ai_next) {
+    for (remoteAddr = tcpPtr->remoteAddrList; remoteAddr; remoteAddr = remoteAddr->ai_next) {
+        for (localAddr = tcpPtr->localAddrList; localAddr; localAddr = localAddr->ai_next) {
             if (remoteAddr->ai_family != localAddr->ai_family)
                 continue;
             so = socket(localAddr->ai_family, SOCK_STREAM, 0);
@@ -354,6 +355,7 @@ static IocpResultCode IocpTcpBlockingConnect(
                 tcpPtr->so    = so;
                 return TCL_OK;
             }
+            winError = WSAGetLastError();
             /* No joy. Keep trying. */
             closesocket(so);
             so = INVALID_SOCKET;
@@ -362,7 +364,7 @@ static IocpResultCode IocpTcpBlockingConnect(
 
     /* Failed to connect. Return an error */
     /* TBD - do we need to map WSA error to Windows error */
-    Iocp_ReportLastWindowsError(interp);
+    Iocp_ReportWindowsError(interp, winError, "couldn't open socket: ");
     if (so != INVALID_SOCKET)
         closesocket(so);
     return TCL_ERROR;

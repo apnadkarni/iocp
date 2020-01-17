@@ -94,12 +94,18 @@ IocpResultCode Iocp_DoOnce(Iocp_DoOnceState *stateP, Iocp_DoOnceProc *once_fn, C
  *  moduleHandle - Handle to the module containing the error string. If NULL,
  *           assumed to be a system message.
  */
-Tcl_Obj *Iocp_MapWindowsError(DWORD error, HANDLE moduleHandle)
+Tcl_Obj *Iocp_MapWindowsError(
+    DWORD winError,             /* Windows error code */
+    HANDLE moduleHandle,        /* Handle to module containing error string.
+                                 * If NULL, assumed to be system message. */
+    const char *msgPtr)         /* Message prefix. May be NULL. */
 {
     int   length;
     DWORD flags;
-    WCHAR *msgPtr = NULL;
+    WCHAR *winErrorMessagePtr = NULL;
     Tcl_Obj *objPtr;
+
+    objPtr = Tcl_NewStringObj(msgPtr ? msgPtr : "", -1);
 
     flags = moduleHandle ? FORMAT_MESSAGE_FROM_HMODULE : FORMAT_MESSAGE_FROM_SYSTEM;
     flags |=
@@ -107,24 +113,24 @@ Tcl_Obj *Iocp_MapWindowsError(DWORD error, HANDLE moduleHandle)
         | FORMAT_MESSAGE_IGNORE_INSERTS /* Ignore message arguments */
         | FORMAT_MESSAGE_MAX_WIDTH_MASK;/* Ignore soft line breaks */
 
-    length = FormatMessageW(flags, moduleHandle, error,
+    length = FormatMessageW(flags, moduleHandle, winError,
                             0, /* Lang id */
-                            (WCHAR *) &msgPtr,
+                            (WCHAR *) &winErrorMessagePtr,
                             0, NULL);
     if (length > 0) {
         /* Strip trailing CR LF if any */
-        if (msgPtr[length-1] == L'\n')
+        if (winErrorMessagePtr[length-1] == L'\n')
             --length;
         if (length > 0) {
-            if (msgPtr[length-1] == L'\r')
+            if (winErrorMessagePtr[length-1] == L'\r')
                 --length;
         }
-        objPtr = Tcl_NewUnicodeObj(msgPtr, length);
-        LocalFree(msgPtr);
-        return objPtr;
+        Tcl_AppendUnicodeToObj(objPtr, winErrorMessagePtr, length);
+        LocalFree(winErrorMessagePtr);
+    } else {
+        Tcl_AppendPrintfToObj(objPtr, "Windows error code %ld", winError);
     }
-
-    return Tcl_ObjPrintf("Windows error: %ld", error);
+    return objPtr;
 }
 
 /*
@@ -133,11 +139,13 @@ Tcl_Obj *Iocp_MapWindowsError(DWORD error, HANDLE moduleHandle)
  *
  * Always returns TCL_ERROR (convenient for caller to just return).
  */
-IocpResultCode Iocp_ReportWindowsError(Tcl_Interp *interp, DWORD winerr)
+IocpResultCode Iocp_ReportWindowsError(
+    Tcl_Interp *interp,         /* Interpreter to store message */
+    DWORD winerr,               /* Windows error code */
+    const char *msgPtr)         /* Message prefix. May be NULL. */
 {
     if (interp) {
-        Tcl_SetObjResult(interp,
-                         Iocp_MapWindowsError(winerr, NULL));
+        Tcl_SetObjResult(interp, Iocp_MapWindowsError(winerr, NULL, msgPtr));
     }
     return TCL_ERROR;
 }
@@ -148,9 +156,11 @@ IocpResultCode Iocp_ReportWindowsError(Tcl_Interp *interp, DWORD winerr)
  *
  * Always returns TCL_ERROR (convenient for caller to just return).
  */
-IocpResultCode Iocp_ReportLastWindowsError(Tcl_Interp *interp)
+IocpResultCode Iocp_ReportLastWindowsError(
+    Tcl_Interp *interp,         /* Interpreter to store message */
+    const char *msgPtr)         /* Message prefix. May be NULL. */
 {
-    return Iocp_ReportWindowsError(interp, GetLastError());
+    return Iocp_ReportWindowsError(interp, GetLastError(), msgPtr);
 }
 
 /*

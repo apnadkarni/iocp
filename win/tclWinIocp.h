@@ -399,9 +399,9 @@ void IocpListRemove(IocpList *listPtr, IocpLink *linkPtr);
 IocpLink *IocpListPopFront(IocpList *listPtr);
 
 /* Error utilities */
-Tcl_Obj *Iocp_MapWindowsError(DWORD error, HANDLE moduleHandle);
-IocpResultCode Iocp_ReportWindowsError(Tcl_Interp *interp, DWORD winerr);
-IocpResultCode Iocp_ReportLastWindowsError(Tcl_Interp *interp);
+Tcl_Obj *Iocp_MapWindowsError(DWORD error, HANDLE moduleHandle, const char *msgPtr);
+IocpResultCode Iocp_ReportWindowsError(Tcl_Interp *interp, DWORD winerr, const char *msgPtr);
+IocpResultCode Iocp_ReportLastWindowsError(Tcl_Interp *interp, const char *msgPtr);
 void IocpSetTclErrnoFromWin32(DWORD winError);
 
 /* Buffer utilities */

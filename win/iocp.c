@@ -479,7 +479,7 @@ static IocpResultCode IocpProcessInit(ClientData clientdata)
         CreateIoCompletionPort(
             INVALID_HANDLE_VALUE, NULL, (ULONG_PTR)NULL, 0);
     if (iocpModuleState.completion_port == NULL) {
-        Iocp_ReportLastWindowsError(interp);
+        Iocp_ReportLastWindowsError(interp, "couldn't create completion port: ");
         return TCL_ERROR;
     }
     if (WSAStartup(WSA_VERSION_REQUESTED, &wsa_data) != 0) {
@@ -492,7 +492,7 @@ static IocpResultCode IocpProcessInit(ClientData clientdata)
     iocpModuleState.completion_thread =
         CreateThread(NULL, 0, IocpCompletionThread, iocpModuleState.completion_port, 0, NULL);
     if (iocpModuleState.completion_thread == NULL) {
-        Iocp_ReportLastWindowsError(interp);
+        Iocp_ReportLastWindowsError(interp, "couldn't create completion thread: ");
         CloseHandle(iocpModuleState.completion_port);
         iocpModuleState.completion_port = NULL;
         WSACleanup();
