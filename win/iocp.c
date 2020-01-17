@@ -207,6 +207,9 @@ void IocpChannelDrop(
         IocpLockDelete(&lockedChanPtr->lock);
         ckfree(lockedChanPtr);
     }
+    else {
+        IocpChannelUnlock(lockedChanPtr);
+    }
 }
 
 /*
