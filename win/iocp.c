@@ -12,6 +12,7 @@
 
 static int  IocpEventHandler(Tcl_Event *evPtr, int flags);
 static void IocpThreadExitHandler (ClientData clientData);
+static int IocpChannelFileEventMask(IocpChannel *lockedChanPtr);
 
 /* Used to notify the thread owning a channel of a completion on that channel */
 typedef struct IocpTclEvent {
@@ -232,7 +233,7 @@ void IocpChannelDrop(
 void IocpChannelAwaitCompletion(IocpChannel *lockedChanPtr)    /* Must be locked on entry */
 {
     lockedChanPtr->flags   |= IOCP_CHAN_F_BLOCKED;
-    IocpConditionVariableWaitShared(&lockedChanPtr->cv, &lockedChanPtr->lock, INFINITE);
+    IocpChannelCVWait(lockedChanPtr);
 }
 
 /*
@@ -266,7 +267,7 @@ int IocpChannelWakeAfterCompletion(IocpChannel *lockedChanPtr)   /* Must be lock
 /*
  *------------------------------------------------------------------------
  *
- * IocpChannelNotifyCompletion --
+ * IocpChannelEnqueueEvent --
  *
  *    Notifies the Tcl thread owning a channel of the completion of a
  *    posted I/O operation.
@@ -282,7 +283,7 @@ int IocpChannelWakeAfterCompletion(IocpChannel *lockedChanPtr)   /* Must be lock
  *
  *------------------------------------------------------------------------
  */
-void IocpChannelNotifyCompletion(
+void IocpChannelEnqueueEvent(
     IocpChannel *lockedChanPtr,  /* Must be locked and caller holding a reference
                                   * to ensure it does not go away even if unlocked
                                   */
@@ -297,9 +298,15 @@ void IocpChannelNotifyCompletion(
             evPtr->chanPtr    = lockedChanPtr;
             lockedChanPtr->numRefs++; /* Corresponding to above,
                                          reversed by IocpEventHandler */
-            Tcl_ThreadQueueEvent(lockedChanPtr->owningThread,
-                                 (Tcl_Event *)evPtr, TCL_QUEUE_TAIL);
-            Tcl_ThreadAlert(lockedChanPtr->owningThread);
+            /* Optimization if enqueuing to current thread */
+            if (Tcl_GetCurrentThread() == lockedChanPtr->owningThread) {
+                Tcl_QueueEvent((Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
+            }
+            else {
+                Tcl_ThreadQueueEvent(lockedChanPtr->owningThread,
+                                     (Tcl_Event *)evPtr, TCL_QUEUE_TAIL);
+                Tcl_ThreadAlert(lockedChanPtr->owningThread);
+            }
         }
     }
 }
@@ -333,6 +340,9 @@ static void IocpCompletionRead(
     IocpChannel *chanPtr = bufPtr->chanPtr;
 
     IocpChannelLock(chanPtr);
+
+    IOCP_ASSERT(chanPtr->pendingReads > 0);
+    chanPtr->pendingReads--;
 
     if (chanPtr->state == IOCP_STATE_CLOSED) {
         bufPtr->chanPtr = NULL;
@@ -368,7 +378,7 @@ static void IocpCompletionRead(
         /* TBD - do we need to notify on 0 byte read (EOF) even if NOTIFY_INPUT
            was not set ? */
         if (chanPtr->flags & IOCP_CHAN_F_WATCH_INPUT)
-            IocpChannelNotifyCompletion(chanPtr, 0);
+            IocpChannelEnqueueEvent(chanPtr, 0);
     }
 
     /* This drops the reference from bufPtr which was delayed (see above) */
@@ -747,6 +757,60 @@ IocpChannelGetOption (
     return TCL_ERROR;
 }
 
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpChannelFileEventMask
+ *
+ *    If the Tcl channel system has registered interest in file events
+ *    and generates the mask to pass to Tcl_NotifyChannel based on current
+ *    channel state.
+ *
+ *    For reading, inform if
+ *    1. Tcl in watching the input side AND
+ *    2. the channel is not shutdown for reads AND
+ *    3. one of the following two condition is met
+ *       a) end of file, OR
+ *       b) input data is available
+ *
+ *    For writing, inform if
+ *    1. Tcl in watching the output side AND
+ *    2. the channel is not shutdown for writes AND
+ *    3. one of the following two condition is met
+ *       a) end of file, OR
+ *       b) a write has completed AND there is room for more writes
+ *
+ * Results:
+ *    None.
+ *
+ * Side effects:
+ *    None.
+ *
+ *------------------------------------------------------------------------
+ */
+static int IocpChannelFileEventMask(
+    IocpChannel *lockedChanPtr  /* Must be locked on entry */
+    )
+{
+    int readyMask = 0;
+    if ((lockedChanPtr->flags & IOCP_CHAN_F_WATCH_INPUT) &&
+        !(lockedChanPtr->flags & IOCP_CHAN_F_WRITEONLY) &&
+        ((lockedChanPtr->flags & IOCP_CHAN_F_REMOTE_EOF) ||
+         lockedChanPtr->inputBuffers.headPtr)) {
+        readyMask |= TCL_READABLE;
+    }
+    if ((lockedChanPtr->flags & IOCP_CHAN_F_WATCH_OUTPUT) &&        /* 1 */
+        !(lockedChanPtr->flags & IOCP_CHAN_F_READONLY) &&           /* 2 */
+        ((lockedChanPtr->flags & IOCP_CHAN_F_REMOTE_EOF) ||         /* 3a */
+         ((lockedChanPtr->flags & IOCP_CHAN_F_WRITE_DONE) &&        /* 3b */
+          lockedChanPtr->pendingWrites < lockedChanPtr->maxPendingWrites))) {
+        readyMask |= TCL_WRITABLE;
+        /* So completion threads will notify us of additional writes */
+        lockedChanPtr->flags &= ~ IOCP_CHAN_F_WRITE_DONE;
+    }
+    return readyMask;
+}
+
 static void
 IocpChannelWatch (
     ClientData instanceData,	/* The socket state. */
@@ -754,8 +818,24 @@ IocpChannelWatch (
 				 * combination of TCL_READABLE,
 				 * TCL_WRITABLE and TCL_EXCEPTION. */
 {
-    // TBD
-    return;
+    IocpChannel *chanPtr = (IocpChannel*)instanceData;
+
+    IocpChannelLock(chanPtr);
+
+    chanPtr->flags &= ~ (IOCP_CHAN_F_WATCH_INPUT | IOCP_CHAN_F_WATCH_OUTPUT);
+    if (mask & TCL_READABLE)
+        chanPtr->flags |= IOCP_CHAN_F_WATCH_INPUT;
+    if (mask & TCL_WRITABLE)
+        chanPtr->flags |= IOCP_CHAN_F_WATCH_OUTPUT;
+
+    /*
+     * As per WatchProc man page, we will use the event queue to do the
+     * actual channel notification.
+     */
+    if (mask)
+        IocpChannelEnqueueEvent(chanPtr, 0);
+
+    IocpChannelUnlock(chanPtr);
 }
 
 static int
@@ -826,7 +906,7 @@ void IocpChannelThreadAction(
          * Notify in case any I/O completion notifications pending. No harm
          * if there aren't
          */
-        IocpChannelNotifyCompletion(chanPtr, 1);
+        IocpChannelEnqueueEvent(chanPtr, 1);
     } else {
         chanPtr->owningThread = 0;
     }
@@ -869,31 +949,21 @@ int IocpEventHandler(
     IocpChannelLock(chanPtr);
     channel = chanPtr->channel;
 
+    /* TBD - other cases */
     switch (chanPtr->state) {
     case IOCP_STATE_OPEN:
         /*
          * If Tcl wants to be notified of input and has not shutdown the read
          * side, notify if either data is available or EOF has been reached.
          */
-        if ((chanPtr->flags & IOCP_CHAN_F_WATCH_INPUT) &&
-            !(chanPtr->flags & IOCP_CHAN_F_WRITEONLY) &&
-            ((chanPtr->flags & IOCP_CHAN_F_REMOTE_EOF) ||
-             chanPtr->inputBuffers.headPtr)) {
-            readyMask |= TCL_READABLE;
-        }
-        /* On the write side, inform if limit on pending writes not exceeded */
-        if ((chanPtr->flags & IOCP_CHAN_F_WRITE_DONE) &&
-            chanPtr->pendingWrites < chanPtr->maxPendingWrites) {
-            // TBD - also on remote eof?
-            readyMask |= TCL_WRITABLE;
-            chanPtr->flags &= ~ IOCP_CHAN_F_WRITE_DONE;
-        }
+        readyMask = IocpChannelFileEventMask(chanPtr);
         break;
     }
 
     /*
      * Drop the reference corresponding to queueing to the event q
-     * Do this before calling Tcl_NotifyChannel which may recurse (?)
+     * Do this before calling Tcl_NotifyChannel which may recurse via the
+     * callback script which again calls us through the channel commands.
      * Note the IocpChannel will not be freed as long as the Tcl channel
      * system still has a reference to it.
      */

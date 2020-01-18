@@ -308,8 +308,11 @@ typedef struct IocpChannel {
 IOCP_INLINE void IocpChannelLock(IocpChannel *chanPtr) {
     IocpLockAcquireExclusive(&chanPtr->lock);
 }
-IOCP_INLINE void IocpChannelUnlock(IocpChannel *chanPtr) {
-    IocpLockReleaseExclusive(&chanPtr->lock);
+IOCP_INLINE void IocpChannelUnlock(IocpChannel *lockedChanPtr) {
+    IocpLockReleaseExclusive(&lockedChanPtr->lock);
+}
+IOCP_INLINE void IocpChannelCVWait(IocpChannel *lockedChanPtr) {
+    IocpConditionVariableWaitExclusive(&lockedChanPtr->cv, &lockedChanPtr->lock, INFINITE);
 }
 
 /*
@@ -423,7 +426,7 @@ IOCP_INLINE void IocpInitWSABUF(WSABUF *wsaPtr, const IocpBuffer *bufPtr) {
 IocpChannel *IocpChannelNew(Tcl_Interp *interp, const IocpChannelVtbl *vtblPtr);
 void IocpChannelAwaitCompletion(IocpChannel *lockedChanPtr);
 int IocpChannelWakeAfterCompletion(IocpChannel *lockedChanPtr);
-void IocpChannelNotifyCompletion(IocpChannel *lockedChanPtr, int force);
+void IocpChannelEnqueueEvent(IocpChannel *lockedChanPtr, int force);
 void IocpChannelDrop(IocpChannel *lockedChanPtr);
 DWORD IocpChannelPostReads(IocpChannel *lockedChanPtr);
 
