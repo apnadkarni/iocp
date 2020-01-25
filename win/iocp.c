@@ -650,6 +650,23 @@ IocpChannelClose (
     return ret;
 }
 
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpChannelInput --
+ *
+ *    Called from the Tcl channel subsystem to read data. See the Tcl
+ *    Tcl_CreateChannel manpage section for Tcl_ChannelInputProc for details
+ *    on expected behavior.
+ *
+ * Results:
+ *    Number of bytes read into outPtr, 0 on EOF, -1 on error.
+ *
+ * Side effects:
+ *    Fills outPtr with data.
+ *
+ *------------------------------------------------------------------------
+ */
 static int
 IocpChannelInput (
     ClientData instanceData,	/* IocpChannel */
@@ -667,13 +684,20 @@ IocpChannelInput (
 
     if (chanPtr->state == IOCP_STATE_CONNECTING) {
         if (chanPtr->flags & IOCP_CHAN_F_NONBLOCKING) {
-            *errorCodePtr = EWOULDBLOCK;
+            *errorCodePtr = EAGAIN;
             bytesRead = -1;
             goto vamoose;
         }
         /* Channel is blocking and we are awaiting async connect to complete */
         IocpChannelAwaitCompletion(chanPtr);
-        /* State may have changed ! */
+        if (chanPtr->state == IOCP_STATE_CONNECT_FAILED) {
+            /* Retry connecting in blocking mode if possible */
+            if (chanPtr->vtblPtr->blockingconnect) {
+                chanPtr->vtblPtr->blockingconnect(chanPtr);
+                /* Don't care about success. All taken care below */
+            }
+        }
+        /* Note state may have changed, but no matter. Taken care of below */
     }
     /*
      * Unless channel is marked as write-only (via shutdown) pass up data
@@ -696,7 +720,7 @@ IocpChannelInput (
         }
         /* If non-blocking, just return. */
         if (chanPtr->flags & IOCP_CHAN_F_NONBLOCKING) {
-            *errorCodePtr = EWOULDBLOCK;
+            *errorCodePtr = EAGAIN;
             bytesRead     = -1;
             goto vamoose;
         }
@@ -709,8 +733,13 @@ IocpChannelInput (
             goto vamoose;
         }
         /* Wait for a posted read to complete */
-        IocpChannelAwaitCompletion(chanPtr);
-        /* Fall through for processing */
+        IocpChannelAwaitCompletion(chanPtr); /* Unlocks and relocks! */
+        /*
+         * State unknown as it might have changed while waiting but don't
+         * care. What matters is if input data is available in the buffers.
+         * Fall through for processing.
+         */
+
     }
 
     /*
@@ -791,17 +820,84 @@ vamoose:
     return bytesRead;
 }
 
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpChannelOutput --
+ *
+ *    Called from the Tcl channel subsystem to write data. See the Tcl
+ *    Tcl_CreateChannel manpage section for Tcl_ChannelOutputProc for details
+ *    on expected behavior.
+ *
+ * Results:
+ *    Number of bytes written to device, -1 on error.
+ *
+ * Side effects:
+ *    Writes to output device.
+ *
+ *------------------------------------------------------------------------
+ */
 static int
 IocpChannelOutput (
-    ClientData instanceData,	/* IocpChannel pointer */
-    CONST char *bufPtr,		/* Buffer */
-    int toWrite,		/* Maximum number of bytes to write. */
+    ClientData  instanceData,	/* IocpChannel pointer */
+    CONST char *bytes,		/* Buffer */
+    int         nbytes,		/* Maximum number of bytes to write. */
     int *errorCodePtr)		/* Where to store error codes. */
 {
-    // TBD
-    *errorCodePtr = EINVAL;
-    
-    return -1;
+    DWORD        winError;
+    IocpChannel *chanPtr = (IocpChannel *) instanceData;
+    int          written;
+
+    IocpChannelLock(chanPtr);
+
+    if (chanPtr->state == IOCP_STATE_CONNECTING) {
+        /* If in non-blocking mode, ask caller to retry */
+        if (chanPtr->flags & IOCP_CHAN_F_NONBLOCKING) {
+            IocpChannelUnlock(chanPtr);
+            *errorCodePtr = EAGAIN;
+            return -1;
+        }
+        /* Blocking write on a async connect. Wait for connect to complete */
+        IocpChannelAwaitCompletion(chanPtr);
+        if (chanPtr->state == IOCP_STATE_CONNECT_FAILED) {
+            /* Retry connecting in blocking mode if possible */
+            if (chanPtr->vtblPtr->blockingconnect) {
+                chanPtr->vtblPtr->blockingconnect(chanPtr);
+            }
+        }
+    }
+
+    /*
+     * We loop because for blocking case we will keep retrying.
+     */
+    while (chanPtr->state == IOCP_STATE_OPEN) {
+        winError = chanPtr->vtblPtr->postwrite(chanPtr, bytes, nbytes, &written);
+        if (winError != ERROR_SUCCESS) {
+            IocpSetTclErrnoFromWin32(winError);
+            *errorCodePtr = Tcl_GetErrno();
+            written = -1;
+            break;
+        }
+        if (written != 0)
+            break;              /* Wrote some data */
+        /*
+         * Would block. If non-blocking, advise caller to try later.
+         * If blocking socket, wait for previous writes to complete.
+         */
+        if (chanPtr->flags & IOCP_CHAN_F_NONBLOCKING) {
+            *errorCodePtr = EAGAIN;
+            written = -1;
+            break;
+        }
+        /*
+         * Blocking socket. Wait till room opens up and retry.
+         * TBD - what if no reads are pending? How will we wake up?
+         */
+        IocpChannelAwaitCompletion(chanPtr);
+    }
+
+    IocpChannelUnlock(chanPtr);
+    return written;
 }
 
 static int

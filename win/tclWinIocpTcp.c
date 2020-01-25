@@ -56,16 +56,21 @@ IOCP_INLINE IocpTcpChannel *IocpChannelToTcpChannel(IocpChannel *chanPtr) {
 static void  IocpTcpChannelInit(IocpChannel *basePtr);
 static void  IocpTcpChannelFinit(IocpChannel *chanPtr);
 static int   IocpTcpChannelShutdown(Tcl_Interp *, IocpChannel *chanPtr, int flags);
-static DWORD IocpTcpPostConnect(IocpTcpChannel *chanPtr);
-static DWORD IocpTcpPostRead(IocpChannel *lockedChanPtr);
+static IocpWindowsError IocpTcpPostConnect(IocpTcpChannel *chanPtr);
+static IocpWindowsError IocpTcpBlockingConnect(IocpChannel *);
+static IocpWindowsError IocpTcpPostRead(IocpChannel *);
+static IocpWindowsError IocpTcpPostWrite(IocpChannel *, const char *data, int nbytes, int *countPtr);
+
 static IocpWindowsError IocpTcpAsyncConnectFail(IocpChannel *lockedChanPtr);
 
 static IocpChannelVtbl tcpVtbl =  {
     IocpTcpChannelInit,
     IocpTcpChannelFinit,
     IocpTcpChannelShutdown,
+    IocpTcpBlockingConnect,
     IocpTcpAsyncConnectFail,
     IocpTcpPostRead,
+    IocpTcpPostWrite,
     sizeof(IocpTcpChannel)
 };
 
@@ -200,7 +205,7 @@ static int IocpTcpChannelShutdown(
  *
  *------------------------------------------------------------------------
  */
-static DWORD IocpTcpPostConnect(
+static IocpWindowsError IocpTcpPostConnect(
     IocpTcpChannel *tcpPtr  /* Channel pointer, may or may not be locked
                              * but caller has to ensure no interference */
     )
@@ -266,7 +271,8 @@ static DWORD IocpTcpPostConnect(
  * IocpTcpPostRead --
  *
  *    Allocates a receive buffer and posts it to the socket associated
- *    with lockedTcpPtr.
+ *    with lockedTcpPtr. Implements the behavior defined for postread()
+ *    in IocpChannel vtbl.
  *
  * Results:
  *    Returns 0 on success or a Windows error code.
@@ -278,7 +284,7 @@ static DWORD IocpTcpPostConnect(
  *
  *------------------------------------------------------------------------
  */
-static DWORD IocpTcpPostRead(IocpChannel *lockedChanPtr)
+static IocpWindowsError IocpTcpPostRead(IocpChannel *lockedChanPtr)
 {
     IocpTcpChannel *lockedTcpPtr = IocpChannelToTcpChannel(lockedChanPtr);
     IocpBuffer *bufPtr;
@@ -292,10 +298,11 @@ static DWORD IocpTcpPostRead(IocpChannel *lockedChanPtr)
     if (bufPtr == NULL)
         return WSAENOBUFS;
 
-    bufPtr->chanPtr    = TcpChannelToIocpChannel(lockedTcpPtr);
+    bufPtr->chanPtr    = lockedChanPtr;
     lockedTcpPtr->base.numRefs += 1; /* Reversed when buffer is unlinked from channel */
 
-    IocpInitWSABUF(&wsaBuf, bufPtr);
+    wsaBuf.buf = bufPtr->data.bytes;
+    wsaBuf.len = bufPtr->data.capacity;
     flags      = 0;
     if (WSARecv(lockedTcpPtr->so,
                  &wsaBuf,       /* Buffer array */
@@ -312,6 +319,81 @@ static DWORD IocpTcpPostRead(IocpChannel *lockedChanPtr)
         return wsaError;
     }
     lockedChanPtr->pendingReads++;
+
+    return 0;
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpTcpPostWrite --
+ *
+ *    Allocates a receive buffer, copies passed data to it and posts
+ *    it to the socket associated with lockedTcpPtr. Implements the behaviour
+ *    expected of the postwrite() function in IocpChannel vtbl.
+ *
+ * Results:
+ *    If data is successfully written, return 0 and stores written count
+ *    into *countPtr. If no data could be written because device would block
+ *    returns 0 and stores 0 in *countPtr. On error, returns a Windows error.
+ *
+ * Side effects:
+ *    The write buffer is queued to the socket from where it will
+ *    retrieved by the IO completion thread. The pending writes count
+ *    in the IocpChannel is incremented.
+ *
+ *------------------------------------------------------------------------
+ */
+static IocpWindowsError IocpTcpPostWrite(
+    IocpChannel *lockedChanPtr, /* Must be locked on entry */
+    const char  *bytes,         /* Pointer to data to write */
+    int          nbytes,        /* Number of data bytes to write */
+    int         *countPtr)      /* Output - Number of bytes written */
+{
+    IocpTcpChannel *lockedTcpPtr = IocpChannelToTcpChannel(lockedChanPtr);
+    IocpBuffer *bufPtr;
+    WSABUF      wsaBuf;
+    DWORD       wsaError;
+    DWORD       written;
+
+    IOCP_ASSERT(lockedTcpPtr->base.state == IOCP_STATE_OPEN);
+
+    /* If we have already too many outstanding writes */
+    if (lockedChanPtr->pendingWrites >= lockedChanPtr->maxPendingWrites) {
+        /* Not an error but indicate nothing written */
+        *countPtr = 0;
+        return ERROR_SUCCESS;
+    }
+
+    bufPtr = IocpBufferNew(nbytes, IOCP_BUFFER_OP_WRITE, IOCP_BUFFER_F_WINSOCK);
+    if (bufPtr == NULL)
+        return WSAENOBUFS; /* TBD - should we treat this as above? But this is more serious (and should be rarer) */
+
+    IocpBufferCopyIn(bufPtr, bytes, nbytes);
+
+    bufPtr->chanPtr    = lockedChanPtr;
+    lockedChanPtr->numRefs += 1; /* Reversed when buffer is unlinked from channel */
+    wsaBuf.buf = bufPtr->data.bytes;
+    wsaBuf.len = bufPtr->data.len;
+    if (WSASend(lockedTcpPtr->so,
+                &wsaBuf,       /* Buffer array */
+                1,             /* Number of elements in array */
+                &written,      /* Number of bytes sent - only valid if data sent
+                                *  immediately so not reliable */
+                0,             /*  Flags - not used */
+                &bufPtr->u.wsaOverlap, /* Overlap structure for return status */
+                NULL)                  /* Completion routine - Not used */
+        != 0
+        && (wsaError = WSAGetLastError()) != WSA_IO_PENDING) {
+        /* Not good. */
+        lockedChanPtr->numRefs -= 1;
+        bufPtr->chanPtr    = NULL;
+        IocpBufferFree(bufPtr);
+        *countPtr = -1;
+        return wsaError;
+    }
+    *countPtr = nbytes;
+    lockedChanPtr->pendingWrites++;
 
     return 0;
 }
@@ -395,29 +477,23 @@ static IocpTclCode IocpTcpEnableTransfer(
  *    Attempt connection through each source destination address pair in
  *    blocking mode until one succeeds or all fail.
  *
- *    The passed tcpPtr should be in state INIT with no references from
- *    other threads and no attached sockets. It must not be locked on entry
- *    and will not be locked on return. Because this function does not do
- *    anything that will provide access to any other thread to tcpPtr,
- *    no synchronization is needed. Aside: this is the reason we do not
- *    call IocpTcpTransitionOpen from here.
- *
  * Results:
- *    TCL_OK on success, else TCL_ERROR with an error message in interp.
+ *    0 on success, other Windows error code.
  *
  * Side effects:
  *    On success, a TCP connection is establised. The tcpPtr state is changed
  *    to OPEN and an initialized socket is stored in it.
  *
- *    On failure, tcpPtr state is changed to CONNECT_FAILED.
+ *    On failure, tcpPtr state is changed to CONNECT_FAILED and the returned
+ *    error is also stored in tcpPtr->base.winError.
  *
  *------------------------------------------------------------------------
  */
-static IocpTclCode IocpTcpBlockingConnect(
-    Tcl_Interp *interp,    /* Used for error reporting, may be NULL */
-    IocpTcpChannel *tcpPtr /* Must NOT be locked on entry, NOT locked on return */
-)
+static IocpWindowsError IocpTcpBlockingConnect(
+    IocpChannel *chanPtr) /* May or may not be locked but caller must ensure
+                           * exclusivity */
 {
+    IocpTcpChannel *tcpPtr = IocpChannelToTcpChannel(chanPtr);
     struct addrinfo *localAddr;
     struct addrinfo *remoteAddr;
     DWORD  winError = WSAHOST_NOT_FOUND; /* In case address lists are empty */
@@ -451,12 +527,14 @@ static IocpTclCode IocpTcpBlockingConnect(
         }
     }
 
+
     /* Failed to connect. Return an error */
-    /* TBD - do we need to map WSA error to Windows error */
-    Iocp_ReportWindowsError(interp, winError, "couldn't open socket: ");
+    tcpPtr->base.state    = IOCP_STATE_CONNECT_FAILED;
+    tcpPtr->base.winError = winError;
+
     if (so != INVALID_SOCKET)
         closesocket(so);
-    return TCL_ERROR;
+    return winError;
 }
 
 /*
@@ -590,6 +668,7 @@ Iocp_OpenTcpClient(
     char channelName[SOCK_CHAN_LENGTH];
     IocpTcpChannel *tcpPtr;
     Tcl_Channel     channel;
+    IocpWindowsError winError;
 
 #ifdef TBD
 
@@ -635,14 +714,18 @@ Iocp_OpenTcpClient(
     tcpPtr->localAddr      = localAddrs;  /* First in local address list */
 
     if (async) {
-        if (IocpTcpInitiateConnection(tcpPtr) != TCL_OK) {
-            Iocp_ReportWindowsError(interp, tcpPtr->base.winError, "couldn't open socket: ");
+        winError = IocpTcpInitiateConnection(tcpPtr);
+        if (winError != ERROR_SUCCESS) {
+            Iocp_ReportWindowsError(interp, winError, "couldn't open socket: ");
             goto fail;
         }
     }
     else {
-        if (IocpTcpBlockingConnect(interp, tcpPtr) != TCL_OK)
+        winError = IocpTcpBlockingConnect(TcpChannelToIocpChannel(tcpPtr));
+        if (winError != ERROR_SUCCESS) {
+            Iocp_ReportWindowsError(interp, winError, "couldn't open socket: ");
             goto fail;
+        }
         /*
          * Connection now open but note no other thread has access to tcpPtr
          * yet and hence no locking needed. But once IocpTcpEnableTransfer

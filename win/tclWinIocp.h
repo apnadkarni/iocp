@@ -356,13 +356,22 @@ typedef struct IocpChannelVtbl {
         int          directions);   /* Combination of TCL_CLOSE_{READ,WRITE} */
 
     /*
+     * blockingconnect() is called from the IOCP layer to synchronously connect
+     * to the remote end for connection based channels. It should return 0
+     * on a successful connect or a Windows error code on failure.
+     */
+    IocpWindowsError (*blockingconnect)( /* May be NULL */
+        IocpChannel *lockedChanPtr);     /* Locked on entry. Must be locked on
+                                          * return. */
+
+    /*
      * connectfailed() is called when a connection fails to go through.
      * It is up to the driver to retry or close the channel. Should return
      * 0 if another connect was initiated or an Windows error code.
      */
-    IocpWindowsError (*connectfailed)(
-        IocpChannel *lockedChanPtr); /* Locked on entry. Must be locked on
-                                      * return. */
+    IocpWindowsError (*connectfailed)( /* May be NULL */
+        IocpChannel *lockedChanPtr);   /* Locked on entry. Must be locked on
+                                        * return. */
     /*
      * postread() is called to post an I/O call to read more data.
      * Should return 0 on success and a Windows error code on error.
@@ -370,7 +379,20 @@ typedef struct IocpChannelVtbl {
     DWORD (*postread)(
         IocpChannel *lockedChanPtr); /* Locked on entry, locked on return */
 
-    int   allocationSize; /* Size of structure. Used by IocpChannelNew to
+    /*
+     * postwrite() is called to write data to the device. If any data is written,
+     * the function should return 0 and store the count of bytes written in
+     * *countPtr. If no data can be written because the device would block,
+     * the function should return 0 and store 0 in *countPtr. On error,
+     * the function return a Windows error code. countPtr is ignored.
+     */
+    IocpWindowsError (*postwrite)(
+        IocpChannel *lockedChanPtr, /* Locked on entry, locked on return */
+        const char  *bytesPtr,      /* Pointer to data buffer */
+        int          nbytes,        /* Number of bytes to write */
+        int         *countPtr);      /* Where to store number written */
+
+    int allocationSize;   /* Size of IocpChannel subclass structure . Used to
                            * allocate memory */
 
 } IocpChannelVtbl;
@@ -422,6 +444,11 @@ void IocpSetTclErrnoFromWin32(DWORD winError);
 
 /* Buffer utilities */
 int IocpDataBufferMoveOut(IocpDataBuffer *bufPtr, char *outPtr, int len);
+IOCP_INLINE void IocpDataBufferCopyIn(IocpDataBuffer *bufPtr, const char *inPtr, int len) {
+    IOCP_ASSERT(bufPtr->capacity >= len);
+    memcpy(bufPtr->bytes, inPtr, len);
+    bufPtr->len = len;
+}
 IocpBuffer *IocpBufferNew(int capacity, enum IocpBufferOp, int);
 void IocpBufferFree(IocpBuffer *bufPtr);
 IOCP_INLINE int IocpBufferLength(const IocpBuffer *bufPtr) {
@@ -430,9 +457,8 @@ IOCP_INLINE int IocpBufferLength(const IocpBuffer *bufPtr) {
 IOCP_INLINE int IocpBufferMoveOut(IocpBuffer *bufPtr, char *outPtr, int len) {
     return IocpDataBufferMoveOut(&bufPtr->data, outPtr, len);
 }
-IOCP_INLINE void IocpInitWSABUF(WSABUF *wsaPtr, const IocpBuffer *bufPtr) {
-    wsaPtr->buf = bufPtr->data.bytes;
-    wsaPtr->len = bufPtr->data.capacity;
+IOCP_INLINE void IocpBufferCopyIn(IocpBuffer *bufPtr, const char *inPtr, int len) {
+    IocpDataBufferCopyIn(&bufPtr->data, inPtr, len);
 }
 
 /* Generic channel functions */
