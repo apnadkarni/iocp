@@ -31,7 +31,7 @@
  *    TCL_OK    - initialization done
  *    TCL_ERROR - initialization failed
  */
-IocpResultCode Iocp_DoOnce(Iocp_DoOnceState *stateP, Iocp_DoOnceProc *once_fn, ClientData clientdata)
+IocpTclCode Iocp_DoOnce(Iocp_DoOnceState *stateP, Iocp_DoOnceProc *once_fn, ClientData clientdata)
 {
     Iocp_DoOnceState prev_state;
     enum {
@@ -139,7 +139,7 @@ Tcl_Obj *Iocp_MapWindowsError(
  *
  * Always returns TCL_ERROR (convenient for caller to just return).
  */
-IocpResultCode Iocp_ReportWindowsError(
+IocpTclCode Iocp_ReportWindowsError(
     Tcl_Interp *interp,         /* Interpreter to store message */
     DWORD winerr,               /* Windows error code */
     const char *msgPtr)         /* Message prefix. May be NULL. */
@@ -156,7 +156,7 @@ IocpResultCode Iocp_ReportWindowsError(
  *
  * Always returns TCL_ERROR (convenient for caller to just return).
  */
-IocpResultCode Iocp_ReportLastWindowsError(
+IocpTclCode Iocp_ReportLastWindowsError(
     Tcl_Interp *interp,         /* Interpreter to store message */
     const char *msgPtr)         /* Message prefix. May be NULL. */
 {

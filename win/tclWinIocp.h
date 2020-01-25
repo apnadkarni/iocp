@@ -30,8 +30,10 @@
 
 #define IOCP_ASSERT(cond_) (void) 0 /* TBD */
 
-/* Typedef just to make it obvious a function is returning a TCL_xxx return code */
-typedef int IocpResultCode;
+/* Typedefs just to make return value semantics obvious */
+typedef int   IocpTclCode;
+typedef DWORD IocpWindowsError;
+typedef int   IocpPosixError;
 
 /*
  * We may use either critical sections or SRWLocks. The latter are lighter
@@ -103,7 +105,7 @@ typedef struct IocpBuffer      IocpBuffer;
  * Typedefs used by one-time initialization utilities.
  */
 typedef volatile LONG Iocp_DoOnceState;
-typedef IocpResultCode Iocp_DoOnceProc(void *);
+typedef IocpTclCode Iocp_DoOnceProc(void *);
 
 /*
  * Doubly linked list structures. Locking is all external.
@@ -157,8 +159,9 @@ IOCP_INLINE int IocpDataBufferLength(const IocpDataBuffer *dataBufPtr) {
 /* Values used in IocpBuffer.operation */
 enum IocpBufferOp {
     IOCP_BUFFER_OP_NONE,
-    IOCP_BUFFER_OP_READ,       /* Input operation */
-    IOCP_BUFFER_OP_WRITE,      /* Output operation */
+    IOCP_BUFFER_OP_READ,
+    IOCP_BUFFER_OP_WRITE,
+    IOCP_BUFFER_OP_CONNECT,
 };
 
 /*
@@ -206,7 +209,7 @@ typedef struct IocpBuffer {
                                     * associated IocpChannel */
     IocpDataBuffer    data;        /* Data buffer */
     IocpLink          link;        /* Links buffers in a queue */
-    DWORD             winError;    /* Error code (0 on success) */
+    IocpWindowsError  winError;    /* Error code (0 on success) */
     enum IocpBufferOp operation;   /* I/O operation */
     int               flags;
     #define IOCP_BUFFER_F_WINSOCK 0x1 /* Buffer used for a Winsock operation.
@@ -220,6 +223,7 @@ enum IocpState {
     IOCP_STATE_CONNECT_FAILED, /* Connect failed */
     IOCP_STATE_OPEN,           /* Open for data transfer */
     IOCP_STATE_DISCONNECTING,  /* Local end has initiated disconnection */
+    IOCP_STATE_DISCONNECTED,   /* Remote end has disconnected */
     IOCP_STATE_CLOSED,         /* Channel closed from both ends */
 };
 
@@ -285,6 +289,7 @@ typedef struct IocpChannel {
     LONG      numRefs;         /* Reference count */
 
     enum IocpTcpState state;   /* IOCP_STATE_* */
+    IocpWindowsError  winError;    /* Last error code on I/O */
 
     int pendingReads;                 /* Number of outstanding posted reads */
     int maxPendingReads;              /* Max number of outstanding posted reads */
@@ -351,12 +356,20 @@ typedef struct IocpChannelVtbl {
         int          directions);   /* Combination of TCL_CLOSE_{READ,WRITE} */
 
     /*
+     * connectfailed() is called when a connection fails to go through.
+     * It is up to the driver to retry or close the channel. Should return
+     * 0 if another connect was initiated or an Windows error code.
+     */
+    IocpWindowsError (*connectfailed)(
+        IocpChannel *lockedChanPtr); /* Locked on entry. Must be locked on
+                                      * return. */
+    /*
      * postread() is called to post an I/O call to read more data.
      * Should return 0 on success and a Windows error code on error.
      */
     DWORD (*postread)(
         IocpChannel *lockedChanPtr); /* Locked on entry, locked on return */
-    
+
     int   allocationSize; /* Size of structure. Used by IocpChannelNew to
                            * allocate memory */
 
@@ -392,7 +405,7 @@ extern struct IocpTcl85IntPlatStubs *tclIntPlatStubsPtr;
 /*
  * Prototypes for IOCP internal functions.
  */
-IocpResultCode Iocp_DoOnce(Iocp_DoOnceState *stateP, Iocp_DoOnceProc *once_fn, ClientData clientdata);
+IocpTclCode Iocp_DoOnce(Iocp_DoOnceState *stateP, Iocp_DoOnceProc *once_fn, ClientData clientdata);
 
 
 /* List utilities */
@@ -403,13 +416,13 @@ IocpLink *IocpListPopFront(IocpList *listPtr);
 
 /* Error utilities */
 Tcl_Obj *Iocp_MapWindowsError(DWORD error, HANDLE moduleHandle, const char *msgPtr);
-IocpResultCode Iocp_ReportWindowsError(Tcl_Interp *interp, DWORD winerr, const char *msgPtr);
-IocpResultCode Iocp_ReportLastWindowsError(Tcl_Interp *interp, const char *msgPtr);
+IocpTclCode Iocp_ReportWindowsError(Tcl_Interp *interp, DWORD winerr, const char *msgPtr);
+IocpTclCode Iocp_ReportLastWindowsError(Tcl_Interp *interp, const char *msgPtr);
 void IocpSetTclErrnoFromWin32(DWORD winError);
 
 /* Buffer utilities */
 int IocpDataBufferMoveOut(IocpDataBuffer *bufPtr, char *outPtr, int len);
-IocpBuffer *IocpBufferNew(int capacity);
+IocpBuffer *IocpBufferNew(int capacity, enum IocpBufferOp, int);
 void IocpBufferFree(IocpBuffer *bufPtr);
 IOCP_INLINE int IocpBufferLength(const IocpBuffer *bufPtr) {
     return IocpDataBufferLength(&bufPtr->data);
@@ -429,6 +442,7 @@ int IocpChannelWakeAfterCompletion(IocpChannel *lockedChanPtr);
 void IocpChannelEnqueueEvent(IocpChannel *lockedChanPtr, int force);
 void IocpChannelDrop(IocpChannel *lockedChanPtr);
 DWORD IocpChannelPostReads(IocpChannel *lockedChanPtr);
+void IocpChannelNudgeThread(IocpChannel *lockedChanPtr, int force);
 
 /* Tcl commands */
 Tcl_ObjCmdProc	Iocp_SocketObjCmd;

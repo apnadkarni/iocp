@@ -96,17 +96,23 @@ int IocpDataBufferMoveOut(IocpDataBuffer *dataBuf, char *outPtr, int len)
  * On success, returns a pointer that should be freed by calling
  * IocpBufferDrop. On failure, returns NULL.
  */
-IocpBuffer *IocpBufferNew(int capacity)
+IocpBuffer *IocpBufferNew(
+    int          capacity,        /* Capacity requested */
+    enum IocpBufferOp op,         /* IOCP_BUFFER_OP_READ etc. */
+    int          flags            /* IOCP_BUFFER_F_WINSOCK => wsaOverlap header,
+                                  *  otherwise Overlap header */
+    )
 {
     IocpBuffer *bufPtr = attemptckalloc(sizeof(*bufPtr));
     if (bufPtr == NULL)
         return NULL;
     memset(&bufPtr->u, 0, sizeof(bufPtr->u));
 
-    bufPtr->chanPtr   = NULL;
+    bufPtr->chanPtr   = NULL; /* Not included in param 'cause then we have to
+                                 worry about reference counts etc.*/
     bufPtr->winError  = 0;
-    bufPtr->operation = IOCP_BUFFER_OP_NONE;
-    bufPtr->flags     = 0;
+    bufPtr->operation = op;
+    bufPtr->flags     = flags;
     IocpLinkInit(&bufPtr->link);
 
     if (IocpDataBufferInit(&bufPtr->data, capacity) == NULL) {
@@ -311,16 +317,89 @@ void IocpChannelEnqueueEvent(
     }
 }
 
-
-static void IocpCompletionFailure(IocpBuffer *bufPtr)
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpChannelNudgeThread --
+ *
+ *    Wakes up the thread owning a channel if it is blocked or notifies
+ *    it via the event loop if it isn't.
+ *
+ * Results:
+ *    None.
+ *
+ * Side effects:
+ *    An event is queued or the condition variable being waited on is poked. Due
+ *    to the lock hierarchy rules, *lockedChanPtr may be unlocked and relocked
+ *    before returning and its state may have therefore changed.
+ *
+ *------------------------------------------------------------------------
+ */
+void IocpChannelNudgeThread(
+    IocpChannel *lockedChanPtr,  /* Must be locked and caller holding a reference
+                                  * to ensure it does not go away even if unlocked
+                                  */
+    int          force)          /* If true, queue even if already queued. */
 {
-    // TBD
+    if (! IocpChannelWakeAfterCompletion(lockedChanPtr)) {
+        /*
+         * Owning thread was not sleeping while blocked so need to notify
+         * it via the ready queue/event loop.
+         */
+        /* TBD - do we need to notify on error or 0 byte read (EOF) even if NOTIFY_INPUT
+           was not set ? */
+        if (lockedChanPtr->flags & IOCP_CHAN_F_WATCH_INPUT)
+            IocpChannelEnqueueEvent(lockedChanPtr, force);
+    }
 }
 
 /*
  *------------------------------------------------------------------------
  *
- * IocpCompletionRead --
+ * IocpCompleteConnect --
+ *
+ *    Handles completion of connect operations from IOCP.
+ *
+ * Results:
+ *    None.
+ *
+ * Side effects:
+ *    The channel state is changed to OPEN or CONNECT_FAILED depending
+ *    on buffer status. The passed bufPtr is freed. The Tcl thread is
+ *    notified via the event queue or woken up if blocked.
+ *
+ *------------------------------------------------------------------------
+ */
+static void IocpCompleteConnect(
+    IocpBuffer *bufPtr)         /* I/O completion buffer */
+{
+    IocpChannel *chanPtr = bufPtr->chanPtr;
+
+    IocpChannelLock(chanPtr);
+
+    switch (chanPtr->state) {
+    case IOCP_STATE_CONNECTING:
+        chanPtr->winError = bufPtr->winError;
+        chanPtr->state = bufPtr->winError == 0 ? IOCP_STATE_OPEN : IOCP_STATE_CONNECT_FAILED;
+        IocpChannelNudgeThread(chanPtr, 0);
+        break;
+
+    case IOCP_STATE_CLOSED: /* Ignore, nothing to be done */
+        break;
+
+    default: /* TBD - should not happen. How to report logic error */
+        break;
+    }
+
+    bufPtr->chanPtr = NULL;
+    IocpChannelDrop(chanPtr); /* Corresponding to bufPtr->chanPtr */
+    IocpBufferFree(bufPtr);
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpCompleteRead --
  *
  *    Handles completion of read operations from IOCP.
  *
@@ -328,13 +407,13 @@ static void IocpCompletionFailure(IocpBuffer *bufPtr)
  *    None.
  *
  * Side effects:
- *    On successful reads the passed bufPtr is enqueued on the owning
+ *    The passed bufPtr is freed or enqueued on the owning
  *    IocpChannel and the Tcl thread notified via the event loop. If the
  *    Tcl thread is blocked on this channel, it is woken up.
  *
  *------------------------------------------------------------------------
  */
-static void IocpCompletionRead(
+static void IocpCompleteRead(
     IocpBuffer *bufPtr)         /* I/O completion buffer */
 {
     IocpChannel *chanPtr = bufPtr->chanPtr;
@@ -367,19 +446,10 @@ static void IocpCompletionRead(
 
     /*
      * Note that zero bytes read => EOF. That will also be handled in the
-     * Tcl thread since in any case it has to be notified of closure.
+     * Tcl thread since in any case it has to be notified of closure. So
+     * also any errors indicated by bufPtr->winError.
      */
-
-    if (! IocpChannelWakeAfterCompletion(chanPtr)) {
-        /*
-         * Owning thread was not sleeping while blocked so need to notify
-         * it via the ready queue/event loop.
-         */
-        /* TBD - do we need to notify on 0 byte read (EOF) even if NOTIFY_INPUT
-           was not set ? */
-        if (chanPtr->flags & IOCP_CHAN_F_WATCH_INPUT)
-            IocpChannelEnqueueEvent(chanPtr, 0);
-    }
+    IocpChannelNudgeThread(chanPtr, 0);
 
     /* This drops the reference from bufPtr which was delayed (see above) */
     IocpChannelDrop(chanPtr);
@@ -400,29 +470,30 @@ IocpCompletionThread (LPVOID lpParam)
         while (1) {
             ok = GetQueuedCompletionStatus(iocpPort, &nbytes, &key,
                                            &overlapPtr, INFINITE);
-            if (!ok) {
-                if (overlapPtr) {
-                    bufPtr = CONTAINING_RECORD(overlapPtr, IocpBuffer, u);
-                    bufPtr->data.len = nbytes;
-                    bufPtr->winError = GetLastError();
-                    IocpCompletionFailure(bufPtr);
-                }
-                else {
+            if (overlapPtr == NULL) {
+                /* If ok, exit signal. Else some error */
+                if (! ok) {
                     /* TBD - how to signal or log error? */
-                    break;      /* iocp port probably no longer valid */
                 }
-            } else {
-                if (overlapPtr == NULL)
-                    break;      /* Exit signal */
-                IOCP_ASSERT(overlapPtr);
-                bufPtr = CONTAINING_RECORD(overlapPtr, IocpBuffer, u);
-                bufPtr->data.len = nbytes;
+                break;          /* Vamoose */
+            }
+            bufPtr = CONTAINING_RECORD(overlapPtr, IocpBuffer, u);
+            bufPtr->data.len = nbytes;
+            if (!ok) {
+                bufPtr->winError = GetLastError();
+                if (bufPtr->winError == 0)
+                    bufPtr->winError =  WSAEINVAL; /* TBD - what else? */
+            }
+            else {
                 bufPtr->winError = 0;
-                switch (bufPtr->operation) {
-                case IOCP_BUFFER_OP_READ:
-                    IocpCompletionRead(bufPtr);
-                    break;
-                }
+            }
+            switch (bufPtr->operation) {
+            case IOCP_BUFFER_OP_READ:
+                IocpCompleteRead(bufPtr);
+                break;
+            case IOCP_BUFFER_OP_CONNECT:
+                IocpCompleteConnect(bufPtr);
+                break;
             }
         }
     }
@@ -441,7 +512,7 @@ IocpCompletionThread (LPVOID lpParam)
  * Returns TCL_OK on success, TCL_ERROR on error.
  */
 Iocp_DoOnceState iocpProcessCleanupFlag;
-static IocpResultCode IocpProcessCleanup(ClientData clientdata)
+static IocpTclCode IocpProcessCleanup(ClientData clientdata)
 {
     if (iocpModuleState.initialized) {
         /* Tell completion port thread to exit and wait for it */
@@ -478,7 +549,7 @@ static void IocpProcessExitHandler(ClientData clientdata)
  * Returns TCL_OK on success, TCL_ERROR on error.
  */
 Iocp_DoOnceState iocpProcessInitFlag;
-static IocpResultCode IocpProcessInit(ClientData clientdata)
+static IocpTclCode IocpProcessInit(ClientData clientdata)
 {
     WSADATA wsa_data;
     Tcl_Interp *interp = (Tcl_Interp *)clientdata;
@@ -682,6 +753,7 @@ IocpChannelInput (
                 chanPtr->flags |= IOCP_CHAN_F_REMOTE_EOF;
                 break;
             }
+            chanPtr->winError = winError; /* TBD - should we check if already stored */
             bytesRead = -1;
             /* TBD - should we try to distinguish transient errors ? */
             IocpSetTclErrnoFromWin32(winError);
@@ -700,6 +772,7 @@ IocpChannelInput (
          */
         if (winError != 0 && bytesRead == 0) {
             bytesRead = -1;
+            chanPtr->winError = winError; /* TBD - should we check if already stored */
             IocpSetTclErrnoFromWin32(winError);
             *errorCodePtr = Tcl_GetErrno();
         }
@@ -949,14 +1022,29 @@ int IocpEventHandler(
     IocpChannelLock(chanPtr);
     channel = chanPtr->channel;
 
-    /* TBD - other cases */
     switch (chanPtr->state) {
+    case IOCP_STATE_CONNECT_FAILED:
+        /* Async connect failed. chanPtr->winError contains error. */
+        if (chanPtr->vtblPtr->connectfailed  == NULL ||
+            chanPtr->vtblPtr->connectfailed(chanPtr) != 0) {
+            /* No means to retry or retry failed. chanPtr->winError is error */
+            chanPtr->state = IOCP_STATE_DISCONNECTED;
+            chanPtr->flags |= IOCP_CHAN_F_REMOTE_EOF;
+            readyMask = IocpChannelFileEventMask(chanPtr);
+        } else {
+            chanPtr->state = IOCP_STATE_CONNECTING;
+        }
+
+        break;
     case IOCP_STATE_OPEN:
         /*
          * If Tcl wants to be notified of input and has not shutdown the read
          * side, notify if either data is available or EOF has been reached.
          */
         readyMask = IocpChannelFileEventMask(chanPtr);
+        break;
+    default:
+        /* TBD - other cases */
         break;
     }
 
@@ -1008,7 +1096,6 @@ DWORD IocpChannelPostReads(
     return (lockedChanPtr->pendingReads > 0) ? 0 : winError;
 }
 
-
 int
 Iocp_Init (Tcl_Interp *interp)
 {
@@ -1043,4 +1130,10 @@ Iocp_Init (Tcl_Interp *interp)
  * for a discussion.
  *
  * Can only resolve by trying both and measuring.
+ */
+
+/*
+ * TBD - design change - Instead of going through the event loop to
+ * notify fileevents, maybe set up a event source and set maxblocking time
+ * to 0 as the core winsock implementation does.
  */

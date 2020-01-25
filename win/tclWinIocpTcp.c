@@ -9,16 +9,22 @@
  * of this file, and for a DISCLAIMER OF ALL WARRANTIES.
  */
 #include <winsock2.h>
+#include <mswsock.h>
 #include <windows.h>
 #include "tcl.h"
 #include "tclWinIocp.h"
 
 
 /*
- * Copied from Tcl - 
+ * Copied from Tcl -
  * "sock" + a pointer in hex + \0
  */
-#define SOCK_CHAN_LENGTH        (4 + sizeof(void *) * 2 + 1)
+#if defined(BUILD_iocp)
+# define SOCK_CHAN_NAME_PREFIX   "tcp"
+#else
+# define SOCK_CHAN_NAME_PREFIX   "sock"
+#endif
+#define SOCK_CHAN_LENGTH        (sizeof(SOCK_CHAN_NAME_PREFIX)-1 + 2*sizeof(void *) + 1)
 #define SOCK_TEMPLATE           "sock%p"
 
 typedef struct IocpTcpChannel {
@@ -47,15 +53,18 @@ IOCP_INLINE IocpTcpChannel *IocpChannelToTcpChannel(IocpChannel *chanPtr) {
     return (IocpTcpChannel *) chanPtr;
 }
 
-static void IocpTcpChannelInit(IocpChannel *basePtr);
-static void IocpTcpChannelFinit(IocpChannel *chanPtr);
-static int IocpTcpChannelShutdown(Tcl_Interp *, IocpChannel *chanPtr, int flags);
+static void  IocpTcpChannelInit(IocpChannel *basePtr);
+static void  IocpTcpChannelFinit(IocpChannel *chanPtr);
+static int   IocpTcpChannelShutdown(Tcl_Interp *, IocpChannel *chanPtr, int flags);
+static DWORD IocpTcpPostConnect(IocpTcpChannel *chanPtr);
 static DWORD IocpTcpPostRead(IocpChannel *lockedChanPtr);
+static IocpWindowsError IocpTcpAsyncConnectFail(IocpChannel *lockedChanPtr);
 
 static IocpChannelVtbl tcpVtbl =  {
     IocpTcpChannelInit,
     IocpTcpChannelFinit,
     IocpTcpChannelShutdown,
+    IocpTcpAsyncConnectFail,
     IocpTcpPostRead,
     sizeof(IocpTcpChannel)
 };
@@ -177,6 +186,83 @@ static int IocpTcpChannelShutdown(
 /*
  *------------------------------------------------------------------------
  *
+ * IocpPostConnect --
+ *
+ *    Posts a connect request to the IO completion port for a Tcp channel.
+ *    The local and remote addresses are those specified in the tcpPtr
+ *    localAddr and remoteAddr fields. Neither must be NULL.
+ *
+ * Results:
+ *    Returns 0 on success or a Windows error code.
+ *
+ * Side effects:
+ *    A connection request buffer is posted to the completion port.
+ *
+ *------------------------------------------------------------------------
+ */
+static DWORD IocpTcpPostConnect(
+    IocpTcpChannel *tcpPtr  /* Channel pointer, may or may not be locked
+                             * but caller has to ensure no interference */
+    )
+{
+    static GUID     ConnectExGuid = WSAID_CONNECTEX;
+    LPFN_CONNECTEX  fnConnectEx;
+    IocpBuffer     *bufPtr;
+    DWORD           nbytes;
+    DWORD           winError;
+
+
+    /* Bind local address. Required for ConnectEx */
+    if (bind(tcpPtr->so, tcpPtr->localAddr->ai_addr,
+             (int) tcpPtr->localAddr->ai_addrlen) != 0) {
+        return WSAGetLastError();
+    }
+
+    /*
+     * Retrieve the ConnectEx function pointer. We do not cache
+     * because strictly speaking it depends on the socket and
+     * address family that map to a protocol driver.
+     */
+    if (WSAIoctl(tcpPtr->so, SIO_GET_EXTENSION_FUNCTION_POINTER,
+                 &ConnectExGuid, sizeof(GUID),
+                 &fnConnectEx,
+                 sizeof(fnConnectEx),
+                 &nbytes, NULL, NULL) != 0 ||
+        fnConnectEx == NULL) {
+        return WSAGetLastError();
+    }
+
+    if (CreateIoCompletionPort((HANDLE) tcpPtr->so,
+                               iocpModuleState.completion_port,
+                               (ULONG_PTR) tcpPtr,
+                               0) == NULL) {
+        return GetLastError(); /* NOT WSAGetLastError() ! */
+    }
+
+    bufPtr = IocpBufferNew(0, IOCP_BUFFER_OP_CONNECT, IOCP_BUFFER_F_WINSOCK);
+    if (bufPtr == NULL)
+        return WSAENOBUFS;
+
+    bufPtr->chanPtr    = TcpChannelToIocpChannel(tcpPtr);
+    tcpPtr->base.numRefs += 1; /* Reversed when buffer is unlinked from channel */
+
+    if (fnConnectEx(tcpPtr->so, tcpPtr->remoteAddr->ai_addr,
+                    (int) tcpPtr->remoteAddr->ai_addrlen, NULL, 0, &nbytes, &bufPtr->u.wsaOverlap) == FALSE) {
+        winError = WSAGetLastError();
+        if (winError != WSA_IO_PENDING) {
+            IocpBufferFree(bufPtr);
+            return winError;
+        }
+    }
+
+    tcpPtr->base.state = IOCP_STATE_CONNECTING;
+    return 0;
+}
+
+
+/*
+ *------------------------------------------------------------------------
+ *
  * IocpTcpPostRead --
  *
  *    Allocates a receive buffer and posts it to the socket associated
@@ -201,13 +287,11 @@ static DWORD IocpTcpPostRead(IocpChannel *lockedChanPtr)
     DWORD       wsaError;
 
     IOCP_ASSERT(lockedTcpPtr->base.state == IOCP_STATE_OPEN);
-    bufPtr = IocpBufferNew(IOCP_BUFFER_DEFAULT_SIZE);
+    bufPtr = IocpBufferNew(IOCP_BUFFER_DEFAULT_SIZE, IOCP_BUFFER_OP_READ,
+                           IOCP_BUFFER_F_WINSOCK);
     if (bufPtr == NULL)
         return WSAENOBUFS;
 
-    bufPtr->winError   = 0;
-    bufPtr->operation  = IOCP_BUFFER_OP_READ;
-    bufPtr->flags     |= IOCP_BUFFER_F_WINSOCK;
     bufPtr->chanPtr    = TcpChannelToIocpChannel(lockedTcpPtr);
     lockedTcpPtr->base.numRefs += 1; /* Reversed when buffer is unlinked from channel */
 
@@ -259,7 +343,7 @@ static DWORD IocpTcpPostRead(IocpChannel *lockedChanPtr)
  *
  *------------------------------------------------------------------------
  */
-static IocpResultCode IocpTcpEnableTransfer(
+static IocpTclCode IocpTcpEnableTransfer(
     Tcl_Interp *interp,
     IocpTcpChannel *tcpPtr)     /* Pointer to Tcp channel state. Must not
                                  * locked on entry, will not be locked on return
@@ -302,6 +386,7 @@ static IocpResultCode IocpTcpEnableTransfer(
         return TCL_OK;
 }
 
+
 /*
  *------------------------------------------------------------------------
  *
@@ -328,8 +413,8 @@ static IocpResultCode IocpTcpEnableTransfer(
  *
  *------------------------------------------------------------------------
  */
-static IocpResultCode IocpTcpBlockingConnect(
-    Tcl_Interp *interp,
+static IocpTclCode IocpTcpBlockingConnect(
+    Tcl_Interp *interp,    /* Used for error reporting, may be NULL */
     IocpTcpChannel *tcpPtr /* Must NOT be locked on entry, NOT locked on return */
 )
 {
@@ -345,20 +430,24 @@ static IocpResultCode IocpTcpBlockingConnect(
             so = socket(localAddr->ai_family, SOCK_STREAM, 0);
             /* Note socket call, unlike WSASocket is overlapped by default */
 
-            /* Sockets should not be inherited by children */
-            SetHandleInformation((HANDLE)so, HANDLE_FLAG_INHERIT, 0);
+            if (so != INVALID_SOCKET) {
+                /* Sockets should not be inherited by children */
+                SetHandleInformation((HANDLE)so, HANDLE_FLAG_INHERIT, 0);
 
-            /* Bind local address. */
-            if (bind(so, localAddr->ai_addr, localAddr->ai_addrlen) == 0 &&
-                connect(so, remoteAddr->ai_addr, remoteAddr->ai_addrlen) == 0) {
-                tcpPtr->base.state = IOCP_STATE_OPEN;
-                tcpPtr->so    = so;
-                return TCL_OK;
+                /* Bind local address. */
+                if (bind(so, localAddr->ai_addr, (int) localAddr->ai_addrlen) == 0 &&
+                    connect(so, remoteAddr->ai_addr, (int) remoteAddr->ai_addrlen) == 0) {
+                    tcpPtr->base.state = IOCP_STATE_OPEN;
+                    tcpPtr->so    = so;
+                    return TCL_OK;
+                }
             }
             winError = WSAGetLastError();
             /* No joy. Keep trying. */
-            closesocket(so);
-            so = INVALID_SOCKET;
+            if (so != INVALID_SOCKET) {
+                closesocket(so);
+                so = INVALID_SOCKET;
+            }
         }
     }
 
@@ -369,6 +458,104 @@ static IocpResultCode IocpTcpBlockingConnect(
         closesocket(so);
     return TCL_ERROR;
 }
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpTcpInitiateConnection --
+ *
+ *    Initiates an asynchronous TCP connection from the local address
+ *    pointed to by tcpPtr->localAddr to the remote address tcpPtr->remoteAddr.
+ *    One or both are updated to point to the next address (pair) to try
+ *    next in case this attempt does not succeed.
+ *
+ * Results:
+ *    0 if the connection was initiated successfully, otherwise Windows error
+ *    code which is also stored in tcpPtr->base.winError.
+ *
+ * Side effects:
+ *    A connect request is initiated and a completion buffer posted.
+ *
+ *------------------------------------------------------------------------
+ */
+static IocpWindowsError IocpTcpInitiateConnection(
+    IocpTcpChannel *tcpPtr)  /* Caller must ensure exclusivity either by locking
+                              * or ensuring no other thread can access */
+{
+    DWORD  winError = WSAHOST_NOT_FOUND; /* In case address lists are empty */
+    SOCKET so = INVALID_SOCKET;
+
+    IOCP_ASSERT(tcpPtr->base.state == IOCP_STATE_INIT || IOCP_STATE_CONNECTING);
+    IOCP_ASSERT(tcpPtr->so == INVALID_SOCKET);
+
+    tcpPtr->base.state = IOCP_STATE_CONNECTING;
+
+    for ( ; tcpPtr->remoteAddr; tcpPtr->remoteAddr = tcpPtr->remoteAddr->ai_next) {
+        for ( ; tcpPtr->localAddr; tcpPtr->localAddr = tcpPtr->localAddr->ai_next) {
+            if (tcpPtr->remoteAddr->ai_family != tcpPtr->localAddr->ai_family)
+                continue;
+            so = socket(tcpPtr->localAddr->ai_family, SOCK_STREAM, 0);
+            /* Note socket call, unlike WSASocket is overlapped by default */
+
+            if (so != INVALID_SOCKET) {
+                /* Sockets should not be inherited by children */
+                SetHandleInformation((HANDLE)so, HANDLE_FLAG_INHERIT, 0);
+                tcpPtr->so = so;
+                winError = IocpTcpPostConnect(tcpPtr);
+                if (winError == 0)
+                    return 0;
+                closesocket(so);
+                so         = INVALID_SOCKET;
+                tcpPtr->so = INVALID_SOCKET;
+            } else {
+                winError = WSAGetLastError();
+                /* No joy. Keep trying. */
+            }
+            /* Keep trying pairing this remote addr with next local addr. */
+        }
+        /* No joy with this remote addr. Reset local to try with next remote */
+        tcpPtr->localAddr = tcpPtr->localAddrList;
+    }
+
+    /*
+     * Failed. We report the stored error in preference to error in current call.
+     */
+    if (tcpPtr->base.winError == 0)
+        tcpPtr->base.winError = winError;
+    if (so != INVALID_SOCKET)
+        closesocket(so);
+    return tcpPtr->base.winError;
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpTcpAsyncConnectFail --
+ *
+ *    Called to handle connection failure on an async attempt. Attempts
+ *    to initiate a connection using another address or reports failure.
+ *
+ * Results:
+ *    Returns TCL_OK if a new connection attempt is successfully posted,
+ *    TCL_ERROR with a Windows error code stored in lockedChanPtr->winError.
+ *
+ * Side effects:
+ *
+ *------------------------------------------------------------------------
+ */
+IocpWindowsError IocpTcpAsyncConnectFail(
+    IocpChannel *lockedChanPtr) /* Must be locked on entry. */
+{
+    IocpTcpChannel *tcpPtr = IocpChannelToTcpChannel(lockedChanPtr);
+
+    IOCP_ASSERT(lockedChanPtr->state == IOCP_STATE_CONNECT_FAILED);
+    if (tcpPtr->so != INVALID_SOCKET) {
+        closesocket(tcpPtr->so);
+        tcpPtr->so = INVALID_SOCKET;
+    }
+    return IocpTcpInitiateConnection(tcpPtr);
+}
+
 
 /*
  *----------------------------------------------------------------------
@@ -428,31 +615,19 @@ Iocp_OpenTcpClient(
     if (!TclCreateSocketAddress(interp, &remoteAddrs, host, port, 0, &errorMsg)
             || !TclCreateSocketAddress(interp, &localAddrs, myaddr, myport, 1,
                     &errorMsg)) {
-        if (remoteAddrs != NULL) {
-            freeaddrinfo(remoteAddrs);
-        }
-        if (localAddrs != NULL) {
-            freeaddrinfo(localAddrs);
-        }
         if (interp != NULL) {
             Tcl_SetObjResult(interp, Tcl_ObjPrintf(
                     "couldn't resolve addresses: %s", errorMsg));
         }
-        return NULL;
+        goto fail;
     }
 
     tcpPtr = (IocpTcpChannel *) IocpChannelNew(interp, &tcpVtbl);
     if (tcpPtr == NULL) {
-        if (remoteAddrs != NULL) {
-            freeaddrinfo(remoteAddrs);
-        }
-        if (localAddrs != NULL) {
-            freeaddrinfo(localAddrs);
-        }
         if (interp != NULL) {
             Tcl_SetResult(interp, "couldn't allocate IocpTcpChannel", TCL_STATIC);
         }
-        return NULL;
+        goto fail;
     }
     tcpPtr->remoteAddrList = remoteAddrs;
     tcpPtr->remoteAddr     = remoteAddrs; /* First in remote address list */
@@ -460,11 +635,10 @@ Iocp_OpenTcpClient(
     tcpPtr->localAddr      = localAddrs;  /* First in local address list */
 
     if (async) {
-#ifdef TBD
-        if (IocpTcpInitiateConnect(interp, tcpPtr) != TCL_OK) {
+        if (IocpTcpInitiateConnection(tcpPtr) != TCL_OK) {
+            Iocp_ReportWindowsError(interp, tcpPtr->base.winError, "couldn't open socket: ");
             goto fail;
         }
-#endif
     }
     else {
         if (IocpTcpBlockingConnect(interp, tcpPtr) != TCL_OK)
@@ -498,7 +672,7 @@ Iocp_OpenTcpClient(
      * The two cancel and numRefs stays at 1 as allocated. The corresponding
      * unref will be via IocpCloseProc when Tcl closes the channel.
      */
-    sprintf(channelName, SOCK_TEMPLATE, tcpPtr);
+    sprintf_s(channelName, sizeof(channelName)/sizeof(channelName[0]), SOCK_TEMPLATE, tcpPtr);
     channel = Tcl_CreateChannel(&IocpChannelDispatch, channelName,
                                         tcpPtr, (TCL_READABLE | TCL_WRITABLE));
     tcpPtr->base.channel = channel;
@@ -524,11 +698,12 @@ fail:
     /*
      * Failure exit. If tcpPtr is allocated, rely on it to clean up
      * else we have to free up address list ourselves.
-     * NOTE: tcpPtr must NOT be locked when jumping here.
+     * NOTE: tcpPtr (if not NULL) must NOT be locked when jumping here.
      */
     if (tcpPtr) {
         IocpChannel *chanPtr = TcpChannelToIocpChannel(tcpPtr);
-        IocpChannelDrop(chanPtr);
+        IocpChannelLock(chanPtr); /* Because IocpChannelDrop expects that */
+        IocpChannelDrop(chanPtr); /* Will also free attached {local,remote}Addrs */
     }
     else {
         if (remoteAddrs != NULL) {
