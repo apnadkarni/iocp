@@ -630,19 +630,12 @@ IocpChannelClose (
 
     IocpChannelLock(chanPtr);
 
-    /*
-     * Before this function is called, IocpThreadAction should have been
-     * called to remove the channel from all threads. However, just for
-     * the record in case of future changes, we do not need to remove from
-     * the TSD ready queue in any case since when the ready notification
-     * is dequeued a check is made to see if channel is already detached.
-     */
-
     /* Call specific IOCP type to close OS handles */
     ret = (chanPtr->vtblPtr->shutdown)(interp, chanPtr, 
                                              TCL_CLOSE_READ|TCL_CLOSE_WRITE);
 
     /* Irrespective of errors in above call, we're done with this channel */
+    chanPtr->state   = IOCP_STATE_CLOSED;
     chanPtr->channel = NULL;
     IocpChannelDrop(chanPtr); /* Drops ref count from Tcl channel */
     /* Do NOT refer to chanPtr beyond this point */
@@ -1013,8 +1006,38 @@ IocpChannelClose2 (
     Tcl_Interp *interp,		/* Unused. */
     int flags)
 {
-    /* TBD */
-    return 0;
+    IocpChannel *chanPtr = (IocpChannel*)instanceData;
+    int          ret;
+
+    /* As per manpage, if flags 0, treat as Close */
+    if (flags == 0)
+        return IocpChannelClose(instanceData, interp);
+
+    /* As per Tcl Winsock code in 8.6, raise error if both flags set */
+    /* TBD - we could treate this as Close as well instead */
+    flags &= TCL_CLOSE_READ | TCL_CLOSE_WRITE;
+    if (flags == (TCL_CLOSE_READ|TCL_CLOSE_WRITE)) {
+        if (interp) {
+            Tcl_SetResult(interp, "socket close2proc called bidirectionally", TCL_STATIC);
+        }
+        return EINVAL;
+    }
+
+    IocpChannelLock(chanPtr);
+
+    /* Call specific IOCP type to close OS handles */
+    ret = (chanPtr->vtblPtr->shutdown)(interp, chanPtr, flags);
+
+    if (flags & TCL_CLOSE_READ)
+        chanPtr->flags |= IOCP_CHAN_F_WRITEONLY;
+    if (flags & TCL_CLOSE_WRITE)
+        chanPtr->flags |= IOCP_CHAN_F_READONLY;
+
+    IocpChannelUnlock(chanPtr);
+
+    return ret;
+
+
 }
 
 static int
@@ -1035,14 +1058,19 @@ IocpChannelBlockMode (
     return 0;
 }
 
-static int
+static IocpTclCode
 IocpChannelGetHandle (
     ClientData instanceData,	/* The socket state. */
     int direction,		/* TCL_READABLE or TCL_WRITABLE */
     ClientData *handlePtr)	/* Where to store the handle.  */
 {
-    // TBD
-    return TCL_ERROR;
+    IocpChannel *chanPtr = (IocpChannel*)instanceData;
+    IocpTclCode ret;
+
+    IocpChannelLock(chanPtr);
+    ret = (chanPtr->vtblPtr->gethandle)(chanPtr, direction, handlePtr);
+    IocpChannelUnlock(chanPtr);
+    return ret;
 }
 
 /*

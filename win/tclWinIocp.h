@@ -390,7 +390,17 @@ typedef struct IocpChannelVtbl {
         IocpChannel *lockedChanPtr, /* Locked on entry, locked on return */
         const char  *bytesPtr,      /* Pointer to data buffer */
         int          nbytes,        /* Number of bytes to write */
-        int         *countPtr);      /* Where to store number written */
+        int         *countPtr);     /* Where to store number written */
+
+    /*
+     * gethandle() retrieves the operating system handle associated with the
+     * channel. On success, the function should return TCL_OK and store the
+     * handle in *handlePtr. On error, it should return TCL_ERROR.
+     */
+    IocpTclCode (*gethandle)(
+        IocpChannel *lockedChanPtr, /* Locked on entry, locked on return */
+        int direction,              /* TCL_READABLE or TCL_WRITABLE */
+        ClientData *handlePtr);     /* Where to store the handle */
 
     int allocationSize;   /* Size of IocpChannel subclass structure . Used to
                            * allocate memory */

@@ -60,8 +60,8 @@ static IocpWindowsError IocpTcpPostConnect(IocpTcpChannel *chanPtr);
 static IocpWindowsError IocpTcpBlockingConnect(IocpChannel *);
 static IocpWindowsError IocpTcpPostRead(IocpChannel *);
 static IocpWindowsError IocpTcpPostWrite(IocpChannel *, const char *data, int nbytes, int *countPtr);
-
 static IocpWindowsError IocpTcpAsyncConnectFail(IocpChannel *lockedChanPtr);
+static IocpTclCode      IocpTcpGetHandle(IocpChannel *lockedChanPtr, int direction, ClientData *handlePtr);
 
 static IocpChannelVtbl tcpVtbl =  {
     IocpTcpChannelInit,
@@ -71,6 +71,7 @@ static IocpChannelVtbl tcpVtbl =  {
     IocpTcpAsyncConnectFail,
     IocpTcpPostRead,
     IocpTcpPostWrite,
+    IocpTcpGetHandle,
     sizeof(IocpTcpChannel)
 };
 
@@ -186,6 +187,33 @@ static int IocpTcpChannelShutdown(
         }
     }
     return 0;
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpTcpGetHandle --
+ *
+ *    Implements IocpChannel's gethandle(). See comments there.
+ *
+ * Results:
+ *    TCL_OK on success, TCL_ERROR on error.
+ *
+ * Side effects:
+ *    The socket handle is returned in *handlePtr.
+ *
+ *------------------------------------------------------------------------
+ */
+static IocpTclCode IocpTcpGetHandle(
+    IocpChannel *lockedChanPtr,
+    int direction,
+    ClientData *handlePtr)
+{
+    SOCKET so = IocpChannelToTcpChannel(lockedChanPtr)->so;
+    if (so == INVALID_SOCKET)
+        return TCL_ERROR;
+    *handlePtr = (ClientData) so;
+    return TCL_OK;
 }
 
 /*
