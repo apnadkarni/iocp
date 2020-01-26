@@ -32,7 +32,7 @@
 
 /* Typedefs just to make return value semantics obvious */
 typedef int   IocpTclCode;
-typedef DWORD IocpWindowsError;
+typedef DWORD IocpWinError;
 typedef int   IocpPosixError;
 
 /*
@@ -209,7 +209,7 @@ typedef struct IocpBuffer {
                                     * associated IocpChannel */
     IocpDataBuffer    data;        /* Data buffer */
     IocpLink          link;        /* Links buffers in a queue */
-    IocpWindowsError  winError;    /* Error code (0 on success) */
+    IocpWinError  winError;    /* Error code (0 on success) */
     enum IocpBufferOp operation;   /* I/O operation */
     int               flags;
     #define IOCP_BUFFER_F_WINSOCK 0x1 /* Buffer used for a Winsock operation.
@@ -220,7 +220,7 @@ typedef struct IocpBuffer {
 enum IocpState {
     IOCP_STATE_INIT,           /* Just allocated */
     IOCP_STATE_CONNECTING,     /* Connect sent, awaiting completion */
-    IOCP_STATE_CONNECT_FAILED, /* Connect failed */
+    IOCP_STATE_CONNECT_RETRY,  /* Connect failed, retrying */
     IOCP_STATE_OPEN,           /* Open for data transfer */
     IOCP_STATE_DISCONNECTING,  /* Local end has initiated disconnection */
     IOCP_STATE_DISCONNECTED,   /* Remote end has disconnected */
@@ -289,7 +289,7 @@ typedef struct IocpChannel {
     LONG      numRefs;         /* Reference count */
 
     enum IocpTcpState state;   /* IOCP_STATE_* */
-    IocpWindowsError  winError;    /* Last error code on I/O */
+    IocpWinError  winError;    /* Last error code on I/O */
 
     int pendingReads;                 /* Number of outstanding posted reads */
     int maxPendingReads;              /* Max number of outstanding posted reads */
@@ -360,7 +360,7 @@ typedef struct IocpChannelVtbl {
      * to the remote end for connection based channels. It should return 0
      * on a successful connect or a Windows error code on failure.
      */
-    IocpWindowsError (*blockingconnect)( /* May be NULL */
+    IocpWinError (*blockingconnect)( /* May be NULL */
         IocpChannel *lockedChanPtr);     /* Locked on entry. Must be locked on
                                           * return. */
 
@@ -369,7 +369,7 @@ typedef struct IocpChannelVtbl {
      * It is up to the driver to retry or close the channel. Should return
      * 0 if another connect was initiated or an Windows error code.
      */
-    IocpWindowsError (*connectfailed)( /* May be NULL */
+    IocpWinError (*connectfailed)( /* May be NULL */
         IocpChannel *lockedChanPtr);   /* Locked on entry. Must be locked on
                                         * return. */
     /*
@@ -386,7 +386,7 @@ typedef struct IocpChannelVtbl {
      * the function should return 0 and store 0 in *countPtr. On error,
      * the function return a Windows error code. countPtr is ignored.
      */
-    IocpWindowsError (*postwrite)(
+    IocpWinError (*postwrite)(
         IocpChannel *lockedChanPtr, /* Locked on entry, locked on return */
         const char  *bytesPtr,      /* Pointer to data buffer */
         int          nbytes,        /* Number of bytes to write */
@@ -401,6 +401,21 @@ typedef struct IocpChannelVtbl {
         IocpChannel *lockedChanPtr, /* Locked on entry, locked on return */
         int direction,              /* TCL_READABLE or TCL_WRITABLE */
         ClientData *handlePtr);     /* Where to store the handle */
+
+    /*
+     * getoption() retrieves the value of a specified option. On success,
+     * should return TCL_OK with value stored in *dsPtr. On error, return
+     * TCL_ERROR with error message in interp if not NULL.
+     */
+    IocpTclCode (*getoption)(
+        IocpChannel *lockedChanPtr, /* Locked on entry, locked on return */
+        Tcl_Interp  *interp,        /* For error reporting - can be NULL */
+        int         optIndex,       /* Index into optionNames[] */
+        Tcl_DString *dsPtr);        /* Where to store the computed
+                                     * value; initialized by caller. */
+
+    const char **optionNames;  /* Array of option names terminated with
+                                *  NULL. May be NULL if no options */
 
     int allocationSize;   /* Size of IocpChannel subclass structure . Used to
                            * allocate memory */

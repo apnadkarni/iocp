@@ -364,7 +364,7 @@ void IocpChannelNudgeThread(
  *    None.
  *
  * Side effects:
- *    The channel state is changed to OPEN or CONNECT_FAILED depending
+ *    The channel state is changed to OPEN or CONNECT_RETRY depending
  *    on buffer status. The passed bufPtr is freed. The Tcl thread is
  *    notified via the event queue or woken up if blocked.
  *
@@ -380,7 +380,7 @@ static void IocpCompleteConnect(
     switch (chanPtr->state) {
     case IOCP_STATE_CONNECTING:
         chanPtr->winError = bufPtr->winError;
-        chanPtr->state = bufPtr->winError == 0 ? IOCP_STATE_OPEN : IOCP_STATE_CONNECT_FAILED;
+        chanPtr->state = bufPtr->winError == 0 ? IOCP_STATE_OPEN : IOCP_STATE_CONNECT_RETRY;
         IocpChannelNudgeThread(chanPtr, 0);
         break;
 
@@ -683,7 +683,7 @@ IocpChannelInput (
         }
         /* Channel is blocking and we are awaiting async connect to complete */
         IocpChannelAwaitCompletion(chanPtr);
-        if (chanPtr->state == IOCP_STATE_CONNECT_FAILED) {
+        if (chanPtr->state == IOCP_STATE_CONNECT_RETRY) {
             /* Retry connecting in blocking mode if possible */
             if (chanPtr->vtblPtr->blockingconnect) {
                 chanPtr->vtblPtr->blockingconnect(chanPtr);
@@ -833,7 +833,7 @@ vamoose:
 static int
 IocpChannelOutput (
     ClientData  instanceData,	/* IocpChannel pointer */
-    CONST char *bytes,		/* Buffer */
+    const char *bytes,		/* Buffer */
     int         nbytes,		/* Maximum number of bytes to write. */
     int *errorCodePtr)		/* Where to store error codes. */
 {
@@ -852,7 +852,7 @@ IocpChannelOutput (
         }
         /* Blocking write on a async connect. Wait for connect to complete */
         IocpChannelAwaitCompletion(chanPtr);
-        if (chanPtr->state == IOCP_STATE_CONNECT_FAILED) {
+        if (chanPtr->state == IOCP_STATE_CONNECT_RETRY) {
             /* Retry connecting in blocking mode if possible */
             if (chanPtr->vtblPtr->blockingconnect) {
                 chanPtr->vtblPtr->blockingconnect(chanPtr);
@@ -893,30 +893,115 @@ IocpChannelOutput (
     return written;
 }
 
-static int
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpParseOption --
+ *
+ *    Maps the passed TCP option name string to it index in passed table.
+ *
+ * Results:
+ *    Index into table or -1 if not found. An error is stored in interp
+ *    in case of errors.
+ *
+ * Side effects:
+ *    None.
+ *
+ *------------------------------------------------------------------------
+ */
+static int IocpParseOption(
+    Tcl_Interp *interp,         /* Used for error message. May be NULL. */
+    const char *optNames[],     /* Array of option names terminated by NULL */
+    const char *optName         /* Option name string */
+    )
+{
+    int opt = 0;
+    while (optNames[opt]) {
+        if (strcmp(optName, optNames[opt]) == 0)
+            return opt;
+    }
+    if (interp) {
+        Tcl_DString ds;
+        Tcl_DStringInit(&ds);
+        opt = 0;
+        while (optNames[opt])
+            Tcl_DStringAppendElement(&ds, optNames[opt]);
+        Tcl_BadChannelOption(interp, optName, Tcl_DStringValue(&ds));
+        Tcl_DStringFree(&ds);
+    }
+    return -1;
+}
+
+static IocpTclCode
 IocpChannelSetOption (
     ClientData instanceData,	/* Socket state. */
     Tcl_Interp *interp,		/* For error reporting - can be NULL. */
-    CONST char *optionName,	/* Name of the option to set. */
-    CONST char *value)		/* New value for option. */
+    const char *optionName,	/* Name of the option to set. */
+    const char *value)		/* New value for option. */
 {
     // TBD
     return TCL_ERROR;
 }
 
-static int
+static IocpTclCode
 IocpChannelGetOption (
-    ClientData instanceData,	/* Socket state. */
-    Tcl_Interp *interp,		/* For error reporting - can be NULL */
-    CONST char *optionName,	/* Name of the option to
-				 * retrieve the value for, or
-				 * NULL to get all options and
-				 * their values. */
-    Tcl_DString *dsPtr)		/* Where to store the computed
-				 * value; initialized by caller. */
+    ClientData instanceData,    /* Socket state. */
+    Tcl_Interp *interp,         /* For error reporting - can be NULL */
+    const char *optName,        /* Name of the option to
+                                 * retrieve the value for, or
+                                 * NULL to get all options and
+                                 * their values. */
+    Tcl_DString *dsPtr)         /* Where to store the computed
+                                 * value; initialized by caller. */
 {
-    // TBD
-    return TCL_ERROR;
+    IocpChannel *chanPtr = (IocpChannel *)instanceData;
+    IocpTclCode  ret;
+    int          opt;
+
+    IocpChannelLock(chanPtr);
+    if (chanPtr->vtblPtr->optionNames && chanPtr->vtblPtr->getoption) {
+        /* Channel type supports type-specific options */
+        if (optName) {
+            /* Return single option value */
+            opt = IocpParseOption(interp, chanPtr->vtblPtr->optionNames, optName);
+            if (opt == -1)
+                ret = TCL_ERROR;
+            else
+                ret = chanPtr->vtblPtr->getoption(chanPtr, interp, opt, dsPtr);
+        }
+        else {
+            /* Provide list of all option values */
+            Tcl_DString optDs;
+            Tcl_DStringInit(&optDs);
+            opt = 0;
+            while (chanPtr->vtblPtr->optionNames[opt]) {
+                ret = chanPtr->vtblPtr->getoption(chanPtr, NULL, opt, &optDs);
+                /*
+                 * We do not treat ret = -1 as error. Assume it is a write-only
+                 * and ignore it.
+                 */
+                if (ret != -1) {
+                    Tcl_DStringAppendElement(dsPtr, chanPtr->vtblPtr->optionNames[opt]);
+                    Tcl_DStringAppendElement(dsPtr, Tcl_DStringValue(&optDs));
+                }
+                Tcl_DStringFree(&optDs);
+                ++opt;
+            }
+            ret = TCL_OK;
+        }
+    } else {
+        /* No channel specific options */
+        if (optName) {
+            ret = Tcl_BadChannelOption(interp, optName, "");
+        }
+        else {
+            /* No problem. Just return the pre-inited empty dsPtr */
+            ret = TCL_OK;
+        }
+    }
+
+    IocpChannelUnlock(chanPtr);
+    return ret;
 }
 
 /*
@@ -1147,7 +1232,7 @@ int IocpEventHandler(
     channel = chanPtr->channel;
 
     switch (chanPtr->state) {
-    case IOCP_STATE_CONNECT_FAILED:
+    case IOCP_STATE_CONNECT_RETRY:
         /* Async connect failed. chanPtr->winError contains error. */
         if (chanPtr->vtblPtr->connectfailed  == NULL ||
             chanPtr->vtblPtr->connectfailed(chanPtr) != 0) {

@@ -27,6 +27,55 @@
 #define SOCK_CHAN_LENGTH        (sizeof(SOCK_CHAN_NAME_PREFIX)-1 + 2*sizeof(void *) + 1)
 #define SOCK_TEMPLATE           "sock%p"
 
+
+/*
+ * Copied from Tcl - 
+ * This is needed to comply with the strict aliasing rules of GCC, but it also
+ * simplifies casting between the different sockaddr types.
+ */
+
+typedef union {
+    struct sockaddr sa;
+    struct sockaddr_in sa4;
+    struct sockaddr_in6 sa6;
+    struct sockaddr_storage sas;
+} IocpInetAddress;
+#ifndef IN6_ARE_ADDR_EQUAL
+#define IN6_ARE_ADDR_EQUAL IN6_ADDR_EQUAL
+#endif
+/*
+ * Make sure to remove the redirection defines set in tclWinPort.h that is in
+ * use in other sections of the core, except for us.
+ */
+
+#undef getservbyname
+#undef getsockopt
+#undef setsockopt
+/* END Copied from Tcl */
+
+/*
+ * Tcp socket options. Note order must match order of string option names
+ * in the iocpTcpOptionNames array.
+ */
+enum IocpTcpOption {
+    IOCP_TCP_OPT_PEERNAME,
+    IOCP_TCP_OPT_SOCKNAME,
+    IOCP_TCP_OPT_ERROR,
+    IOCP_TCP_OPT_CONNECTING,
+    IOCP_TCP_OPT_INVALID        /* Must be last */
+};
+
+/*
+ * Options supported by TCP sockets. Note the order MUST match IocpTcpOptions
+ */
+static const char *iocpTcpOptionNames[] = {
+    "-peername",
+    "-socknamt",
+    "-error",
+    "-connecting",
+    NULL
+};
+
 typedef struct IocpTcpChannel {
     IocpChannel base;           /* Common IOCP channel structure. Must be
                                  * first because of how structures are
@@ -53,17 +102,27 @@ IOCP_INLINE IocpTcpChannel *IocpChannelToTcpChannel(IocpChannel *chanPtr) {
     return (IocpTcpChannel *) chanPtr;
 }
 
-static void  IocpTcpChannelInit(IocpChannel *basePtr);
-static void  IocpTcpChannelFinit(IocpChannel *chanPtr);
-static int   IocpTcpChannelShutdown(Tcl_Interp *, IocpChannel *chanPtr, int flags);
-static IocpWindowsError IocpTcpPostConnect(IocpTcpChannel *chanPtr);
-static IocpWindowsError IocpTcpBlockingConnect(IocpChannel *);
-static IocpWindowsError IocpTcpPostRead(IocpChannel *);
-static IocpWindowsError IocpTcpPostWrite(IocpChannel *, const char *data, int nbytes, int *countPtr);
-static IocpWindowsError IocpTcpAsyncConnectFail(IocpChannel *lockedChanPtr);
-static IocpTclCode      IocpTcpGetHandle(IocpChannel *lockedChanPtr, int direction, ClientData *handlePtr);
+static void             IocpTcpChannelInit(IocpChannel *basePtr);
+static void             IocpTcpChannelFinit(IocpChannel *chanPtr);
+static int              IocpTcpChannelShutdown(Tcl_Interp *,
+                                               IocpChannel *chanPtr, int flags);
+static IocpWinError IocpTcpPostConnect(IocpTcpChannel *chanPtr);
+static IocpWinError IocpTcpBlockingConnect(IocpChannel *);
+static IocpWinError IocpTcpPostRead(IocpChannel *);
+static IocpWinError IocpTcpPostWrite(IocpChannel *, const char *data,
+                                         int nbytes, int *countPtr);
+static IocpWinError IocpTcpAsyncConnectFail(IocpChannel *lockedChanPtr);
+static IocpTclCode      IocpTcpGetHandle(IocpChannel *lockedChanPtr,
+                                         int direction, ClientData *handlePtr);
+static IocpTclCode      IocpTcpGetOption (IocpChannel *lockedChanPtr,
+                                              Tcl_Interp *interp, int optIndex,
+                                              Tcl_DString *dsPtr);
+static IocpWinError IocpTcpListifyAddress(const IocpInetAddress *addr,
+                                              int addr_size, int noRDNS,
+                                              Tcl_DString *dsPtr);
 
 static IocpChannelVtbl tcpVtbl =  {
+    /* "Virtual" functions */
     IocpTcpChannelInit,
     IocpTcpChannelFinit,
     IocpTcpChannelShutdown,
@@ -72,8 +131,96 @@ static IocpChannelVtbl tcpVtbl =  {
     IocpTcpPostRead,
     IocpTcpPostWrite,
     IocpTcpGetHandle,
+    IocpTcpGetOption,
+    /* Data members */
+    iocpTcpOptionNames,
     sizeof(IocpTcpChannel)
 };
+
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpTcpListifyAddress --
+ *
+ *    Converts a IP4/IP6 SOCKADDR to a list consisting of the IP address
+ *    the name and the port number. If the address cannot be mapped to a
+ *    name name, the numeric address is returned in that field.
+ *
+ * Results:
+ *    Returns 0 on success with *dsPtr filled in or a Windows error code
+ *    on failure.
+ *
+ * Side effects:
+ *    None.
+ *
+ *------------------------------------------------------------------------
+ */
+IocpWinError IocpTcpListifyAddress(
+    const IocpInetAddress *addrPtr,    /* Address to listify */
+    int                    addrSize,   /* Size of address structure */
+    int                    noRDNS,     /* If true, no name lookup is done */
+    Tcl_DString           *dsPtr)      /* Caller-initialized location for output */
+{
+    int  flags;
+    char host[NI_MAXHOST];
+    char service[NI_MAXSERV];
+    int  dsLen;
+
+    flags = noRDNS ? NI_NUMERICHOST|NI_NUMERICSERV : NI_NUMERICSERV;
+
+    if (getnameinfo(&addrPtr->sa, addrSize, host, sizeof(host)/sizeof(host[0]),
+                    service, sizeof(service)/sizeof(service[0]), flags) != 0) {
+        return WSAGetLastError();
+    }
+
+    /* Note original length in case we need to revert after modification */
+    dsLen = Tcl_DStringLength(dsPtr);
+
+    Tcl_DStringStartSublist(dsPtr);
+    Tcl_DStringAppendElement(dsPtr, host);
+
+    if (noRDNS) {
+        /* No reverse lookup, so just repeat in numeric address form */
+        Tcl_DStringAppendElement(dsPtr, host);
+    }
+    else {
+        /*
+         * Based on comments in 8.6 Tcl winsock, do not try resolving
+         * INADDR_ANY and sin6addr_any as they sometimes cause problems.
+         * (no mention of what problems)
+         */
+        if (addrPtr->sa.sa_family == AF_INET) {
+            if (addrPtr->sa4.sin_addr.s_addr == INADDR_ANY)
+                flags |= NI_NUMERICHOST; /* Turn off lookup */
+        }
+        else {
+            IOCP_ASSERT(addrPtr->sa.sa_family == AF_INET6);
+            if ((IN6_ARE_ADDR_EQUAL(&addrPtr->sa6.sin6_addr,
+				    &in6addr_any)) ||
+                (IN6_IS_ADDR_V4MAPPED(&addrPtr->sa6.sin6_addr)
+                 && addrPtr->sa6.sin6_addr.s6_addr[12] == 0
+                 && addrPtr->sa6.sin6_addr.s6_addr[13] == 0
+                 && addrPtr->sa6.sin6_addr.s6_addr[14] == 0
+                 && addrPtr->sa6.sin6_addr.s6_addr[15] == 0)) {
+                flags |= NI_NUMERICHOST;
+            }
+        }
+        if (getnameinfo(&addrPtr->sa, addrSize, host,
+                        sizeof(host)/sizeof(host[0]),
+                        NULL, 0, flags) != 0) {
+            Tcl_DStringTrunc(dsPtr, dsLen); /* Restore */
+            return WSAGetLastError();
+        }
+
+        Tcl_DStringAppendElement(dsPtr, host);
+    }
+
+    Tcl_DStringAppendElement(dsPtr, service);
+    Tcl_DStringEndSublist(dsPtr);
+
+    return 0;
+}
 
 /*
  *------------------------------------------------------------------------
@@ -189,6 +336,7 @@ static int IocpTcpChannelShutdown(
     return 0;
 }
 
+
 /*
  *------------------------------------------------------------------------
  *
@@ -219,6 +367,78 @@ static IocpTclCode IocpTcpGetHandle(
 /*
  *------------------------------------------------------------------------
  *
+ * IocpTcpGetOption --
+ *
+ *    Returns the value of the given option.
+ *
+ * Results:
+ *    Returns TCL_OK on succes and TCL_ERROR on failure.
+ *
+ * Side effects:
+ *    On success the value of the option is stored in *dsPtr.
+ *
+ *------------------------------------------------------------------------
+ */
+IocpTclCode IocpTcpGetOption(
+    IocpChannel *lockedChanPtr, /* Locked on entry, locked on exit */
+    Tcl_Interp  *interp,        /* For error reporting. May be NULL */
+    int          opt,           /* Index into option table for option of interest */
+    Tcl_DString *dsPtr)         /* Where to store the value */
+{
+    IocpTcpChannel *lockedTcpPtr  = IocpChannelToTcpChannel(lockedChanPtr);
+    IocpInetAddress addr;
+    IocpWinError    winError;
+    int  addrSize;
+    int  noRDNS = 0;
+#define SUPPRESS_RDNS_VAR "::tcl::unsupported::noReverseDNS"
+
+    if (lockedTcpPtr->so == INVALID_SOCKET) {
+        if (interp)
+            Tcl_SetResult(interp, "No socket associated with channel.", TCL_STATIC);
+        return TCL_ERROR;
+    }
+    if (interp != NULL && Tcl_GetVar(interp, SUPPRESS_RDNS_VAR, 0) != NULL) {
+	noRDNS = NI_NUMERICHOST;
+    }
+
+    switch (opt) {
+    case IOCP_TCP_OPT_CONNECTING:
+        Tcl_DStringAppend(dsPtr,
+                          lockedTcpPtr->base.state == IOCP_STATE_CONNECTING ? "1" : "0",
+                          1);
+        return TCL_OK;
+    case IOCP_TCP_OPT_ERROR:
+        /* As per Tcl winsock, do not report errors in connecting state */
+        if (lockedTcpPtr->base.state != IOCP_STATE_CONNECTING &&
+            lockedTcpPtr->base.winError != ERROR_SUCCESS) {
+            Tcl_Obj *objPtr = Iocp_MapWindowsError(lockedTcpPtr->base.winError,
+                                                   NULL, NULL);
+            int      nbytes;
+            char    *emessage = Tcl_GetStringFromObj(objPtr, &nbytes);
+            Tcl_DStringAppend(dsPtr, emessage, nbytes);
+            Tcl_DecrRefCount(objPtr);
+        }
+        return TCL_OK;
+    case IOCP_TCP_OPT_PEERNAME:
+    case IOCP_TCP_OPT_SOCKNAME:
+        addrSize = sizeof(addr);
+        if ((opt==IOCP_TCP_OPT_PEERNAME?getpeername:getsockname)(lockedTcpPtr->so, &addr.sa, &addrSize) != 0)
+            winError = WSAGetLastError();
+        else
+            winError = IocpTcpListifyAddress(&addr, addrSize, noRDNS, dsPtr);
+        if (winError == 0)
+            return TCL_OK;
+        else 
+            return Iocp_ReportWindowsError(interp, winError, NULL);
+    default:
+        Tcl_SetObjResult(interp, Tcl_ObjPrintf("Internal error: invalid socket option index %d", opt));
+        return TCL_ERROR;
+    }
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
  * IocpPostConnect --
  *
  *    Posts a connect request to the IO completion port for a Tcp channel.
@@ -233,7 +453,7 @@ static IocpTclCode IocpTcpGetHandle(
  *
  *------------------------------------------------------------------------
  */
-static IocpWindowsError IocpTcpPostConnect(
+static IocpWinError IocpTcpPostConnect(
     IocpTcpChannel *tcpPtr  /* Channel pointer, may or may not be locked
                              * but caller has to ensure no interference */
     )
@@ -312,7 +532,7 @@ static IocpWindowsError IocpTcpPostConnect(
  *
  *------------------------------------------------------------------------
  */
-static IocpWindowsError IocpTcpPostRead(IocpChannel *lockedChanPtr)
+static IocpWinError IocpTcpPostRead(IocpChannel *lockedChanPtr)
 {
     IocpTcpChannel *lockedTcpPtr = IocpChannelToTcpChannel(lockedChanPtr);
     IocpBuffer *bufPtr;
@@ -372,7 +592,7 @@ static IocpWindowsError IocpTcpPostRead(IocpChannel *lockedChanPtr)
  *
  *------------------------------------------------------------------------
  */
-static IocpWindowsError IocpTcpPostWrite(
+static IocpWinError IocpTcpPostWrite(
     IocpChannel *lockedChanPtr, /* Must be locked on entry */
     const char  *bytes,         /* Pointer to data to write */
     int          nbytes,        /* Number of data bytes to write */
@@ -517,7 +737,7 @@ static IocpTclCode IocpTcpEnableTransfer(
  *
  *------------------------------------------------------------------------
  */
-static IocpWindowsError IocpTcpBlockingConnect(
+static IocpWinError IocpTcpBlockingConnect(
     IocpChannel *chanPtr) /* May or may not be locked but caller must ensure
                            * exclusivity */
 {
@@ -557,7 +777,7 @@ static IocpWindowsError IocpTcpBlockingConnect(
 
 
     /* Failed to connect. Return an error */
-    tcpPtr->base.state    = IOCP_STATE_CONNECT_FAILED;
+    tcpPtr->base.state    = IOCP_STATE_DISCONNECTED;
     tcpPtr->base.winError = winError;
 
     if (so != INVALID_SOCKET)
@@ -584,7 +804,7 @@ static IocpWindowsError IocpTcpBlockingConnect(
  *
  *------------------------------------------------------------------------
  */
-static IocpWindowsError IocpTcpInitiateConnection(
+static IocpWinError IocpTcpInitiateConnection(
     IocpTcpChannel *tcpPtr)  /* Caller must ensure exclusivity either by locking
                               * or ensuring no other thread can access */
 {
@@ -626,6 +846,7 @@ static IocpWindowsError IocpTcpInitiateConnection(
     /*
      * Failed. We report the stored error in preference to error in current call.
      */
+    tcpPtr->base.state = IOCP_STATE_DISCONNECTED;
     if (tcpPtr->base.winError == 0)
         tcpPtr->base.winError = winError;
     if (so != INVALID_SOCKET)
@@ -649,7 +870,7 @@ static IocpWindowsError IocpTcpInitiateConnection(
  *
  *------------------------------------------------------------------------
  */
-IocpWindowsError IocpTcpAsyncConnectFail(
+IocpWinError IocpTcpAsyncConnectFail(
     IocpChannel *lockedChanPtr) /* Must be locked on entry. */
 {
     IocpTcpChannel *tcpPtr = IocpChannelToTcpChannel(lockedChanPtr);
@@ -696,7 +917,7 @@ Iocp_OpenTcpClient(
     char channelName[SOCK_CHAN_LENGTH];
     IocpTcpChannel *tcpPtr;
     Tcl_Channel     channel;
-    IocpWindowsError winError;
+    IocpWinError winError;
 
 #ifdef TBD
 
