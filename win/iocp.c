@@ -934,18 +934,35 @@ static int IocpParseOption(
 
 static IocpTclCode
 IocpChannelSetOption (
-    ClientData instanceData,	/* Socket state. */
-    Tcl_Interp *interp,		/* For error reporting - can be NULL. */
-    const char *optionName,	/* Name of the option to set. */
-    const char *value)		/* New value for option. */
+    ClientData instanceData,    /* IOCP channel state. */
+    Tcl_Interp *interp,         /* For error reporting - can be NULL. */
+    const char *optName,        /* Name of the option to set. */
+    const char *value)          /* New value for option. */
 {
-    // TBD
-    return TCL_ERROR;
+    IocpChannel *chanPtr = (IocpChannel *)instanceData;
+    IocpTclCode  ret;
+    int          opt;
+
+    IocpChannelLock(chanPtr);
+
+    if (chanPtr->vtblPtr->optionNames && chanPtr->vtblPtr->setoption) {
+        opt = IocpParseOption(interp, chanPtr->vtblPtr->optionNames, optName);
+        if (opt == -1)
+            ret = TCL_ERROR;
+        else
+            ret = chanPtr->vtblPtr->setoption(chanPtr, interp, opt, value);
+    }
+    else {
+        ret = Tcl_BadChannelOption(interp, optName, "");
+    }
+
+    IocpChannelUnlock(chanPtr);
+    return ret;
 }
 
 static IocpTclCode
 IocpChannelGetOption (
-    ClientData instanceData,    /* Socket state. */
+    ClientData instanceData,    /* IOCP channel state. */
     Tcl_Interp *interp,         /* For error reporting - can be NULL */
     const char *optName,        /* Name of the option to
                                  * retrieve the value for, or

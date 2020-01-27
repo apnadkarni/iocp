@@ -407,12 +407,23 @@ typedef struct IocpChannelVtbl {
      * should return TCL_OK with value stored in *dsPtr. On error, return
      * TCL_ERROR with error message in interp if not NULL.
      */
-    IocpTclCode (*getoption)(
+    IocpTclCode (*getoption)(       /* May be NULL */
         IocpChannel *lockedChanPtr, /* Locked on entry, locked on return */
         Tcl_Interp  *interp,        /* For error reporting - can be NULL */
-        int         optIndex,       /* Index into optionNames[] */
+        int          optIndex,       /* Index into optionNames[] */
         Tcl_DString *dsPtr);        /* Where to store the computed
                                      * value; initialized by caller. */
+
+    /*
+     * setoption() sets the value of the specified option. On success, should
+     * return TCL_OK. On error, TCL_ERROR with error message in interp
+     * if not NULL.
+     */
+    IocpTclCode (*setoption)(
+        IocpChannel *lockedChanPtr, /* Locked on entry, locked on return */
+        Tcl_Interp  *interp,        /* For error reporting - can be NULL */
+        int          optIndex,      /* Index into optionNames[] */
+        const char*  value);        /* Option value to set */
 
     const char **optionNames;  /* Array of option names terminated with
                                 *  NULL. May be NULL if no options */

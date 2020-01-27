@@ -132,6 +132,7 @@ static IocpChannelVtbl tcpVtbl =  {
     IocpTcpPostWrite,
     IocpTcpGetHandle,
     IocpTcpGetOption,
+    NULL,                       /* SetOption */
     /* Data members */
     iocpTcpOptionNames,
     sizeof(IocpTcpChannel)
