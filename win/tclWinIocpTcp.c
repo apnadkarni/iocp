@@ -25,7 +25,7 @@
 # define SOCK_CHAN_NAME_PREFIX   "sock"
 #endif
 #define SOCK_CHAN_LENGTH        (sizeof(SOCK_CHAN_NAME_PREFIX)-1 + 2*sizeof(void *) + 1)
-#define SOCK_TEMPLATE           "sock%p"
+#define SOCK_TEMPLATE           SOCK_CHAN_NAME_PREFIX "%p"
 
 
 /*
@@ -70,7 +70,7 @@ enum IocpTcpOption {
  */
 static const char *iocpTcpOptionNames[] = {
     "-peername",
-    "-socknamt",
+    "-sockname",
     "-error",
     "-connecting",
     NULL
@@ -168,10 +168,9 @@ IocpWinError IocpTcpListifyAddress(
     char service[NI_MAXSERV];
     int  dsLen;
 
-    flags = noRDNS ? NI_NUMERICHOST|NI_NUMERICSERV : NI_NUMERICSERV;
-
     if (getnameinfo(&addrPtr->sa, addrSize, host, sizeof(host)/sizeof(host[0]),
-                    service, sizeof(service)/sizeof(service[0]), flags) != 0) {
+                    service, sizeof(service)/sizeof(service[0]),
+                    NI_NUMERICHOST|NI_NUMERICSERV) != 0) {
         return WSAGetLastError();
     }
 
@@ -186,6 +185,8 @@ IocpWinError IocpTcpListifyAddress(
         Tcl_DStringAppendElement(dsPtr, host);
     }
     else {
+        flags = noRDNS ? NI_NUMERICHOST|NI_NUMERICSERV : NI_NUMERICSERV;
+
         /*
          * Based on comments in 8.6 Tcl winsock, do not try resolving
          * INADDR_ANY and sin6addr_any as they sometimes cause problems.
