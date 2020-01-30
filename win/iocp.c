@@ -529,6 +529,9 @@ IocpCompletionThread (LPVOID lpParam)
             case IOCP_BUFFER_OP_READ:
                 IocpCompleteRead(bufPtr);
                 break;
+            case IOCP_BUFFER_OP_WRITE:
+                IocpCompleteWrite(bufPtr);
+                break;
             case IOCP_BUFFER_OP_CONNECT:
                 IocpCompleteConnect(bufPtr);
                 break;
