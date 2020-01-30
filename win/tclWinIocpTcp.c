@@ -111,7 +111,8 @@ static IocpWinError IocpTcpBlockingConnect(IocpChannel *);
 static IocpWinError IocpTcpPostRead(IocpChannel *);
 static IocpWinError IocpTcpPostWrite(IocpChannel *, const char *data,
                                          int nbytes, int *countPtr);
-static IocpWinError IocpTcpAsyncConnectFail(IocpChannel *lockedChanPtr);
+static IocpWinError IocpTcpAsyncConnectFailed(IocpChannel *lockedChanPtr);
+static IocpWinError IocpTcpAsyncConnected(IocpChannel *lockedChanPtr);
 static IocpTclCode      IocpTcpGetHandle(IocpChannel *lockedChanPtr,
                                          int direction, ClientData *handlePtr);
 static IocpTclCode      IocpTcpGetOption (IocpChannel *lockedChanPtr,
@@ -120,6 +121,7 @@ static IocpTclCode      IocpTcpGetOption (IocpChannel *lockedChanPtr,
 static IocpWinError IocpTcpListifyAddress(const IocpInetAddress *addr,
                                               int addr_size, int noRDNS,
                                               Tcl_DString *dsPtr);
+static void IocpTcpFreeAddresses(IocpTcpChannel *tcpPtr);
 
 static IocpChannelVtbl tcpVtbl =  {
     /* "Virtual" functions */
@@ -127,7 +129,8 @@ static IocpChannelVtbl tcpVtbl =  {
     IocpTcpChannelFinit,
     IocpTcpChannelShutdown,
     IocpTcpBlockingConnect,
-    IocpTcpAsyncConnectFail,
+    IocpTcpAsyncConnected,
+    IocpTcpAsyncConnectFailed,
     IocpTcpPostRead,
     IocpTcpPostWrite,
     IocpTcpGetHandle,
@@ -651,39 +654,24 @@ static IocpWinError IocpTcpPostWrite(
 /*
  *------------------------------------------------------------------------
  *
- * IocpTcpEnableTransfer --
+ * IocpTcpFreeAddresses --
  *
- *    Sets up a TCP channel for data transfer:
- *    - Address lists are freed as no longer needed
- *    - The associated socket is tied to the I/O completion port
- *    - Receive buffers are queued to it
+ *    Frees the address lists associated with a channel.
  *
- *    The caller must not be holding locks on the passed tcpPtr but should
- *    also ensure it is not accessible from any other threads. When the
- *    function returns, the tcpPtr will be unlocked but may be accessible
- *    from the completion thread as receive buffers are enqueued by this
- *    function.
- *
- *    Caller must also be aware that the tcpPtr state may change asynchronously
- *    once this function is called.
+ *    Caller must ensure no other thread can access tcpPtr during this call.
  *
  * Results:
- *    TCL_OK on success, TCL_ERROR on errors.
+ *    None.
  *
  * Side effects:
- *    I/O buffers are queued on the completion port.
+ *    Address lists are freed.
  *
  *------------------------------------------------------------------------
  */
-static IocpTclCode IocpTcpEnableTransfer(
-    Tcl_Interp *interp,
-    IocpTcpChannel *tcpPtr)     /* Pointer to Tcp channel state. Must not
-                                 * locked on entry, will not be locked on return
-                                 * and its state may have changed.
-                                 */
+static void IocpTcpFreeAddresses(
+    IocpTcpChannel *tcpPtr)     /* Pointer to Tcp channel state. Caller should
+                                 * ensure no other threads can access. */
 {
-    DWORD wsaError;
-
     /* Potential addresses to use no longer needed when connection is open. */
     if (tcpPtr->remoteAddrList) {
         freeaddrinfo(tcpPtr->remoteAddrList);
@@ -695,27 +683,6 @@ static IocpTclCode IocpTcpEnableTransfer(
         tcpPtr->localAddrList = NULL;
         tcpPtr->localAddr     = NULL;
     }
-
-    /* TBD - do we need to ++numRefs since tcpPtr is "pointed" from completion
-       port. Actually we should just pass NULL instead of tcpPtr since it is
-       anyways accessible from the bufferPtr.
-    */
-
-    if (CreateIoCompletionPort((HANDLE) tcpPtr->so,
-                               iocpModuleState.completion_port,
-                               (ULONG_PTR) tcpPtr,
-                               0) == NULL) {
-        return Iocp_ReportLastWindowsError(interp, "couldn't attach socket to completion port: ");
-    }
-
-    IocpChannelLock(TcpChannelToIocpChannel(tcpPtr));
-    // TBD assert tcpPtr->state == OPEN
-    wsaError = IocpChannelPostReads(TcpChannelToIocpChannel(tcpPtr));
-    IocpChannelUnlock(TcpChannelToIocpChannel(tcpPtr));
-    if (wsaError)
-        return Iocp_ReportWindowsError(interp, wsaError, "couldn't post read on socket: ");
-    else
-        return TCL_OK;
 }
 
 
@@ -859,20 +826,60 @@ static IocpWinError IocpTcpInitiateConnection(
 /*
  *------------------------------------------------------------------------
  *
- * IocpTcpAsyncConnectFail --
+ * IocpTcpAsyncConnected --
  *
- *    Called to handle connection failure on an async attempt. Attempts
- *    to initiate a connection using another address or reports failure.
+ *    Called to handle connection establishment on an async attempt.
+ *    Completes local connection set up.
+ *    Follows the API defined by connectfail() in IocpChannel vtbl.
  *
  * Results:
- *    Returns TCL_OK if a new connection attempt is successfully posted,
- *    TCL_ERROR with a Windows error code stored in lockedChanPtr->winError.
+ *    Returns 0 if connection set up is successful or a Windows error code which
+ *    is also stored in lockedChanPtr->winError.
  *
  * Side effects:
  *
  *------------------------------------------------------------------------
  */
-IocpWinError IocpTcpAsyncConnectFail(
+IocpWinError IocpTcpAsyncConnected(
+    IocpChannel *lockedChanPtr) /* Must be locked on entry. */
+{
+    IocpTcpChannel *tcpPtr = IocpChannelToTcpChannel(lockedChanPtr);
+
+    IOCP_ASSERT(lockedChanPtr->state == IOCP_STATE_CONNECTED);
+    /*
+     * As per documentation this is required for complete context for the
+     * socket to be set up. Otherwise certain Winsock calls like getpeername
+     * getsockname shutdown will not work.
+     */
+    if (setsockopt(tcpPtr->so, SOL_SOCKET, SO_UPDATE_CONNECT_CONTEXT, NULL, 0) != 0) {
+        tcpPtr->base.winError = WSAGetLastError();
+        closesocket(tcpPtr->so);
+        tcpPtr->so = INVALID_SOCKET;
+        return tcpPtr->base.winError;
+    }
+    else {
+        return 0;
+    }
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpTcpAsyncConnectFailed --
+ *
+ *    Called to handle connection failure on an async attempt. Attempts
+ *    to initiate a connection using another address or reports failure.
+ *    Follows the API defined by connectfail() in IocpChannel vtbl.
+ *
+ * Results:
+ *    Returns 0 if a new connection attempt is successfully posted,
+ *    or a Windows error code which is also stored in lockedChanPtr->winError.
+ *
+ * Side effects:
+ *
+ *------------------------------------------------------------------------
+ */
+IocpWinError IocpTcpAsyncConnectFailed(
     IocpChannel *lockedChanPtr) /* Must be locked on entry. */
 {
     IocpTcpChannel *tcpPtr = IocpChannelToTcpChannel(lockedChanPtr);
@@ -977,14 +984,29 @@ Iocp_OpenTcpClient(
             Iocp_ReportWindowsError(interp, winError, "couldn't open socket: ");
             goto fail;
         }
-        /*
-         * Connection now open but note no other thread has access to tcpPtr
-         * yet and hence no locking needed. But once IocpTcpEnableTransfer
-         * is called, that will be no longer true as the completion thread
-         * may also access tcpPtr.
-         */
-        if (IocpTcpEnableTransfer(interp, tcpPtr) != TCL_OK)
+        IocpTcpFreeAddresses(tcpPtr);
+        /* TBD - do we need to ++numRefs since tcpPtr is "pointed" from completion
+           port. Actually we should just pass NULL instead of tcpPtr since it is
+           anyways accessible from the bufferPtr.
+        */
+
+        if (CreateIoCompletionPort((HANDLE) tcpPtr->so,
+                                   iocpModuleState.completion_port,
+                                   (ULONG_PTR) tcpPtr,
+                                   0) == NULL) {
+            Iocp_ReportLastWindowsError(interp, "couldn't attach socket to completion port: ");
             goto fail;
+        }
+        /*
+         * NOTE Connection now open but note no other thread has access to tcpPtr
+         * yet and hence no locking needed. But once Reads are posted that
+         * will be no longer true as the completion thread may also access tcpPtr.
+         */
+        winError = IocpChannelPostReads(TcpChannelToIocpChannel(tcpPtr));
+        if (winError) {
+            Iocp_ReportWindowsError(interp, winError, "couldn't post read on socket: ");
+            goto fail;
+        }
     }
 
     /*
@@ -995,12 +1017,12 @@ Iocp_OpenTcpClient(
      * or notifier callback which handles notifications from the completion
      * thread.
      *
-     * However, this does mean do not take any further action based on
-     * state of tcpPtr without locking it and checking the state.
+     * HOWEVER, THIS DOES MEAN DO NOT TAKE ANY FURTHER ACTION BASED ON
+     * STATE OF TCPPTR WITHOUT LOCKING IT AND CHECKING THE STATE.
      */
 
     /*
-     * Create a Tcl channel that points back to this.
+     * CREATE a Tcl channel that points back to this.
      * tcpPtr->numRefs++ since Tcl channel points to this
      * tcpPtr->numRefs-- since this function no longer needs a reference to it.
      * The two cancel and numRefs stays at 1 as allocated. The corresponding

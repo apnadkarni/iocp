@@ -220,6 +220,7 @@ typedef struct IocpBuffer {
 enum IocpState {
     IOCP_STATE_INIT,           /* Just allocated */
     IOCP_STATE_CONNECTING,     /* Connect sent, awaiting completion */
+    IOCP_STATE_CONNECTED,      /* Connect succeeded */
     IOCP_STATE_CONNECT_RETRY,  /* Connect failed, retrying */
     IOCP_STATE_OPEN,           /* Open for data transfer */
     IOCP_STATE_DISCONNECTING,  /* Local end has initiated disconnection */
@@ -363,6 +364,16 @@ typedef struct IocpChannelVtbl {
     IocpWinError (*blockingconnect)( /* May be NULL */
         IocpChannel *lockedChanPtr);     /* Locked on entry. Must be locked on
                                           * return. */
+
+    /*
+     * connected() is called when a connection request succeeds.
+     * Driver may take any action required and should return 0 on success
+     * or a Windows error code. The IOCP channel base will transition
+     * to an OPEN state or to a DISCONNECTED state accordingly.
+     */
+    IocpWinError (*connected)(       /* May be NULL */
+        IocpChannel *lockedChanPtr); /* Locked on entry. Must be locked on
+                                      * return. */
 
     /*
      * connectfailed() is called when a connection fails to go through.

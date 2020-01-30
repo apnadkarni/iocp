@@ -115,7 +115,7 @@ IocpBuffer *IocpBufferNew(
     bufPtr->flags     = flags;
     IocpLinkInit(&bufPtr->link);
 
-    if (IocpDataBufferInit(&bufPtr->data, capacity) == NULL) {
+    if (capacity && IocpDataBufferInit(&bufPtr->data, capacity) == NULL) {
         ckfree(bufPtr);
         return NULL;
     }
@@ -169,9 +169,10 @@ IocpChannel *IocpChannelNew(
     chanPtr          = ckalloc(vtblPtr->allocationSize);
     IocpListInit(&chanPtr->inputBuffers);
     chanPtr->owningThread  = 0;
-    chanPtr->channel = NULL;
-    chanPtr->state   = IOCP_STATE_INIT;
-    chanPtr->flags   = 0;
+    chanPtr->channel  = NULL;
+    chanPtr->state    = IOCP_STATE_INIT;
+    chanPtr->flags    = 0;
+    chanPtr->winError = 0;
     chanPtr->pendingReads     = 0;
     chanPtr->pendingWrites    = 0;
     chanPtr->maxPendingReads  = IOCP_MAX_PENDING_READS_DEFAULT;
@@ -380,7 +381,7 @@ static void IocpCompleteConnect(
     switch (chanPtr->state) {
     case IOCP_STATE_CONNECTING:
         chanPtr->winError = bufPtr->winError;
-        chanPtr->state = bufPtr->winError == 0 ? IOCP_STATE_OPEN : IOCP_STATE_CONNECT_RETRY;
+        chanPtr->state = bufPtr->winError == 0 ? IOCP_STATE_CONNECTED : IOCP_STATE_CONNECT_RETRY;
         IocpChannelNudgeThread(chanPtr, 0);
         break;
 
@@ -453,6 +454,43 @@ static void IocpCompleteRead(
 
     /* This drops the reference from bufPtr which was delayed (see above) */
     IocpChannelDrop(chanPtr);
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpCompleteWrite --
+ *
+ *    Handles completion of Write operations from IOCP.
+ *
+ * Results:
+ *    None.
+ *
+ * Side effects:
+ *    The passed bufPtr is freed. The Tcl thread notified via the event loop. If the
+ *    Tcl thread is blocked on this channel, it is woken up.
+ *
+ *------------------------------------------------------------------------
+ */
+static void IocpCompleteWrite(
+    IocpBuffer *bufPtr)         /* I/O completion buffer */
+{
+    IocpChannel *chanPtr = bufPtr->chanPtr;
+
+    IocpChannelLock(chanPtr);
+
+    IOCP_ASSERT(chanPtr->pendingWrites > 0);
+    chanPtr->pendingWrites--;
+
+    bufPtr->chanPtr = NULL;
+    IocpBufferFree(bufPtr);
+
+    if (chanPtr->state != IOCP_STATE_CLOSED) {
+        chanPtr->flags |= IOCP_CHAN_F_WRITE_DONE;
+        /* TBD - optimize under which conditions we need to nudge thread */
+        IocpChannelNudgeThread(chanPtr, 0);
+    }
+    IocpChannelDrop(chanPtr); /* Corresponding to bufPtr->chanPtr */
 }
 
 static DWORD WINAPI
@@ -839,7 +877,7 @@ IocpChannelOutput (
 {
     DWORD        winError;
     IocpChannel *chanPtr = (IocpChannel *) instanceData;
-    int          written;
+    int          written = -1;
 
     IocpChannelLock(chanPtr);
 
@@ -915,17 +953,17 @@ static int IocpParseOption(
     const char *optName         /* Option name string */
     )
 {
-    int opt = 0;
-    while (optNames[opt]) {
+    int opt;
+    for (opt = 0; optNames[opt]; ++opt) {
         if (strcmp(optName, optNames[opt]) == 0)
             return opt;
     }
     if (interp) {
         Tcl_DString ds;
         Tcl_DStringInit(&ds);
-        opt = 0;
-        while (optNames[opt])
+        for (opt = 0; optNames[opt]; ++opt) {
             Tcl_DStringAppendElement(&ds, optNames[opt]);
+        }
         Tcl_BadChannelOption(interp, optName, Tcl_DStringValue(&ds));
         Tcl_DStringFree(&ds);
     }
@@ -1069,7 +1107,7 @@ static int IocpChannelFileEventMask(
          ((lockedChanPtr->flags & IOCP_CHAN_F_WRITE_DONE) &&        /* 3b */
           lockedChanPtr->pendingWrites < lockedChanPtr->maxPendingWrites))) {
         readyMask |= TCL_WRITABLE;
-        /* So completion threads will notify us of additional writes */
+        /* So we do not keep notifying of write dones */
         lockedChanPtr->flags &= ~ IOCP_CHAN_F_WRITE_DONE;
     }
     return readyMask;
@@ -1257,11 +1295,23 @@ int IocpEventHandler(
             chanPtr->state = IOCP_STATE_DISCONNECTED;
             chanPtr->flags |= IOCP_CHAN_F_REMOTE_EOF;
             readyMask = IocpChannelFileEventMask(chanPtr);
-        } else {
+        }
+        else {
             chanPtr->state = IOCP_STATE_CONNECTING;
         }
 
         break;
+    case IOCP_STATE_CONNECTED:
+        if (chanPtr->vtblPtr->connected &&
+            chanPtr->vtblPtr->connected(chanPtr) != 0) {
+            chanPtr->state = IOCP_STATE_DISCONNECTED;
+            readyMask = IocpChannelFileEventMask(chanPtr);
+            break;
+        }
+        else {
+            chanPtr->state = IOCP_STATE_OPEN;
+            /* FALLTHRU to OPEN state */
+        }
     case IOCP_STATE_OPEN:
         /*
          * If Tcl wants to be notified of input and has not shutdown the read
