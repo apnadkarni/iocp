@@ -1266,7 +1266,23 @@ error:
 #endif
 }
 
-int
+/*
+ *------------------------------------------------------------------------
+ *
+ * Iocp_SocketObjCmd --
+ *
+ *    Implements the socket command. See 'socket' documentation as to description
+ *    and options.
+ *
+ * Results:
+ *    A standard Tcl result with the channel handle stored in interp result.
+ *
+ * Side effects:
+ *    A new server or client socket is created.
+ *
+ *------------------------------------------------------------------------
+ */
+IocpTclCode
 Iocp_SocketObjCmd (
     ClientData notUsed,			/* Not used. */
     Tcl_Interp *interp,			/* Current interpreter. */
@@ -1383,17 +1399,19 @@ Iocp_SocketObjCmd (
     }
 
     if (server) {
-#ifdef TBD
-	AcceptCallback *acceptCallbackPtr =
-		ckalloc(sizeof(AcceptCallback));
-	unsigned len = strlen(script) + 1;
-	char *copyScript = ckalloc(len);
+	IocpAcceptCallback *acceptCallbackPtr;
+	IocpSizeT           len;
+	char               *copyScript;
 
+        len        = (IocpSizeT) strlen(script)+1;
+        copyScript = ckalloc(len);
 	memcpy(copyScript, script, len);
+        acceptCallbackPtr         = ckalloc(sizeof(*acceptCallbackPtr));
 	acceptCallbackPtr->script = copyScript;
 	acceptCallbackPtr->interp = interp;
+
 	chan = Tcl_OpenTcpServer(interp, port, host, AcceptCallbackProc,
-		acceptCallbackPtr);
+                                 acceptCallbackPtr);
 	if (chan == NULL) {
 	    ckfree(copyScript);
 	    ckfree(acceptCallbackPtr);
@@ -1407,7 +1425,7 @@ Iocp_SocketObjCmd (
 	 * eval the script in a deleted interpreter.
 	 */
 
-	RegisterTcpServerInterpCleanup(interp, acceptCallbackPtr);
+	IocpRegisterAcceptCallbackCleanup(interp, acceptCallbackPtr);
 
 	/*
 	 * Register a close callback. This callback will inform the
@@ -1415,10 +1433,9 @@ Iocp_SocketObjCmd (
 	 * be informed when the interpreter is deleted.
 	 */
 
-	Tcl_CreateCloseHandler(chan, TcpServerCloseProc, acceptCallbackPtr);
-#else
-        chan = 0;
-#endif
+	Tcl_CreateCloseHandler(chan, IocpUnregisterAcceptCallbackCleanupOnClose,
+                               acceptCallbackPtr);
+
     } else {
 	chan = Iocp_OpenTcpClient(interp, port, host, myaddr, myport, async);
 	if (chan == NULL) {

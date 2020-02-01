@@ -10,6 +10,9 @@
  */
 #include "tclWinIocp.h"
 
+/* Used to name the interp-associated hash table for accept callback scripts */
+static const char *iocpAcceptCallbackHashName = "iocpAcceptCallbacks";
+
 /*
  * Support for one-time initialization. The function Iocp_DoOnce
  * can be called to execute any function that should be run exactly one
@@ -296,4 +299,186 @@ IocpLink *IocpListPopFront(
             listPtr->tailPtr = NULL;
     }
     return firstPtr;
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * IocpAcceptCallbacksDelete --
+ *
+ *	Assocdata cleanup routine called when an interpreter is being deleted
+ *	to set the interp field of all the accept callback records registered
+ *	with the interpreter to NULL. This will prevent the interpreter from
+ *	being used in the future to eval accept scripts.
+ *
+ *      Mutated from TcpAcceptCallbacksDeleteProc from Tcl core with the
+ *      difference that it is used for IOCP accepts, not just Tcp.
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	Deallocates memory and sets the interp field of all the accept
+ *	callback records to NULL to prevent this interpreter from being used
+ *	subsequently to eval accept scripts.
+ *
+ *----------------------------------------------------------------------
+ */
+
+	/* ARGSUSED */
+static void
+IocpAcceptCallbacksDelete(
+    ClientData clientData,	/* Data which was passed when the assocdata
+				 * was registered. */
+    Tcl_Interp *interp)		/* Interpreter being deleted - not used. */
+{
+    Tcl_HashTable *hTblPtr = clientData;
+    Tcl_HashEntry *hPtr;
+    Tcl_HashSearch hSearch;
+
+    for (hPtr = Tcl_FirstHashEntry(hTblPtr, &hSearch);
+	    hPtr != NULL; hPtr = Tcl_NextHashEntry(&hSearch)) {
+	IocpAcceptCallback *acceptCallbackPtr = Tcl_GetHashValue(hPtr);
+
+	acceptCallbackPtr->interp = NULL;
+    }
+    Tcl_DeleteHashTable(hTblPtr);
+    ckfree(hTblPtr);
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * IocpRegisterAcceptCallbackCleanup --
+ *
+ *	Registers an accept callback record to have its interp field set to
+ *	NULL when the interpreter is deleted.
+ *
+ *      Mutated from RegisterTcpServerInterpCleanup from Tcl core with the
+ *      difference that it is used for IOCP accepts, not just Tcp.
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	When, in the future, the interpreter is deleted, the interp field of
+ *	the accept callback data structure will be set to NULL. This will
+ *	prevent attempts to eval the accept script in a deleted interpreter.
+ *
+ *----------------------------------------------------------------------
+ */
+
+void
+IocpRegisterAcceptCallbackCleanup(
+    Tcl_Interp *interp,		/* Interpreter for which we want to be
+				 * informed of deletion. */
+    IocpAcceptCallback *acceptCallbackPtr)
+				/* The accept callback record whose interp
+				 * field we want set to NULL when the
+				 * interpreter is deleted. */
+{
+    Tcl_HashTable *hTblPtr;	/* Hash table for accept callback records to
+				 * smash when the interpreter will be
+				 * deleted. */
+    Tcl_HashEntry *hPtr;	/* Entry for this record. */
+    int isNew;			/* Is the entry new? */
+
+    hTblPtr = Tcl_GetAssocData(interp, iocpAcceptCallbackHashName, NULL);
+
+    if (hTblPtr == NULL) {
+	hTblPtr = ckalloc(sizeof(Tcl_HashTable));
+	Tcl_InitHashTable(hTblPtr, TCL_ONE_WORD_KEYS);
+	Tcl_SetAssocData(interp, iocpAcceptCallbackHashName,
+		IocpAcceptCallbacksDelete, hTblPtr);
+    }
+
+    hPtr = Tcl_CreateHashEntry(hTblPtr, acceptCallbackPtr, &isNew);
+    if (!isNew) {
+	Tcl_Panic("IocpRegisterAcceptCallbackCleanup: damaged accept record table");
+    }
+    Tcl_SetHashValue(hPtr, acceptCallbackPtr);
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * IocpUnregisterAcceptCallbackCleanup --
+ *
+ *	Unregister a previously registered accept callback record. The interp
+ *	field of this record will no longer be set to NULL in the future when
+ *	the interpreter is deleted.
+ *
+ *      Mutated from UnregisterTcpServerInterpCleanup from Tcl core with the
+ *      difference that it is used for IOCP accepts, not just Tcp.
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	Prevents the interp field of the accept callback record from being set
+ *	to NULL in the future when the interpreter is deleted.
+ *
+ *----------------------------------------------------------------------
+ */
+
+void
+IocpUnregisterAcceptCallbackCleanup(
+    Tcl_Interp *interp,		/* Interpreter in which the accept callback
+				 * record was registered. */
+    IocpAcceptCallback *acceptCallbackPtr)
+				/* The record for which to delete the
+				 * registration. */
+{
+    Tcl_HashTable *hTblPtr;
+    Tcl_HashEntry *hPtr;
+
+    hTblPtr = Tcl_GetAssocData(interp, iocpAcceptCallbackHashName, NULL);
+    if (hTblPtr == NULL) {
+	return;
+    }
+
+    hPtr = Tcl_FindHashEntry(hTblPtr, (char *) acceptCallbackPtr);
+    if (hPtr != NULL) {
+	Tcl_DeleteHashEntry(hPtr);
+    }
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * IocpUnregisterAcceptCallbackOnClose --
+ *
+ *	This callback is called when a IOCP listener channel for which it was
+ *	registered is being closed. It informs the interpreter in which the
+ *	accept script is evaluated (if that interpreter still exists) that
+ *	this channel no longer needs to be informed if the interpreter is
+ *	deleted.
+ *
+ *      Mutated from TcpServerCloseProc from Tcl core with the
+ *      difference that it is used for IOCP accepts, not just Tcp.
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	In the future, if the interpreter is deleted this channel will no
+ *	longer be informed.
+ *
+ *----------------------------------------------------------------------
+ */
+
+void
+IocpUnregisterAcceptCallbackCleanupOnClose(
+    ClientData callbackData)	/* The data passed in the call to
+				 * Tcl_CreateCloseHandler. */
+{
+    IocpAcceptCallback *acceptCallbackPtr = callbackData;
+				/* The actual data. */
+
+    if (acceptCallbackPtr->interp != NULL) {
+	IocpUnregisterAcceptCallbackCleanup(acceptCallbackPtr->interp,
+		acceptCallbackPtr);
+    }
+    Tcl_EventuallyFree(acceptCallbackPtr->script, TCL_DYNAMIC);
+    ckfree(acceptCallbackPtr);
 }

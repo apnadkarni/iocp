@@ -31,9 +31,10 @@
 #define IOCP_ASSERT(cond_) (void) 0 /* TBD */
 
 /* Typedefs just to make return value semantics obvious */
-typedef int   IocpTclCode;
-typedef DWORD IocpWinError;
-typedef int   IocpPosixError;
+typedef int   IocpTclCode;      /* TCL_OK etc. */
+typedef DWORD IocpWinError;     /* Windows error codes */
+typedef int   IocpPosixError;   /* POSIX error codes */
+typedef int   IocpSizeT;        /* Signed type to hold Tcl string lengths */
 
 /*
  * We may use either critical sections or SRWLocks. The latter are lighter
@@ -142,6 +143,14 @@ typedef struct IocpModuleState {
 extern IocpSubSystem iocpModuleState;
 
 /*
+ * Callback structure for accept script callback in a listener.
+ */
+typedef struct IocpAcceptCallback {
+    char *script;		/* Script to invoke. */
+    Tcl_Interp *interp;		/* Interpreter in which to run it. */
+} IocpAcceptCallback;
+
+/*
  * Structure to hold the actual data being passed around. This is always owned
  * by a IocpBuffer and allocated/freed with that owning IocpBuffer.
  */
@@ -214,6 +223,12 @@ typedef struct IocpBuffer {
     int               flags;
     #define IOCP_BUFFER_F_WINSOCK 0x1 /* Buffer used for a Winsock operation.
                                       *  (meaning wsaOverlap, not overlap) */
+    union {
+        HANDLE h;
+        SOCKET so;
+        void * ptr;
+    } context;                  /* For buffer users. Not initialized and not
+                                 * used by buffer functions */
 } IocpBuffer;
 
 /* State values for IOCP channels */
@@ -508,6 +523,11 @@ IOCP_INLINE void IocpBufferCopyIn(IocpBuffer *bufPtr, const char *inPtr, int len
     IocpDataBufferCopyIn(&bufPtr->data, inPtr, len);
 }
 
+/* Callback utilities */
+void IocpRegisterAcceptCallbackCleanup(Tcl_Interp *, IocpAcceptCallback *);
+void IocpUnregisterAcceptCallbackCleanup(Tcl_Interp *, IocpAcceptCallback *);
+void IocpUnregisterAcceptCallbackCleanupOnClose(ClientData callbackData);
+
 /* Generic channel functions */
 IocpChannel *IocpChannelNew(Tcl_Interp *interp, const IocpChannelVtbl *vtblPtr);
 void IocpChannelAwaitCompletion(IocpChannel *lockedChanPtr);
@@ -534,6 +554,8 @@ int TclSockGetPort(Tcl_Interp *interp,
                    const char *proto,
                    int *portPtr);
 
+void AcceptCallbackProc(ClientData callbackData, Tcl_Channel chan,
+                        char *address, int port);
 #endif
 
 /*

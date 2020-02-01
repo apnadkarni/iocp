@@ -2,9 +2,10 @@
  * tclPolyfill.c --
  *
  *	This file contains routines that replace some Tcl internal functions
- *      when building as an extension.
+ *      when building as an extension. This file should not be included when
+ *      building as part of Tcl core.
  *
- * Copyright (c) 2019 Ashok P. Nadkarni.
+ * Copyright (c) 2019-2020 Ashok P. Nadkarni.
  *
  * See the file "license.terms" for information on usage and redistribution
  * of this file, and for a DISCLAIMER OF ALL WARRANTIES.
@@ -210,4 +211,84 @@ TclSockGetPort(
 	return TCL_ERROR;
     }
     return TCL_OK;
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * AcceptCallbackProc --
+ *
+ *	This callback is invoked by the TCP channel driver when it accepts a
+ *	new connection from a client on a server socket.
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	Whatever the script does.
+ *
+ *----------------------------------------------------------------------
+ */
+
+void
+AcceptCallbackProc(
+    ClientData callbackData,	/* The data stored when the callback was
+				 * created in the call to
+				 * Tcl_OpenTcpServer. */
+    Tcl_Channel chan,		/* Channel for the newly accepted
+				 * connection. */
+    char *address,		/* Address of client that was accepted. */
+    int port)			/* Port of client that was accepted. */
+{
+    IocpAcceptCallback *acceptCallbackPtr = callbackData;
+
+    /*
+     * Check if the callback is still valid; the interpreter may have gone
+     * away, this is signalled by setting the interp field of the callback
+     * data to NULL.
+     */
+
+    if (acceptCallbackPtr->interp != NULL) {
+	char portBuf[TCL_INTEGER_SPACE];
+	char *script = acceptCallbackPtr->script;
+	Tcl_Interp *interp = acceptCallbackPtr->interp;
+	int result;
+
+	Tcl_Preserve(script);
+	Tcl_Preserve(interp);
+
+        sprintf_s(portBuf, sizeof(portBuf)/sizeof(portBuf[0]), "%d", port);
+	Tcl_RegisterChannel(interp, chan);
+
+	/*
+	 * Artificially bump the refcount to protect the channel from being
+	 * deleted while the script is being evaluated.
+	 */
+
+	Tcl_RegisterChannel(NULL, chan);
+
+	result = Tcl_VarEval(interp, script, " ", Tcl_GetChannelName(chan),
+		" ", address, " ", portBuf, NULL);
+	if (result != TCL_OK) {
+	    Tcl_BackgroundException(interp, result);
+	    Tcl_UnregisterChannel(interp, chan);
+	}
+
+	/*
+	 * Decrement the artificially bumped refcount. After this it is not
+	 * safe anymore to use "chan", because it may now be deleted.
+	 */
+
+	Tcl_UnregisterChannel(NULL, chan);
+
+	Tcl_Release(interp);
+	Tcl_Release(script);
+    } else {
+	/*
+	 * The interpreter has been deleted, so there is no useful way to use
+	 * the client socket - just close it.
+	 */
+
+	Tcl_Close(NULL, chan);
+    }
 }
