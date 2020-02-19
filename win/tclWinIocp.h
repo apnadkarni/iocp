@@ -171,6 +171,7 @@ enum IocpBufferOp {
     IOCP_BUFFER_OP_READ,
     IOCP_BUFFER_OP_WRITE,
     IOCP_BUFFER_OP_CONNECT,
+    IOCP_BUFFER_OP_ACCEPT,
 };
 
 /*
@@ -218,22 +219,24 @@ typedef struct IocpBuffer {
                                     * associated IocpChannel */
     IocpDataBuffer    data;        /* Data buffer */
     IocpLink          link;        /* Links buffers in a queue */
-    IocpWinError  winError;    /* Error code (0 on success) */
-    enum IocpBufferOp operation;   /* I/O operation */
-    int               flags;
-    #define IOCP_BUFFER_F_WINSOCK 0x1 /* Buffer used for a Winsock operation.
-                                      *  (meaning wsaOverlap, not overlap) */
+    IocpWinError      winError;    /* Error code (0 on success) */
     union {
+        int    i;
         HANDLE h;
         SOCKET so;
         void * ptr;
-    } context;                  /* For buffer users. Not initialized and not
-                                 * used by buffer functions */
+    } context[2];                  /* For buffer users. Not initialized and not
+                                    * used by buffer functions */
+    enum IocpBufferOp operation;   /* I/O operation */
+    int               flags;
+#define IOCP_BUFFER_F_WINSOCK 0x1 /* Buffer used for a Winsock operation.
+                                   *  (meaning wsaOverlap, not overlap) */
 } IocpBuffer;
 
 /* State values for IOCP channels */
 enum IocpState {
     IOCP_STATE_INIT,           /* Just allocated */
+    IOCP_STATE_LISTENING,      /* Listening server socket */
     IOCP_STATE_CONNECTING,     /* Connect sent, awaiting completion */
     IOCP_STATE_CONNECTED,      /* Connect succeeded */
     IOCP_STATE_CONNECT_RETRY,  /* Connect failed, retrying */
@@ -325,6 +328,7 @@ typedef struct IocpChannel {
 #define IOCP_CHAN_F_WRITEONLY    0x040 /* Channel output disabled */
 #define IOCP_CHAN_F_REMOTE_EOF   0x080 /* Remote end closed connection */
 #define IOCP_CHAN_F_NONBLOCKING  0x100 /* Channel is in non-blocking mode */
+#define IOCP_CHAN_F_WATCH_ACCEPT 0x200 /* Notify on connection accepts */
 } IocpChannel;
 IOCP_INLINE void IocpChannelLock(IocpChannel *chanPtr) {
     IocpLockAcquireExclusive(&chanPtr->lock);
@@ -356,6 +360,12 @@ typedef struct IocpChannelVtbl {
      * On entry, the structure will be unlocked and no other references to the
      * structure will exist and hence no thread synchronization is required.
      * After the function returns, the memory will be deallocated.
+     *
+     * Note in particular that if the channel type makes use of the IocpBuffer
+     * context area in the inputBuffers or outputBuffers queues of the
+     * the channel that store resource handles, memory etc. the finalizer()
+     * should clean up those queues since the default queue cleanup will
+     * ignore the context areas of IocpBuffers.
      */
     void (*finalize)(           /* May be NULL */
         IocpChannel *chanPtr);  /* Unlocked on entry */
@@ -372,6 +382,13 @@ typedef struct IocpChannelVtbl {
         int          directions);   /* Combination of TCL_CLOSE_{READ,WRITE} */
 
     /*
+     * accept() is called when an incoming connection is received on a listener.
+     */
+    IocpWinError (*accept)(          /* May be NULL */
+        IocpChannel *lockedChanPtr); /* Locked on entry. Must be locked on
+                                      * return. */
+
+    /*
      * blockingconnect() is called from the IOCP layer to synchronously connect
      * to the remote end for connection based channels. It should return 0
      * on a successful connect or a Windows error code on failure.
@@ -381,7 +398,7 @@ typedef struct IocpChannelVtbl {
                                           * return. */
 
     /*
-     * connected() is called when a connection request succeeds.
+     * connected() is called when a async connection request succeeds.
      * Driver may take any action required and should return 0 on success
      * or a Windows error code. The IOCP channel base will transition
      * to an OPEN state or to a DISCONNECTED state accordingly.
@@ -391,7 +408,7 @@ typedef struct IocpChannelVtbl {
                                       * return. */
 
     /*
-     * connectfailed() is called when a connection fails to go through.
+     * connectfailed() is called when a async connection fails to go through.
      * It is up to the driver to retry or close the channel. Should return
      * 0 if another connect was initiated or an Windows error code.
      */
@@ -402,7 +419,7 @@ typedef struct IocpChannelVtbl {
      * postread() is called to post an I/O call to read more data.
      * Should return 0 on success and a Windows error code on error.
      */
-    DWORD (*postread)(
+    DWORD (*postread)( /* May be NULL if channel is created without TCL_READABLE */
         IocpChannel *lockedChanPtr); /* Locked on entry, locked on return */
 
     /*
@@ -412,7 +429,7 @@ typedef struct IocpChannelVtbl {
      * the function should return 0 and store 0 in *countPtr. On error,
      * the function return a Windows error code. countPtr is ignored.
      */
-    IocpWinError (*postwrite)(
+    IocpWinError (*postwrite)( /* May be NULL if channel is created without TCL_WRITABLE */
         IocpChannel *lockedChanPtr, /* Locked on entry, locked on return */
         const char  *bytesPtr,      /* Pointer to data buffer */
         int          nbytes,        /* Number of bytes to write */
@@ -529,7 +546,7 @@ void IocpUnregisterAcceptCallbackCleanup(Tcl_Interp *, IocpAcceptCallback *);
 void IocpUnregisterAcceptCallbackCleanupOnClose(ClientData callbackData);
 
 /* Generic channel functions */
-IocpChannel *IocpChannelNew(Tcl_Interp *interp, const IocpChannelVtbl *vtblPtr);
+IocpChannel *IocpChannelNew(const IocpChannelVtbl *vtblPtr);
 void IocpChannelAwaitCompletion(IocpChannel *lockedChanPtr);
 int IocpChannelWakeAfterCompletion(IocpChannel *lockedChanPtr);
 void IocpChannelEnqueueEvent(IocpChannel *lockedChanPtr, int force);

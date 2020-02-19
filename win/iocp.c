@@ -153,15 +153,14 @@ void IocpBufferFree(IocpBuffer *bufPtr)
  *    the structure is initialized to 1. 
  *
  * Results:
- *    Returns a pointer to the allocated IocpChannel.
+ *    Returns a pointer to the allocated IocpChannel or NULL on failure.
  *
  * Side effects:
- *    None.
+ *    Will cause process exit if memory allocation fails.
  *
  *------------------------------------------------------------------------
  */
 IocpChannel *IocpChannelNew(
-    Tcl_Interp *interp,
     const IocpChannelVtbl *vtblPtr) /* See IocpChannelVtbl definition comments.
                                      * Must point to static memory */
 {
@@ -209,8 +208,17 @@ void IocpChannelDrop(
                                        * and potentially freed on return */
 {
     if (--lockedChanPtr->numRefs <= 0) {
+        IocpLink *linkPtr;
+
         if (lockedChanPtr->vtblPtr->finalize)
             lockedChanPtr->vtblPtr->finalize(lockedChanPtr);
+
+        /* If finalize did not free buffers, do our default frees. */
+        while ((linkPtr = IocpListPopFront(&lockedChanPtr->inputBuffers)) != NULL) {
+            IocpBuffer  *bufPtr = CONTAINING_RECORD(linkPtr, IocpBuffer, link);
+            IocpBufferFree(bufPtr);
+        }
+
         IocpChannelUnlock(lockedChanPtr);
         IocpLockDelete(&lockedChanPtr->lock);
         ckfree(lockedChanPtr);
@@ -349,7 +357,8 @@ void IocpChannelNudgeThread(
          */
         /* TBD - do we need to notify on error or 0 byte read (EOF) even if NOTIFY_INPUT
            was not set ? */
-        if (lockedChanPtr->flags & IOCP_CHAN_F_WATCH_INPUT)
+        /* TBD - how about watching output ? */
+        if (lockedChanPtr->flags & (IOCP_CHAN_F_WATCH_ACCEPT | IOCP_CHAN_F_WATCH_INPUT))
             IocpChannelEnqueueEvent(lockedChanPtr, force);
     }
 }
@@ -395,6 +404,64 @@ static void IocpCompleteConnect(
     bufPtr->chanPtr = NULL;
     IocpChannelDrop(chanPtr); /* Corresponding to bufPtr->chanPtr */
     IocpBufferFree(bufPtr);
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpCompleteAccept --
+ *
+ *    Handles completion of connection accept operations from IOCP.
+ *
+ * Results:
+ *    None.
+ *
+ * Side effects:
+ *    The passed bufPtr is freed or enqueued on the owning
+ *    IocpChannel and the Tcl thread notified via the event loop. If the
+ *    Tcl thread is blocked on this channel, it is woken up.
+ *
+ *------------------------------------------------------------------------
+ */
+static void IocpCompleteAccept(
+    IocpBuffer *bufPtr)         /* I/O completion buffer */
+{
+    IocpChannel *chanPtr = bufPtr->chanPtr;
+
+    IocpChannelLock(chanPtr);
+
+    /*
+     * Reminder: unlike reads/writes, the count of pending accept operations
+     * is on a per listening socket basis, not per channel. Since we don't
+     * deal with channel-type specific operations here, the count is
+     * decremented in the channel-specific code in the Tcl thread.
+     *
+     * So also, deal with the channel states in the Tcl thread. Don't
+     * bother with them here.
+     *
+     * TBD - may be make reads/writes the same for consistency?
+     */
+
+    /*
+     * Add the buffer to the input queue which also doubles as the accept queue
+     * since listeners are disabled for read and write at the channel level.
+     * Then if the channel was blocked, awaken the sleeping thread. Otherwise
+     * send it a Tcl event notification.
+     */
+    IocpListAppend(&chanPtr->inputBuffers, &bufPtr->link);
+    bufPtr->chanPtr = NULL;
+    /*
+     * chanPtr->numRefs-- because bufPtr does not refer to it (though it is on
+     *                    the inputBuffers queue, that is immaterial)
+     * chanPtr->numRefs++ because we still want to access chanPtr below after
+     *                    unlocking and relocking.
+     * The two cancel out. The latter will be reversed at function exit.
+     */
+
+    IocpChannelNudgeThread(chanPtr, 0);
+
+    /* This drops the reference from bufPtr which was delayed (see above) */
+    IocpChannelDrop(chanPtr);
 }
 
 /*
@@ -534,6 +601,9 @@ IocpCompletionThread (LPVOID lpParam)
                 break;
             case IOCP_BUFFER_OP_CONNECT:
                 IocpCompleteConnect(bufPtr);
+                break;
+            case IOCP_BUFFER_OP_ACCEPT:
+                IocpCompleteAccept(bufPtr);
                 break;
             }
         }
@@ -1290,6 +1360,12 @@ int IocpEventHandler(
     channel = chanPtr->channel;
 
     switch (chanPtr->state) {
+    case IOCP_STATE_LISTENING:
+        if (chanPtr->vtblPtr->accept) {
+            chanPtr->vtblPtr->accept(chanPtr);
+        }
+        break;
+
     case IOCP_STATE_CONNECT_RETRY:
         /* Async connect failed. chanPtr->winError contains error. */
         if (chanPtr->vtblPtr->connectfailed  == NULL ||
@@ -1302,8 +1378,8 @@ int IocpEventHandler(
         else {
             chanPtr->state = IOCP_STATE_CONNECTING;
         }
-
         break;
+
     case IOCP_STATE_CONNECTED:
         if (chanPtr->vtblPtr->connected &&
             chanPtr->vtblPtr->connected(chanPtr) != 0) {
@@ -1311,10 +1387,8 @@ int IocpEventHandler(
             readyMask = IocpChannelFileEventMask(chanPtr);
             break;
         }
-        else {
-            chanPtr->state = IOCP_STATE_OPEN;
-            /* FALLTHRU to OPEN state */
-        }
+        chanPtr->state = IOCP_STATE_OPEN;
+        /* FALLTHRU to OPEN state */
     case IOCP_STATE_OPEN:
         /*
          * If Tcl wants to be notified of input and has not shutdown the read
