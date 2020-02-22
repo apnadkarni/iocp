@@ -231,7 +231,7 @@ static IocpChannelVtbl tcpListenerVtbl = {
     NULL, /* PostRead */
     NULL, /* PostWrite */
     NULL, // TBD TcpListenerGetHandle,
-    NULL, // TBD TcpListenerGetOption,
+    TcpListenerGetOption,
     NULL,                       /* SetOption */
     /* Data members */
     iocpTcpOptionNames,
@@ -280,6 +280,8 @@ IocpTclCode IocpTcpSetChannelDefaults(
  *    the name and the port number. If the address cannot be mapped to a
  *    name name, the numeric address is returned in that field.
  *
+ *    Assumes caller will wrap call with a Tcl_DString{Start,End}Sublist pair.
+ *
  * Results:
  *    Returns 0 on success with *dsPtr filled in or a Windows error code
  *    on failure.
@@ -298,7 +300,6 @@ IocpWinError IocpTcpListifyAddress(
     int  flags;
     char host[NI_MAXHOST];
     char service[NI_MAXSERV];
-    int  dsLen;
 
     if (getnameinfo(&addrPtr->sa, addrSize, host, sizeof(host)/sizeof(host[0]),
                     service, sizeof(service)/sizeof(service[0]),
@@ -306,10 +307,6 @@ IocpWinError IocpTcpListifyAddress(
         return WSAGetLastError();
     }
 
-    /* Note original length in case we need to revert after modification */
-    dsLen = Tcl_DStringLength(dsPtr);
-
-    Tcl_DStringStartSublist(dsPtr);
     Tcl_DStringAppendElement(dsPtr, host);
 
     if (noRDNS) {
@@ -343,7 +340,6 @@ IocpWinError IocpTcpListifyAddress(
         if (getnameinfo(&addrPtr->sa, addrSize, host,
                         sizeof(host)/sizeof(host[0]),
                         NULL, 0, flags) != 0) {
-            Tcl_DStringTrunc(dsPtr, dsLen); /* Restore */
             return WSAGetLastError();
         }
 
@@ -351,9 +347,8 @@ IocpWinError IocpTcpListifyAddress(
     }
 
     Tcl_DStringAppendElement(dsPtr, service);
-    Tcl_DStringEndSublist(dsPtr);
 
-    return 0;
+    return ERROR_SUCCESS;
 }
 
 /*
@@ -558,8 +553,13 @@ IocpTclCode TcpClientGetOption(
         addrSize = sizeof(addr);
         if ((opt==IOCP_TCP_OPT_PEERNAME?getpeername:getsockname)(lockedTcpPtr->so, &addr.sa, &addrSize) != 0)
             winError = WSAGetLastError();
-        else
+        else {
+            /* Note original length in case we need to revert after modification */
+            int dsLen = Tcl_DStringLength(dsPtr);
             winError = IocpTcpListifyAddress(&addr, addrSize, noRDNS, dsPtr);
+            if (winError != ERROR_SUCCESS)
+                Tcl_DStringTrunc(dsPtr, dsLen); /* Restore */
+        }
         if (winError == 0)
             return TCL_OK;
         else 
@@ -1668,6 +1668,90 @@ static IocpWinError IocpTcpListen(
     return 0;
 }
 
+/*
+ *------------------------------------------------------------------------
+ *
+ * TcpListenerGetOption --
+ *
+ *    Returns the value of the given option.
+ *
+ * Results:
+ *    Returns TCL_OK on succes and TCL_ERROR on failure.
+ *
+ * Side effects:
+ *    On success the value of the option is stored in *dsPtr.
+ *
+ *------------------------------------------------------------------------
+ */
+IocpTclCode TcpListenerGetOption(
+    IocpChannel *lockedChanPtr, /* Locked on entry, locked on exit */
+    Tcl_Interp  *interp,        /* For error reporting. May be NULL */
+    int          opt,           /* Index into option table for option of interest */
+    Tcl_DString *dsPtr)         /* Where to store the value */
+{
+    TcpListener *lockedTcpPtr  = IocpChannelToTcpListener(lockedChanPtr);
+    IocpInetAddress addr;
+    IocpWinError    winError;
+    int  dsLen;
+    int  listenerIndex;
+    int  addrSize;
+    int  noRDNS = 0;
+#define SUPPRESS_RDNS_VAR "::tcl::unsupported::noReverseDNS"
+
+    if (lockedTcpPtr->numListeners == 0) {
+        if (interp)
+            Tcl_SetResult(interp, "No socket associated with channel.", TCL_STATIC);
+        return TCL_ERROR;
+    }
+    if (interp != NULL && Tcl_GetVar(interp, SUPPRESS_RDNS_VAR, 0) != NULL) {
+	noRDNS = NI_NUMERICHOST;
+    }
+
+    switch (opt) {
+    case IOCP_TCP_OPT_CONNECTING:
+        Tcl_DStringAppend(dsPtr, "0", 1);
+        return TCL_OK;
+    case IOCP_TCP_OPT_ERROR:
+        /* As per Tcl winsock, do not report errors in connecting state */
+        if (lockedTcpPtr->base.winError != ERROR_SUCCESS) {
+            Tcl_Obj *objPtr = Iocp_MapWindowsError(lockedTcpPtr->base.winError,
+                                                   NULL, NULL);
+            int      nbytes;
+            char    *emessage = Tcl_GetStringFromObj(objPtr, &nbytes);
+            Tcl_DStringAppend(dsPtr, emessage, nbytes);
+            Tcl_DecrRefCount(objPtr);
+        }
+        return TCL_OK;
+    case IOCP_TCP_OPT_PEERNAME:
+        if (interp) {
+            Tcl_SetResult(interp, "can't get peername: socket is not connected", TCL_STATIC);
+        }
+        return TCL_ERROR;
+    case IOCP_TCP_OPT_SOCKNAME:
+        winError = 0;
+        dsLen = Tcl_DStringLength(dsPtr);
+        for (listenerIndex = 0; listenerIndex < lockedTcpPtr->numListeners; ++listenerIndex) {
+            addrSize = sizeof(addr);
+            if (getsockname(lockedTcpPtr->listeners[listenerIndex].so,
+                            &addr.sa, &addrSize) != 0) {
+                winError = WSAGetLastError();
+                break;
+            }
+            winError = IocpTcpListifyAddress(&addr, addrSize, noRDNS, dsPtr);
+            if (winError != ERROR_SUCCESS)
+                break;
+        }
+        if (winError != ERROR_SUCCESS) {
+            Tcl_DStringTrunc(dsPtr, dsLen); /* Restore original length */
+            return Iocp_ReportWindowsError(interp, winError, NULL);
+        } else {
+            return TCL_OK;
+        }
+    default:
+        Tcl_SetObjResult(interp, Tcl_ObjPrintf("Internal error: invalid socket option index %d", opt));
+        return TCL_ERROR;
+    }
+}
 
 /*
  *----------------------------------------------------------------------

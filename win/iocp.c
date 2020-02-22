@@ -1105,10 +1105,10 @@ IocpChannelGetOption (
             while (chanPtr->vtblPtr->optionNames[opt]) {
                 ret = chanPtr->vtblPtr->getoption(chanPtr, NULL, opt, &optDs);
                 /*
-                 * We do not treat ret = -1 as error. Assume it is a write-only
-                 * and ignore it.
+                 * We do not treat TCL_ERROR as error. Assume it is a write-only
+                 * or inapplicable and ignore it.
                  */
-                if (ret != -1) {
+                if (ret == TCL_OK) {
                     Tcl_DStringAppendElement(dsPtr, chanPtr->vtblPtr->optionNames[opt]);
                     Tcl_DStringAppendElement(dsPtr, Tcl_DStringValue(&optDs));
                 }
