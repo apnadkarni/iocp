@@ -20,13 +20,10 @@
  * "sock" + a pointer in hex + \0
  */
 #if defined(BUILD_iocp)
-# define SOCK_CHAN_NAME_PREFIX   "tcp"
+# define IOCP_SOCK_NAME_PREFIX   "tcp"
 #else
-# define SOCK_CHAN_NAME_PREFIX   "sock"
+# define IOCP_SOCK_NAME_PREFIX   "sock"
 #endif
-#define SOCK_CHAN_LENGTH        (sizeof(SOCK_CHAN_NAME_PREFIX)-1 + 2*sizeof(void *) + 1)
-#define SOCK_TEMPLATE           SOCK_CHAN_NAME_PREFIX "%p"
-
 
 /*
  * Copied from Tcl - 
@@ -1052,7 +1049,6 @@ Iocp_OpenTcpClient(
 {
     const char *errorMsg = NULL;
     struct addrinfo *remoteAddrs = NULL, *localAddrs = NULL;
-    char channelName[SOCK_CHAN_LENGTH];
     TcpClient *tcpPtr;
     Tcl_Channel     channel;
     IocpWinError winError;
@@ -1153,9 +1149,9 @@ Iocp_OpenTcpClient(
      * The two cancel and numRefs stays at 1 as allocated. The corresponding
      * unref will be via IocpCloseProc when Tcl closes the channel.
      */
-    sprintf_s(channelName, sizeof(channelName)/sizeof(channelName[0]), SOCK_TEMPLATE, tcpPtr);
-    channel = Tcl_CreateChannel(&IocpChannelDispatch, channelName,
-                                        tcpPtr, (TCL_READABLE | TCL_WRITABLE));
+    channel = IocpCreateTclChannel(TcpClientToIocpChannel(tcpPtr),
+                                   IOCP_SOCK_NAME_PREFIX,
+                                   (TCL_READABLE | TCL_WRITABLE));
     if (channel == NULL) {
         if (interp) {
             Tcl_SetResult(interp, "Could not create channel.", TCL_STATIC);
@@ -1165,6 +1161,7 @@ Iocp_OpenTcpClient(
 
     tcpPtr->base.channel = channel;
     /*
+     * Call into Tcl to set channel default configuration.
      * Do not access tcpPtr beyond this point in case calls into Tcl result
      * in recursive callbacks through the Tcl channel subsystem to us that
      * result in tcpPtr being freed. (Remember our ref count is reversed via
@@ -1358,7 +1355,6 @@ IocpWinError TcpListenerAccept(
         int         localAddrLen, remoteAddrLen;
         int         listenerIndex = bufPtr->context[1].i;
         TcpClient  *dataChanPtr;
-        char        channelName[SOCK_CHAN_LENGTH];
         Tcl_Channel channel;
         TcpListeningSocket *listenerPtr;
         IocpWinError        winError;
@@ -1368,6 +1364,10 @@ IocpWinError TcpListenerAccept(
 
         /* The listener that did the accept */
         listenerPtr = &lockedTcpPtr->listeners[listenerIndex];
+
+        IOCP_ASSERT(listenerPtr->pendingAcceptPosts > 0);
+        listenerPtr->pendingAcceptPosts -= 1;
+
 
         /* connSocket is the socket for a new connection. */
         connSocket  = bufPtr->context[0].so;
@@ -1428,9 +1428,9 @@ IocpWinError TcpListenerAccept(
         }
 
         /* Create a new open channel */
-        sprintf_s(channelName, sizeof(channelName)/sizeof(channelName[0]), SOCK_TEMPLATE, dataChanPtr);
-        channel = Tcl_CreateChannel(&IocpChannelDispatch, channelName,
-                                    dataChanPtr, (TCL_READABLE | TCL_WRITABLE));
+        channel = IocpCreateTclChannel(TcpClientToIocpChannel(dataChanPtr),
+                                       IOCP_SOCK_NAME_PREFIX,
+                                       (TCL_READABLE | TCL_WRITABLE));
         if (channel == NULL) {
             closesocket(connSocket);
             dataChanPtr->so = INVALID_SOCKET;
@@ -1781,7 +1781,6 @@ Iocp_OpenTcpServer(
     ClientData acceptProcData)	/* Data for the callback. */
 {
     const char      *errorMsg   = NULL;
-    char             channelName[SOCK_CHAN_LENGTH];
     TcpListener     *tcpPtr;
     Tcl_Channel      channel;
     IocpWinError     winError;
@@ -1885,13 +1884,13 @@ Iocp_OpenTcpServer(
 
     /* Now finally create the Tcl channel */
 
-    sprintf_s(channelName, sizeof(channelName)/sizeof(channelName[0]),
-              SOCK_TEMPLATE, tcpPtr);
     /*
      * NOTE - WILL CALL BACK INTO US THROUGH THREAD ACTION. Thus need to unlock.
      */
     IocpChannelUnlock(TcpListenerToIocpChannel(tcpPtr));
-    channel = Tcl_CreateChannel(&IocpChannelDispatch, channelName, tcpPtr, 0);
+    channel = IocpCreateTclChannel(TcpListenerToIocpChannel(tcpPtr),
+                                   IOCP_SOCK_NAME_PREFIX,
+                                   0);
     if (channel == NULL)  {
         goto fail;
     }

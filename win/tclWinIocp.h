@@ -501,8 +501,6 @@ extern struct IocpTcl85IntPlatStubs *tclIntPlatStubsPtr;
 
 #endif /* BUILD_iocp */
 
-
-
 /*
  * Prototypes for IOCP internal functions.
  */
@@ -546,13 +544,14 @@ void IocpUnregisterAcceptCallbackCleanup(Tcl_Interp *, IocpAcceptCallback *);
 void IocpUnregisterAcceptCallbackCleanupOnClose(ClientData callbackData);
 
 /* Generic channel functions */
+Tcl_Channel  IocpCreateTclChannel(IocpChannel*, const char*, int);
 IocpChannel *IocpChannelNew(const IocpChannelVtbl *vtblPtr);
-void IocpChannelAwaitCompletion(IocpChannel *lockedChanPtr);
-int IocpChannelWakeAfterCompletion(IocpChannel *lockedChanPtr);
-void IocpChannelEnqueueEvent(IocpChannel *lockedChanPtr, int force);
-void IocpChannelDrop(IocpChannel *lockedChanPtr);
-DWORD IocpChannelPostReads(IocpChannel *lockedChanPtr);
-void IocpChannelNudgeThread(IocpChannel *lockedChanPtr, int force);
+void         IocpChannelAwaitCompletion(IocpChannel *lockedChanPtr);
+int          IocpChannelWakeAfterCompletion(IocpChannel *lockedChanPtr);
+void         IocpChannelEnqueueEvent(IocpChannel *lockedChanPtr, int force);
+void         IocpChannelDrop(IocpChannel *lockedChanPtr);
+DWORD        IocpChannelPostReads(IocpChannel *lockedChanPtr);
+void         IocpChannelNudgeThread(IocpChannel *lockedChanPtr, int force);
 
 /* Tcl commands */
 Tcl_ObjCmdProc	Iocp_SocketObjCmd;

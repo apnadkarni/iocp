@@ -482,3 +482,35 @@ IocpUnregisterAcceptCallbackCleanupOnClose(
     Tcl_EventuallyFree(acceptCallbackPtr->script, TCL_DYNAMIC);
     ckfree(acceptCallbackPtr);
 }
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpCreateTclChannel --
+ *
+ *    Creates a Tcl Channel for the passed IocpChannel.
+ *
+ * Results:
+ *    Returns the created Tcl_Channel on success, NULL on failure.
+ *
+ * Side effects:
+ *    As above.
+ *
+ *------------------------------------------------------------------------
+ */
+Tcl_Channel IocpCreateTclChannel(
+    IocpChannel *chanPtr,
+    const char *namePrefix,     /* Prefix to use for channel name.
+                                 * Should be less than 70 chars */
+    int flags                   /* More flags TCL_READABLE | TCL_WRITABLE
+                                 * passsed to Tcl_CreateChannel */
+    )
+{
+    char channelName[100];
+    sprintf_s(channelName,
+              sizeof(channelName)/sizeof(channelName[0]),
+              "%s%p", namePrefix, chanPtr);
+    return Tcl_CreateChannel(&IocpChannelDispatch, channelName,
+                             chanPtr, flags);
+
+}

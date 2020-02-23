@@ -585,7 +585,10 @@ IocpCompletionThread (LPVOID lpParam)
             bufPtr = CONTAINING_RECORD(overlapPtr, IocpBuffer, u);
             bufPtr->data.len = nbytes;
             if (!ok) {
-                bufPtr->winError = GetLastError();
+                if (bufPtr->flags & IOCP_BUFFER_F_WINSOCK)
+                    bufPtr->winError = WSAGetLastError();
+                else
+                    bufPtr->winError = GetLastError();
                 if (bufPtr->winError == 0)
                     bufPtr->winError =  WSAEINVAL; /* TBD - what else? */
             }
