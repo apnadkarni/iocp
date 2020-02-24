@@ -608,10 +608,7 @@ IocpCompletionThread (LPVOID lpParam)
             bufPtr = CONTAINING_RECORD(overlapPtr, IocpBuffer, u);
             bufPtr->data.len = nbytes;
             if (!ok) {
-                if (bufPtr->flags & IOCP_BUFFER_F_WINSOCK)
-                    bufPtr->winError = WSAGetLastError();
-                else
-                    bufPtr->winError = GetLastError();
+                bufPtr->winError = GetLastError();
                 if (bufPtr->winError == 0)
                     bufPtr->winError =  WSAEINVAL; /* TBD - what else? */
             }
@@ -622,9 +619,11 @@ IocpCompletionThread (LPVOID lpParam)
             IOCP_ASSERT(chanPtr != NULL);
             IocpChannelLock(chanPtr);
 
-            /* Translate to a more specific error code */
-            if (chanPtr->vtblPtr->translateerror)
+            if (bufPtr->winError != 0 &&
+                chanPtr->vtblPtr->translateerror != NULL) {
+                /* Translate to a more specific error code */
                 bufPtr->winError = chanPtr->vtblPtr->translateerror(chanPtr, bufPtr);
+            }
 
             /*
              * NOTE - it is responsibility of called completion routines
