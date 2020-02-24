@@ -125,6 +125,8 @@ static IocpTclCode  TcpClientGetHandle(IocpChannel *lockedChanPtr,
 static IocpTclCode  TcpClientGetOption (IocpChannel *lockedChanPtr,
                                               Tcl_Interp *interp, int optIndex,
                                               Tcl_DString *dsPtr);
+static IocpWinError TcpClientTranslateError(IocpChannel *chanPtr,
+                                            IocpBuffer *bufPtr);
 static IocpWinError IocpTcpListifyAddress(const IocpInetAddress *addr,
                                           int addr_size, int noRDNS,
                                           Tcl_DString *dsPtr);
@@ -144,6 +146,7 @@ static IocpChannelVtbl tcpClientVtbl =  {
     TcpClientGetHandle,
     TcpClientGetOption,
     NULL,                       /* SetOption */
+    TcpClientTranslateError,
     /* Data members */
     iocpTcpOptionNames,
     sizeof(TcpClient)
@@ -230,6 +233,7 @@ static IocpChannelVtbl tcpListenerVtbl = {
     NULL, // TBD TcpListenerGetHandle,
     TcpListenerGetOption,
     NULL,                       /* SetOption */
+    NULL,                       /* translateerror */
     /* Data members */
     iocpTcpOptionNames,
     sizeof(TcpListener)
@@ -565,6 +569,34 @@ IocpTclCode TcpClientGetOption(
         Tcl_SetObjResult(interp, Tcl_ObjPrintf("Internal error: invalid socket option index %d", opt));
         return TCL_ERROR;
     }
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * TcpClientTranslateError --
+ *
+ *    Conforms to the IocpChannel vtbl translateerror API.
+ *
+ * Results:
+ *    A Winsock-specific error code if possible, else bufPtr->winError.
+ *
+ * Side effects:
+ *    None.
+ *
+ *------------------------------------------------------------------------
+ */
+static IocpWinError TcpClientTranslateError(IocpChannel *chanPtr, IocpBuffer *bufPtr)
+{
+    TcpClient *tcpPtr = IocpChannelToTcpClient(chanPtr);
+    if (bufPtr->winError != ERROR_SUCCESS) {
+        DWORD flags = 0 ;
+        DWORD nbytes = 0;
+        if (WSAGetOverlappedResult(tcpPtr->so, &bufPtr->u.wsaOverlap, &nbytes, FALSE, &flags) == 0) {
+            return WSAGetLastError();
+        }
+    }
+    return bufPtr->winError;
 }
 
 /*

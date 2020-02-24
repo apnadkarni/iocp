@@ -468,6 +468,20 @@ typedef struct IocpChannelVtbl {
         int          optIndex,      /* Index into optionNames[] */
         const char*  value);        /* Option value to set */
 
+    /*
+     * translateerror() permits a specific channel type to replace a generic
+     * Win32 error with a device specific error code. For example, for Winsock
+     * errors returned by WSAGetLastError are preferred to GetLastError.
+     * The function should return a device-specific error if possible or
+     * the existing value in bufPtr->winError.
+     */
+    IocpWinError (*translateerror)( /* May be NULL */
+        IocpChannel *lockedChanPtr, /* Locked on entry and return */
+        IocpBuffer *bufPtr);  /* The IocpBuffer containing an OVERLAP
+                               * structure as returned on a IOCP completion */
+
+    /* START of DATA fields */
+
     const char **optionNames;  /* Array of option names terminated with
                                 *  NULL. May be NULL if no options */
 

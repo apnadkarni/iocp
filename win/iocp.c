@@ -375,23 +375,21 @@ void IocpChannelNudgeThread(
  *
  * Side effects:
  *    The channel state is changed to OPEN or CONNECT_RETRY depending
- *    on buffer status. The passed bufPtr is freed. The Tcl thread is
- *    notified via the event queue or woken up if blocked.
+ *    on buffer status. The passed bufPtr is freed and lockedChanPtr
+ *    dropped. The Tcl thread is notified via the event queue or woken
+ *    up if blocked.
  *
  *------------------------------------------------------------------------
  */
 static void IocpCompleteConnect(
+    IocpChannel *lockedChanPtr, /* Locked channel, will be dropped */
     IocpBuffer *bufPtr)         /* I/O completion buffer */
 {
-    IocpChannel *chanPtr = bufPtr->chanPtr;
-
-    IocpChannelLock(chanPtr);
-
-    switch (chanPtr->state) {
+    switch (lockedChanPtr->state) {
     case IOCP_STATE_CONNECTING:
-        chanPtr->winError = bufPtr->winError;
-        chanPtr->state = bufPtr->winError == 0 ? IOCP_STATE_CONNECTED : IOCP_STATE_CONNECT_RETRY;
-        IocpChannelNudgeThread(chanPtr, 0);
+        lockedChanPtr->winError = bufPtr->winError;
+        lockedChanPtr->state = bufPtr->winError == 0 ? IOCP_STATE_CONNECTED : IOCP_STATE_CONNECT_RETRY;
+        IocpChannelNudgeThread(lockedChanPtr, 0);
         break;
 
     case IOCP_STATE_CLOSED: /* Ignore, nothing to be done */
@@ -402,7 +400,7 @@ static void IocpCompleteConnect(
     }
 
     bufPtr->chanPtr = NULL;
-    IocpChannelDrop(chanPtr); /* Corresponding to bufPtr->chanPtr */
+    IocpChannelDrop(lockedChanPtr); /* Corresponding to bufPtr->chanPtr */
     IocpBufferFree(bufPtr);
 }
 
@@ -417,19 +415,16 @@ static void IocpCompleteConnect(
  *    None.
  *
  * Side effects:
- *    The passed bufPtr is freed or enqueued on the owning
- *    IocpChannel and the Tcl thread notified via the event loop. If the
- *    Tcl thread is blocked on this channel, it is woken up.
+ *    The passed bufPtr is freed or enqueued on the owning IocpChannel. The
+ *    lockedChanPtr is dropped and the Tcl thread notified via the event loop.
+ *    If the Tcl thread is blocked on this channel, it is woken up.
  *
  *------------------------------------------------------------------------
  */
 static void IocpCompleteAccept(
+    IocpChannel *lockedChanPtr, /* Locked channel, will be dropped */
     IocpBuffer *bufPtr)         /* I/O completion buffer */
 {
-    IocpChannel *chanPtr = bufPtr->chanPtr;
-
-    IocpChannelLock(chanPtr);
-
     /*
      * Reminder: unlike reads/writes, the count of pending accept operations
      * is on a per listening socket basis, not per channel. Since we don't
@@ -448,7 +443,7 @@ static void IocpCompleteAccept(
      * Then if the channel was blocked, awaken the sleeping thread. Otherwise
      * send it a Tcl event notification.
      */
-    IocpListAppend(&chanPtr->inputBuffers, &bufPtr->link);
+    IocpListAppend(&lockedChanPtr->inputBuffers, &bufPtr->link);
     bufPtr->chanPtr = NULL;
     /*
      * chanPtr->numRefs-- because bufPtr does not refer to it (though it is on
@@ -458,10 +453,10 @@ static void IocpCompleteAccept(
      * The two cancel out. The latter will be reversed at function exit.
      */
 
-    IocpChannelNudgeThread(chanPtr, 0);
+    IocpChannelNudgeThread(lockedChanPtr, 0);
 
     /* This drops the reference from bufPtr which was delayed (see above) */
-    IocpChannelDrop(chanPtr);
+    IocpChannelDrop(lockedChanPtr);
 }
 
 /*
@@ -475,25 +470,22 @@ static void IocpCompleteAccept(
  *    None.
  *
  * Side effects:
- *    The passed bufPtr is freed or enqueued on the owning
- *    IocpChannel and the Tcl thread notified via the event loop. If the
- *    Tcl thread is blocked on this channel, it is woken up.
+ *    The passed bufPtr is freed or enqueued on the owning IocpChannel. The
+ *    lockedChanPtr is dropped and the Tcl thread notified via the event loop.
+ *    If the Tcl thread is blocked on this channel, it is woken up.
  *
  *------------------------------------------------------------------------
  */
 static void IocpCompleteRead(
+    IocpChannel *lockedChanPtr, /* Locked channel, will be dropped */
     IocpBuffer *bufPtr)         /* I/O completion buffer */
 {
-    IocpChannel *chanPtr = bufPtr->chanPtr;
+    IOCP_ASSERT(lockedChanPtr->pendingReads > 0);
+    lockedChanPtr->pendingReads--;
 
-    IocpChannelLock(chanPtr);
-
-    IOCP_ASSERT(chanPtr->pendingReads > 0);
-    chanPtr->pendingReads--;
-
-    if (chanPtr->state == IOCP_STATE_CLOSED) {
+    if (lockedChanPtr->state == IOCP_STATE_CLOSED) {
         bufPtr->chanPtr = NULL;
-        IocpChannelDrop(chanPtr); /* Corresponding to bufPtr->chanPtr */
+        IocpChannelDrop(lockedChanPtr); /* Corresponding to bufPtr->chanPtr */
         IocpBufferFree(bufPtr);
         return;
     }
@@ -502,7 +494,7 @@ static void IocpCompleteRead(
      * Add the buffer to the input queue. Then if the channel was blocked,
      * awaken the sleeping thread. Otherwise send it a Tcl event notification.
      */
-    IocpListAppend(&chanPtr->inputBuffers, &bufPtr->link);
+    IocpListAppend(&lockedChanPtr->inputBuffers, &bufPtr->link);
     bufPtr->chanPtr = NULL;
     /*
      * chanPtr->numRefs-- because bufPtr does not refer to it (though it is on
@@ -517,10 +509,10 @@ static void IocpCompleteRead(
      * Tcl thread since in any case it has to be notified of closure. So
      * also any errors indicated by bufPtr->winError.
      */
-    IocpChannelNudgeThread(chanPtr, 0);
+    IocpChannelNudgeThread(lockedChanPtr, 0);
 
     /* This drops the reference from bufPtr which was delayed (see above) */
-    IocpChannelDrop(chanPtr);
+    IocpChannelDrop(lockedChanPtr);
 }
 
 /*
@@ -534,45 +526,45 @@ static void IocpCompleteRead(
  *    None.
  *
  * Side effects:
- *    The passed bufPtr is freed. The Tcl thread notified via the event loop. If the
- *    Tcl thread is blocked on this channel, it is woken up.
+ *    The passed bufPtr is freed and lockedChanPtr dropped. The Tcl thread
+ *    notified via the event loop. If the Tcl thread is blocked on this channel,
+ *    it is woken up.
  *
  *------------------------------------------------------------------------
  */
 static void IocpCompleteWrite(
+    IocpChannel *lockedChanPtr, /* Locked channel, will be dropped */
     IocpBuffer *bufPtr)         /* I/O completion buffer */
 {
-    IocpChannel *chanPtr = bufPtr->chanPtr;
-
-    IocpChannelLock(chanPtr);
-
-    IOCP_ASSERT(chanPtr->pendingWrites > 0);
-    chanPtr->pendingWrites--;
+    IOCP_ASSERT(lockedChanPtr->pendingWrites > 0);
+    lockedChanPtr->pendingWrites--;
 
     bufPtr->chanPtr = NULL;
     IocpBufferFree(bufPtr);
 
-    if (chanPtr->state != IOCP_STATE_CLOSED) {
-        chanPtr->flags |= IOCP_CHAN_F_WRITE_DONE;
+    if (lockedChanPtr->state != IOCP_STATE_CLOSED) {
+        lockedChanPtr->flags |= IOCP_CHAN_F_WRITE_DONE;
         /* TBD - optimize under which conditions we need to nudge thread */
-        IocpChannelNudgeThread(chanPtr, 0);
+        IocpChannelNudgeThread(lockedChanPtr, 0);
     }
-    IocpChannelDrop(chanPtr); /* Corresponding to bufPtr->chanPtr */
+    IocpChannelDrop(lockedChanPtr); /* Corresponding to bufPtr->chanPtr */
 }
 
 static DWORD WINAPI
 IocpCompletionThread (LPVOID lpParam)
 {
-    IocpBuffer *bufPtr;
-    HANDLE      iocpPort = (HANDLE) lpParam;
-    DWORD       nbytes;
-    ULONG_PTR   key;
-    OVERLAPPED *overlapPtr;
-    BOOL        ok;
-    DWORD       error;
+    IocpWinError winError;
 
     __try {
         while (1) {
+            IocpBuffer *bufPtr;
+            HANDLE      iocpPort = (HANDLE) lpParam;
+            DWORD       nbytes;
+            ULONG_PTR   key;
+            OVERLAPPED *overlapPtr;
+            BOOL        ok;
+            IocpChannel *chanPtr;
+
             ok = GetQueuedCompletionStatus(iocpPort, &nbytes, &key,
                                            &overlapPtr, INFINITE);
             if (overlapPtr == NULL) {
@@ -595,27 +587,39 @@ IocpCompletionThread (LPVOID lpParam)
             else {
                 bufPtr->winError = 0;
             }
+            chanPtr = bufPtr->chanPtr;
+            IOCP_ASSERT(chanPtr != NULL);
+            IocpChannelLock(chanPtr);
+
+            /* Translate to a more specific error code */
+            if (chanPtr->vtblPtr->translateerror)
+                bufPtr->winError = chanPtr->vtblPtr->translateerror(chanPtr, bufPtr);
+
+            /*
+             * NOTE - it is responsibility of called completion routines
+             * to dispose of both chanPtr and bufPtr respectively.
+             */
             switch (bufPtr->operation) {
             case IOCP_BUFFER_OP_READ:
-                IocpCompleteRead(bufPtr);
+                IocpCompleteRead(chanPtr, bufPtr);
                 break;
             case IOCP_BUFFER_OP_WRITE:
-                IocpCompleteWrite(bufPtr);
+                IocpCompleteWrite(chanPtr, bufPtr);
                 break;
             case IOCP_BUFFER_OP_CONNECT:
-                IocpCompleteConnect(bufPtr);
+                IocpCompleteConnect(chanPtr, bufPtr);
                 break;
             case IOCP_BUFFER_OP_ACCEPT:
-                IocpCompleteAccept(bufPtr);
+                IocpCompleteAccept(chanPtr, bufPtr);
                 break;
             }
         }
     }
-    __except (error = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) {
-        Tcl_Panic("Tcl IOCP thread died with exception %#x\n", error);
+    __except (winError = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) {
+        Tcl_Panic("Tcl IOCP thread died with exception %#x\n", winError);
     }
 
-    return error;
+    return winError;
 }
 
 /*
@@ -884,13 +888,13 @@ IocpChannelInput (
                 break;
             IocpListPopFront(&chanPtr->inputBuffers);
             IocpBufferFree(bufPtr);
+            chanPtr->winError = winError; /* TBD - should we check if already stored */
             if (winError == WSAECONNRESET) {
-                /* Treat as EOF, not error */
+                /* Treat as EOF, not error, although we did store the error above. */
                 chanPtr->flags |= IOCP_CHAN_F_REMOTE_EOF;
                 break;
             }
-            chanPtr->winError = winError; /* TBD - should we check if already stored */
-            bytesRead = -1;
+            bytesRead = -1; /* TBD - or store 0 and treat as EOF ? */
             /* TBD - should we try to distinguish transient errors ? */
             IocpSetTclErrnoFromWin32(winError);
             *errorCodePtr = Tcl_GetErrno();
