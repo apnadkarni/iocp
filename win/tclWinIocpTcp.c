@@ -118,8 +118,10 @@ static IocpWinError TcpClientBlockingConnect(IocpChannel *);
 static IocpWinError TcpClientPostRead(IocpChannel *);
 static IocpWinError TcpClientPostWrite(IocpChannel *, const char *data,
                                          int nbytes, int *countPtr);
+static IocpWinError TcpClientPostDisconnect(TcpClient *chanPtr);
 static IocpWinError TcpClientAsyncConnectFailed(IocpChannel *lockedChanPtr);
 static IocpWinError TcpClientAsyncConnected(IocpChannel *lockedChanPtr);
+static void         TcpClientDisconnected(IocpChannel *lockedChanPtr);
 static IocpTclCode  TcpClientGetHandle(IocpChannel *lockedChanPtr,
                                        int direction, ClientData *handlePtr);
 static IocpTclCode  TcpClientGetOption (IocpChannel *lockedChanPtr,
@@ -141,6 +143,7 @@ static IocpChannelVtbl tcpClientVtbl =  {
     TcpClientBlockingConnect,
     TcpClientAsyncConnected,
     TcpClientAsyncConnectFailed,
+    TcpClientDisconnected,
     TcpClientPostRead,
     TcpClientPostWrite,
     TcpClientGetHandle,
@@ -228,6 +231,7 @@ static IocpChannelVtbl tcpListenerVtbl = {
     NULL, /* BlockingConnect */
     NULL, /* AsyncConnected */
     NULL, /* AsyncConnectFailed */
+    NULL, /* Disconnected */
     NULL, /* PostRead */
     NULL, /* PostWrite */
     NULL, // TBD TcpListenerGetHandle,
@@ -441,6 +445,7 @@ static int TcpClientShutdown(
     int          flags)         /* Combination of TCL_CLOSE_{READ,WRITE} */
 {
     TcpClient *lockedTcpPtr = IocpChannelToTcpClient(lockedChanPtr);
+
     if (lockedTcpPtr->so != INVALID_SOCKET) {
         int wsaStatus;
         switch (flags & (TCL_CLOSE_READ|TCL_CLOSE_WRITE)) {
@@ -451,12 +456,19 @@ static int TcpClientShutdown(
             wsaStatus = shutdown(lockedTcpPtr->so, SD_SEND);
             break;
         case TCL_CLOSE_READ|TCL_CLOSE_WRITE:
-            wsaStatus = closesocket(lockedTcpPtr->so);
+            /*
+             * Doing just a closesocket seems to result in a TCP RESET
+             * instead of graceful close. Do use DisconnectEx if
+             * available.
+             */
+            if (TcpClientPostDisconnect(lockedTcpPtr) != ERROR_SUCCESS) {
+                wsaStatus = closesocket(lockedTcpPtr->so);
+                lockedTcpPtr->so = INVALID_SOCKET;
+            }
             break;
         default:                /* Not asked to close either */
             return 0;
         }
-        lockedTcpPtr->so = INVALID_SOCKET;
         if (wsaStatus == SOCKET_ERROR) {
             /* TBD - do we need to set a error string in interp? */
             IocpSetTclErrnoFromWin32(WSAGetLastError());
@@ -675,6 +687,54 @@ static IocpWinError TcpClientPostConnect(
     return 0;
 }
 
+/*
+ *------------------------------------------------------------------------
+ *
+ * TcpClientPostDisconnect --
+ *
+ *    Initiates a disconnect on a connection.
+ *
+ * Results:
+ *    ERROR_SUCCESS if disconnect request was successfully posted or an
+ *    Winsock error code.
+ *
+ * Side effects:
+ *    The Disconnect is queued on the IOCP completion port.
+ *
+ *------------------------------------------------------------------------
+ */
+IocpWinError TcpClientPostDisconnect(
+    TcpClient *lockedTcpPtr     /* Must be locked */
+    )
+{
+    static GUID     DisconnectExGuid = WSAID_DISCONNECTEX;
+    LPFN_DISCONNECTEX  fnDisconnectEx;
+    DWORD nbytes;
+
+    if (WSAIoctl(lockedTcpPtr->so, SIO_GET_EXTENSION_FUNCTION_POINTER,
+                 &DisconnectExGuid, sizeof(GUID),
+                 &fnDisconnectEx,
+                 sizeof(fnDisconnectEx),
+                 &nbytes, NULL, NULL) != 0) {
+        return WSAGetLastError();
+    }
+    else {
+        IocpBuffer *bufPtr = IocpBufferNew(0, IOCP_BUFFER_OP_DISCONNECT, IOCP_BUFFER_F_WINSOCK);
+        if (bufPtr == NULL)
+            return WSAENOBUFS;
+        bufPtr->chanPtr    = TcpClientToIocpChannel(lockedTcpPtr);
+        lockedTcpPtr->base.numRefs += 1; /* Reversed when buffer is unlinked from channel */
+
+        if (fnDisconnectEx(lockedTcpPtr->so, &bufPtr->u.wsaOverlap, 0, 0) == FALSE) {
+            IocpWinError    winError = WSAGetLastError();
+            if (winError != WSA_IO_PENDING) {
+                IocpBufferFree(bufPtr);
+                return winError;
+            }
+        }
+        return ERROR_SUCCESS;
+    }
+}
 
 /*
  *------------------------------------------------------------------------
@@ -998,7 +1058,7 @@ static IocpWinError TcpClientInitiateConnection(
  *
  *------------------------------------------------------------------------
  */
-IocpWinError TcpClientAsyncConnected(
+static IocpWinError TcpClientAsyncConnected(
     IocpChannel *lockedChanPtr) /* Must be locked on entry. */
 {
     TcpClient *tcpPtr = IocpChannelToTcpClient(lockedChanPtr);
@@ -1037,7 +1097,7 @@ IocpWinError TcpClientAsyncConnected(
  *
  *------------------------------------------------------------------------
  */
-IocpWinError TcpClientAsyncConnectFailed(
+static IocpWinError TcpClientAsyncConnectFailed(
     IocpChannel *lockedChanPtr) /* Must be locked on entry. */
 {
     TcpClient *tcpPtr = IocpChannelToTcpClient(lockedChanPtr);
@@ -1048,6 +1108,32 @@ IocpWinError TcpClientAsyncConnectFailed(
         tcpPtr->so = INVALID_SOCKET;
     }
     return TcpClientInitiateConnection(tcpPtr);
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * TcpClientDisconnected --
+ *
+ *    Closes the socket associated with the channel.
+ *
+ * Results:
+ *    None.
+ *
+ * Side effects:
+ *    As above.
+ *
+ *------------------------------------------------------------------------
+ */
+static void TcpClientDisconnected(
+    IocpChannel *lockedChanPtr) /* Must be locked on entry. */
+{
+    TcpClient *tcpPtr = IocpChannelToTcpClient(lockedChanPtr);
+
+    if (tcpPtr->so != INVALID_SOCKET) {
+        closesocket(tcpPtr->so);
+        tcpPtr->so = INVALID_SOCKET;
+    }
 }
 
 

@@ -171,6 +171,7 @@ enum IocpBufferOp {
     IOCP_BUFFER_OP_READ,
     IOCP_BUFFER_OP_WRITE,
     IOCP_BUFFER_OP_CONNECT,
+    IOCP_BUFFER_OP_DISCONNECT,
     IOCP_BUFFER_OP_ACCEPT,
 };
 
@@ -415,6 +416,15 @@ typedef struct IocpChannelVtbl {
     IocpWinError (*connectfailed)( /* May be NULL */
         IocpChannel *lockedChanPtr);   /* Locked on entry. Must be locked on
                                         * return. */
+    /*
+     * disconnected() is called from the completion thread when a
+     * when a disconnection request is completed. It may take any
+     * appropriate action such as closing sockets.
+     */
+    void (*disconnected)(       /* May be NULL */
+        IocpChannel *lockedChanPtr); /* Locked on entry. Must be locked on
+                                      * return. */
+
     /*
      * postread() is called to post an I/O call to read more data.
      * Should return 0 on success and a Windows error code on error.

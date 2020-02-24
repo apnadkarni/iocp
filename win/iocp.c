@@ -115,7 +115,7 @@ IocpBuffer *IocpBufferNew(
     bufPtr->flags     = flags;
     IocpLinkInit(&bufPtr->link);
 
-    if (capacity && IocpDataBufferInit(&bufPtr->data, capacity) == NULL) {
+    if (IocpDataBufferInit(&bufPtr->data, capacity) == NULL && capacity != 0) {
         ckfree(bufPtr);
         return NULL;
     }
@@ -407,6 +407,37 @@ static void IocpCompleteConnect(
 /*
  *------------------------------------------------------------------------
  *
+ * IocpCompleteDisconnect --
+ *
+ *    Handles completion of disconnect operations from IOCP.
+ *
+ * Results:
+ *    None.
+ *
+ * Side effects:
+ *    The associated socket is closed, the passed bufPtr is freed
+ *    and lockedChanPtr
+ *    dropped. The Tcl thread is notified via the event queue or woken
+ *    up if blocked.
+ *
+ *------------------------------------------------------------------------
+ */
+static void IocpCompleteDisconnect(
+    IocpChannel *lockedChanPtr, /* Locked channel, will be dropped */
+    IocpBuffer *bufPtr)         /* I/O completion buffer */
+{
+    if (lockedChanPtr->vtblPtr->disconnected) {
+        lockedChanPtr->vtblPtr->disconnected(lockedChanPtr);
+    }
+    bufPtr->chanPtr = NULL;
+    IocpChannelDrop(lockedChanPtr); /* Corresponding to bufPtr->chanPtr */
+    IocpBufferFree(bufPtr);
+}
+
+
+/*
+ *------------------------------------------------------------------------
+ *
  * IocpCompleteAccept --
  *
  *    Handles completion of connection accept operations from IOCP.
@@ -608,6 +639,9 @@ IocpCompletionThread (LPVOID lpParam)
                 break;
             case IOCP_BUFFER_OP_CONNECT:
                 IocpCompleteConnect(chanPtr, bufPtr);
+                break;
+            case IOCP_BUFFER_OP_DISCONNECT:
+                IocpCompleteDisconnect(chanPtr, bufPtr);
                 break;
             case IOCP_BUFFER_OP_ACCEPT:
                 IocpCompleteAccept(chanPtr, bufPtr);
