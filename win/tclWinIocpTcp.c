@@ -2255,13 +2255,19 @@ Iocp_SocketObjCmd (
 	a++;
     } else {
     wrongNumArgs:
+#ifdef BUILD_iocp
+        /*
+         * Hard code to match Tcl socket error. Can't use code below because
+         * it uses internal Tcl structures.
+         */
+        Tcl_SetResult(interp, "wrong # args: should be \"socket ?-myaddr addr? ?-myport myport? ?-async? host port\" or \"socket -server command ?-myaddr addr? port\"", TCL_STATIC);
+#else
 	Tcl_WrongNumArgs(interp, 1, objv,
 		"?-myaddr addr? ?-myport myport? ?-async? host port");
-#ifndef BUILD_iocp
 	((Interp *)interp)->flags |= INTERP_ALTERNATE_WRONG_ARGS;
-#endif
 	Tcl_WrongNumArgs(interp, 1, objv,
 		"-server command ?-myaddr addr? port");
+#endif
 	return TCL_ERROR;
     }
 
