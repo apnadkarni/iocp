@@ -319,17 +319,21 @@ typedef struct IocpChannel {
 #define IOCP_MAX_PENDING_WRITES_DEFAULT 3
 
     int       flags;
-#define IOCP_CHAN_F_BLOCKED      0x001 /* Thread blocked for I/O completion */
 
-#define IOCP_CHAN_F_ON_EVENTQ    0x002 /* The channel is on the event q */
-#define IOCP_CHAN_F_WRITE_DONE   0x004 /* One or more writes completed */
-#define IOCP_CHAN_F_WATCH_INPUT  0x008 /* Notify Tcl on data arrival */
-#define IOCP_CHAN_F_WATCH_OUTPUT 0x010 /* Notify Tcl on output unblocking */
-#define IOCP_CHAN_F_READONLY     0x020 /* Channel input disabled */
-#define IOCP_CHAN_F_WRITEONLY    0x040 /* Channel output disabled */
-#define IOCP_CHAN_F_REMOTE_EOF   0x080 /* Remote end closed connection */
-#define IOCP_CHAN_F_NONBLOCKING  0x100 /* Channel is in non-blocking mode */
-#define IOCP_CHAN_F_WATCH_ACCEPT 0x200 /* Notify on connection accepts */
+#define IOCP_CHAN_F_ON_EVENTQ    0x0002 /* The channel is on the event q */
+#define IOCP_CHAN_F_WRITE_DONE   0x0004 /* One or more writes completed */
+#define IOCP_CHAN_F_WATCH_INPUT  0x0008 /* Notify Tcl on data arrival */
+#define IOCP_CHAN_F_WATCH_OUTPUT 0x0010 /* Notify Tcl on output unblocking */
+#define IOCP_CHAN_F_READONLY     0x0020 /* Channel input disabled */
+#define IOCP_CHAN_F_WRITEONLY    0x0040 /* Channel output disabled */
+#define IOCP_CHAN_F_REMOTE_EOF   0x0080 /* Remote end closed connection */
+#define IOCP_CHAN_F_NONBLOCKING  0x0100 /* Channel is in non-blocking mode */
+#define IOCP_CHAN_F_WATCH_ACCEPT 0x0200 /* Notify on connection accepts */
+#define IOCP_CHAN_F_BLOCKED_READ    0x0400 /* Blocked for read completion */
+#define IOCP_CHAN_F_BLOCKED_WRITE   0x0800 /* Blocked for write completion */
+#define IOCP_CHAN_F_BLOCKED_CONNECT 0x1000 /* Blocked for connect completion */
+#define IOCP_CHAN_F_BLOCKED_MASK \
+    (IOCP_CHAN_F_BLOCKED_READ | IOCP_CHAN_F_BLOCKED_WRITE | IOCP_CHAN_F_BLOCKED_CONNECT)
 } IocpChannel;
 IOCP_INLINE void IocpChannelLock(IocpChannel *chanPtr) {
     IocpLockAcquireExclusive(&chanPtr->lock);
@@ -570,12 +574,12 @@ void IocpUnregisterAcceptCallbackCleanupOnClose(ClientData callbackData);
 /* Generic channel functions */
 Tcl_Channel  IocpCreateTclChannel(IocpChannel*, const char*, int);
 IocpChannel *IocpChannelNew(const IocpChannelVtbl *vtblPtr);
-void         IocpChannelAwaitCompletion(IocpChannel *lockedChanPtr);
-int          IocpChannelWakeAfterCompletion(IocpChannel *lockedChanPtr);
+void         IocpChannelAwaitCompletion(IocpChannel *lockedChanPtr, int flags);
+int          IocpChannelWakeAfterCompletion(IocpChannel *lockedChanPtr, int blockMask);
 void         IocpChannelEnqueueEvent(IocpChannel *lockedChanPtr, int force);
 void         IocpChannelDrop(IocpChannel *lockedChanPtr);
 DWORD        IocpChannelPostReads(IocpChannel *lockedChanPtr);
-void         IocpChannelNudgeThread(IocpChannel *lockedChanPtr, int force);
+void         IocpChannelNudgeThread(IocpChannel *lockedChanPtr, int blockMask, int force);
 
 /* Tcl commands */
 Tcl_ObjCmdProc	Iocp_SocketObjCmd;

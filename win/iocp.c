@@ -245,32 +245,39 @@ void IocpChannelDrop(
  *
  *------------------------------------------------------------------------
  */
-void IocpChannelAwaitCompletion(IocpChannel *lockedChanPtr)    /* Must be locked on entry */
+void IocpChannelAwaitCompletion(
+    IocpChannel *lockedChanPtr,    /* Must be locked on entry */
+    int          blockType)        /* Exactly one of IOCP_CHAN_F_BLOCKED_* values  */
 {
-    lockedChanPtr->flags   |= IOCP_CHAN_F_BLOCKED;
+    lockedChanPtr->flags &= ~ IOCP_CHAN_F_BLOCKED_MASK;
+    lockedChanPtr->flags |= blockType;
     IocpChannelCVWait(lockedChanPtr);
 }
 
 /*
  *------------------------------------------------------------------------
  *
- * IocpChannelWakeForIO --
+ * IocpChannelWakeAfterCompletion --
  *
  *    Wakes up a thread (if any) blocked on some I/O operation to complete.
  *
  * Results:
- *    Returns 1 if there was a thread blocked, else 0.
+ *    Returns 1 if a blocked thread was woken, else 0.
  *
  * Side effects:
  *    The thread (if any) blocked on the channel is awoken.
  *
  *------------------------------------------------------------------------
  */
-int IocpChannelWakeAfterCompletion(IocpChannel *lockedChanPtr)   /* Must be locked on entry */
+int IocpChannelWakeAfterCompletion(
+    IocpChannel *lockedChanPtr,   /* Must be locked on entry */
+    int          blockMask)      /* Combination of IOCP_CHAN_F_BLOCKED*. Channel
+                                  * thread will be woken if waiting on any of these */
+
 {
     /* Checking the flag, saves a potential unnecessary kernel transition */
-    if (lockedChanPtr->flags & IOCP_CHAN_F_BLOCKED) {
-        lockedChanPtr->flags &= ~IOCP_CHAN_F_BLOCKED;
+    if (lockedChanPtr->flags & blockMask) {
+        lockedChanPtr->flags &= ~blockMask;
         WakeConditionVariable(&lockedChanPtr->cv);
         return 1;
     }
@@ -348,18 +355,26 @@ void IocpChannelNudgeThread(
     IocpChannel *lockedChanPtr,  /* Must be locked and caller holding a reference
                                   * to ensure it does not go away even if unlocked
                                   */
-    int          force)          /* If true, queue even if already queued. */
+    int          blockMask,      /* Combination of IOCP_CHAN_F_BLOCKED*. Channel
+                                  * thread will be woken if waiting on any of these */
+    int          forceEvent)     /* If true, force an event notification even if
+                                  * thread was blocked and is woken up or if event
+                                  * notification was already queued. Normally,
+                                  * the function will not queue an event in these
+                                  * cases. */
 {
-    if (! IocpChannelWakeAfterCompletion(lockedChanPtr)) {
+    if (! IocpChannelWakeAfterCompletion(lockedChanPtr, blockMask) || forceEvent) {
         /*
-         * Owning thread was not sleeping while blocked so need to notify
+         * Owning thread was not woken, either it was not blocked for the
+         * right reason or was not blocked at all. Need to notify
          * it via the ready queue/event loop.
          */
-        /* TBD - do we need to notify on error or 0 byte read (EOF) even if NOTIFY_INPUT
-           was not set ? */
-        /* TBD - how about watching output ? */
-        if (lockedChanPtr->flags & (IOCP_CHAN_F_WATCH_ACCEPT | IOCP_CHAN_F_WATCH_INPUT))
-            IocpChannelEnqueueEvent(lockedChanPtr, force);
+        if ((lockedChanPtr->flags & (IOCP_CHAN_F_WATCH_ACCEPT | 
+                                     IOCP_CHAN_F_WATCH_INPUT |
+                                     IOCP_CHAN_F_WATCH_OUTPUT)) ||
+            forceEvent) {
+            IocpChannelEnqueueEvent(lockedChanPtr, forceEvent);
+        }
     }
 }
 
@@ -389,7 +404,7 @@ static void IocpCompleteConnect(
     case IOCP_STATE_CONNECTING:
         lockedChanPtr->winError = bufPtr->winError;
         lockedChanPtr->state = bufPtr->winError == 0 ? IOCP_STATE_CONNECTED : IOCP_STATE_CONNECT_RETRY;
-        IocpChannelNudgeThread(lockedChanPtr, 0);
+        IocpChannelNudgeThread(lockedChanPtr, IOCP_CHAN_F_BLOCKED_CONNECT, 0);
         break;
 
     case IOCP_STATE_CLOSED: /* Ignore, nothing to be done */
@@ -484,7 +499,7 @@ static void IocpCompleteAccept(
      * The two cancel out. The latter will be reversed at function exit.
      */
 
-    IocpChannelNudgeThread(lockedChanPtr, 0);
+    IocpChannelNudgeThread(lockedChanPtr, 0, 0);
 
     /* This drops the reference from bufPtr which was delayed (see above) */
     IocpChannelDrop(lockedChanPtr);
@@ -540,7 +555,7 @@ static void IocpCompleteRead(
      * Tcl thread since in any case it has to be notified of closure. So
      * also any errors indicated by bufPtr->winError.
      */
-    IocpChannelNudgeThread(lockedChanPtr, 0);
+    IocpChannelNudgeThread(lockedChanPtr, IOCP_CHAN_F_BLOCKED_READ, 0);
 
     /* This drops the reference from bufPtr which was delayed (see above) */
     IocpChannelDrop(lockedChanPtr);
@@ -576,7 +591,7 @@ static void IocpCompleteWrite(
     if (lockedChanPtr->state != IOCP_STATE_CLOSED) {
         lockedChanPtr->flags |= IOCP_CHAN_F_WRITE_DONE;
         /* TBD - optimize under which conditions we need to nudge thread */
-        IocpChannelNudgeThread(lockedChanPtr, 0);
+        IocpChannelNudgeThread(lockedChanPtr, IOCP_CHAN_F_BLOCKED_WRITE, 0);
     }
     IocpChannelDrop(lockedChanPtr); /* Corresponding to bufPtr->chanPtr */
 }
@@ -833,7 +848,7 @@ IocpChannelInput (
             goto vamoose;
         }
         /* Channel is blocking and we are awaiting async connect to complete */
-        IocpChannelAwaitCompletion(chanPtr);
+        IocpChannelAwaitCompletion(chanPtr, IOCP_CHAN_F_BLOCKED_CONNECT);
         if (chanPtr->state == IOCP_STATE_CONNECT_RETRY) {
             /* Retry connecting in blocking mode if possible */
             if (chanPtr->vtblPtr->blockingconnect) {
@@ -877,7 +892,7 @@ IocpChannelInput (
             goto vamoose;
         }
         /* Wait for a posted read to complete */
-        IocpChannelAwaitCompletion(chanPtr); /* Unlocks and relocks! */
+        IocpChannelAwaitCompletion(chanPtr, IOCP_CHAN_F_BLOCKED_READ); /* Unlocks and relocks! */
         /*
          * State unknown as it might have changed while waiting but don't
          * care. What matters is if input data is available in the buffers.
@@ -1002,7 +1017,7 @@ IocpChannelOutput (
             return -1;
         }
         /* Blocking write on a async connect. Wait for connect to complete */
-        IocpChannelAwaitCompletion(chanPtr);
+        IocpChannelAwaitCompletion(chanPtr, IOCP_CHAN_F_BLOCKED_CONNECT);
         if (chanPtr->state == IOCP_STATE_CONNECT_RETRY) {
             /* Retry connecting in blocking mode if possible */
             if (chanPtr->vtblPtr->blockingconnect) {
@@ -1035,9 +1050,10 @@ IocpChannelOutput (
         }
         /*
          * Blocking socket. Wait till room opens up and retry.
-         * TBD - what if no reads are pending? How will we wake up?
+         * Completion thread will signal via condition variable when
+         * a previus write completes.
          */
-        IocpChannelAwaitCompletion(chanPtr);
+        IocpChannelAwaitCompletion(chanPtr, IOCP_CHAN_F_BLOCKED_WRITE);
     }
 
     IocpChannelUnlock(chanPtr);
