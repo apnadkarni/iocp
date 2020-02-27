@@ -60,6 +60,9 @@ enum IocpTcpOption {
     IOCP_TCP_OPT_SOCKNAME,
     IOCP_TCP_OPT_ERROR,
     IOCP_TCP_OPT_CONNECTING,
+    IOCP_TCP_OPT_MAXPENDINGREADS,
+    IOCP_TCP_OPT_MAXPENDINGWRITES,
+    IOCP_TCP_OPT_MAXPENDINGACCEPTS,
     IOCP_TCP_OPT_INVALID        /* Must be last */
 };
 
@@ -71,6 +74,9 @@ static const char *iocpTcpOptionNames[] = {
     "-sockname",
     "-error",
     "-connecting",
+    "-maxpendingreads",
+    "-maxpendingwrites",
+    "-maxpendingaccepts",
     NULL
 };
 
@@ -127,6 +133,9 @@ static IocpTclCode  TcpClientGetHandle(IocpChannel *lockedChanPtr,
 static IocpTclCode  TcpClientGetOption (IocpChannel *lockedChanPtr,
                                               Tcl_Interp *interp, int optIndex,
                                               Tcl_DString *dsPtr);
+static IocpTclCode  TcpClientSetOption (IocpChannel *lockedChanPtr,
+                                        Tcl_Interp *interp, int optIndex,
+                                        const char *valuePtr);
 static IocpWinError TcpClientTranslateError(IocpChannel *chanPtr,
                                             IocpBuffer *bufPtr);
 static IocpWinError IocpTcpListifyAddress(const IocpInetAddress *addr,
@@ -148,7 +157,7 @@ static IocpChannelVtbl tcpClientVtbl =  {
     TcpClientPostWrite,
     TcpClientGetHandle,
     TcpClientGetOption,
-    NULL,                       /* SetOption */
+    TcpClientSetOption,
     TcpClientTranslateError,
     /* Data members */
     iocpTcpOptionNames,
@@ -196,6 +205,7 @@ typedef struct TcpListener {
     int                 numListeners;   /* Only 0..numListeners-1 elements of
                                          * listeners[] should be examined and
                                          * can have value INVALID_SOCKET */
+    int                 maxPendingAcceptPosts;
 } TcpListener;
 
 /*
@@ -531,6 +541,7 @@ IocpTclCode TcpClientGetOption(
     IocpInetAddress addr;
     IocpWinError    winError;
     int  addrSize;
+    char integerSpace[TCL_INTEGER_SPACE];
     int  noRDNS = 0;
 #define SUPPRESS_RDNS_VAR "::tcl::unsupported::noReverseDNS"
 
@@ -575,10 +586,82 @@ IocpTclCode TcpClientGetOption(
         }
         if (winError == 0)
             return TCL_OK;
-        else 
+        else
             return Iocp_ReportWindowsError(interp, winError, NULL);
+    case IOCP_TCP_OPT_MAXPENDINGREADS:
+    case IOCP_TCP_OPT_MAXPENDINGWRITES:
+        sprintf_s(integerSpace, sizeof(integerSpace),
+                  "%d",
+                  opt == IOCP_TCP_OPT_MAXPENDINGREADS ?
+                  lockedChanPtr->maxPendingReads : lockedChanPtr->maxPendingWrites);
+        Tcl_DStringAppend(dsPtr, integerSpace, -1);
+        return TCL_OK;
+    case IOCP_TCP_OPT_MAXPENDINGACCEPTS:
+        Tcl_DStringAppend(dsPtr, "0", 1);
+        return TCL_OK;
     default:
         Tcl_SetObjResult(interp, Tcl_ObjPrintf("Internal error: invalid socket option index %d", opt));
+        return TCL_ERROR;
+    }
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * TcpClientSetOption --
+ *
+ *    Returns the value of the given option.
+ *
+ * Results:
+ *    Returns TCL_OK on succes and TCL_ERROR on failure.
+ *
+ * Side effects:
+ *    On success the value of the option is stored in *dsPtr.
+ *
+ *------------------------------------------------------------------------
+ */
+IocpTclCode TcpClientSetOption(
+    IocpChannel *lockedChanPtr, /* Locked on entry, locked on exit */
+    Tcl_Interp  *interp,        /* For error reporting. May be NULL */
+    int          opt,           /* Index into option table for option of interest */
+    const char  *valuePtr)      /* Option value */
+{
+    TcpClient *lockedTcpPtr = IocpChannelToTcpClient(lockedChanPtr);
+    int        intValue;
+
+    if (lockedTcpPtr->so == INVALID_SOCKET) {
+        if (interp)
+            Tcl_SetResult(interp, "No socket associated with channel.", TCL_STATIC);
+        return TCL_ERROR;
+    }
+
+    switch (opt) {
+    case IOCP_TCP_OPT_MAXPENDINGREADS:
+    case IOCP_TCP_OPT_MAXPENDINGWRITES:
+        if (Tcl_GetInt(interp, valuePtr, &intValue) != TCL_OK) {
+            Tcl_SetErrno(EINVAL);
+            return TCL_ERROR;
+        }
+        if (intValue <= 0 || intValue > 20) {
+            if (interp)
+                Tcl_SetObjResult(interp, Tcl_ObjPrintf("Integer value %d out of range.", intValue));
+            Tcl_SetErrno(EINVAL);
+            return TCL_ERROR;
+        }
+        if (opt == IOCP_TCP_OPT_MAXPENDINGREADS)
+            lockedChanPtr->maxPendingReads = intValue;
+        else
+            lockedChanPtr->maxPendingWrites = intValue;
+        return TCL_OK;
+    case IOCP_TCP_OPT_CONNECTING:
+    case IOCP_TCP_OPT_ERROR:
+    case IOCP_TCP_OPT_PEERNAME:
+    case IOCP_TCP_OPT_SOCKNAME:
+    case IOCP_TCP_OPT_MAXPENDINGACCEPTS:
+        return Tcl_BadChannelOption(interp, iocpTcpOptionNames[opt], "-maxpendingreads -maxpendingwrites");
+    default:
+        Tcl_SetObjResult(interp, Tcl_ObjPrintf("Internal error: invalid socket option index %d", opt));
+        Tcl_SetErrno(EINVAL);
         return TCL_ERROR;
     }
 }
@@ -1813,6 +1896,7 @@ IocpTclCode TcpListenerGetOption(
     int  dsLen;
     int  listenerIndex;
     int  addrSize;
+    char integerSpace[TCL_INTEGER_SPACE];
     int  noRDNS = 0;
 #define SUPPRESS_RDNS_VAR "::tcl::unsupported::noReverseDNS"
 
@@ -1865,6 +1949,15 @@ IocpTclCode TcpListenerGetOption(
         } else {
             return TCL_OK;
         }
+    case IOCP_TCP_OPT_MAXPENDINGREADS:
+    case IOCP_TCP_OPT_MAXPENDINGWRITES:
+        Tcl_DStringAppend(dsPtr, "0", 1);
+        return TCL_OK;
+    case IOCP_TCP_OPT_MAXPENDINGACCEPTS:
+        sprintf_s(integerSpace, sizeof(integerSpace),
+                  "%d", lockedTcpPtr->maxPendingAcceptPosts);
+        Tcl_DStringAppend(dsPtr, integerSpace, -1);
+        return TCL_OK;
     default:
         Tcl_SetObjResult(interp, Tcl_ObjPrintf("Internal error: invalid socket option index %d", opt));
         return TCL_ERROR;
