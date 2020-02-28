@@ -1185,7 +1185,7 @@ static IocpWinError TcpClientAsyncConnectFailed(
 {
     TcpClient *tcpPtr = IocpChannelToTcpClient(lockedChanPtr);
 
-    IOCP_ASSERT(lockedChanPtr->state == IOCP_STATE_CONNECT_FAILED);
+    IOCP_ASSERT(lockedChanPtr->state == IOCP_STATE_CONNECT_RETRY);
     if (tcpPtr->so != INVALID_SOCKET) {
         closesocket(tcpPtr->so);
         tcpPtr->so = INVALID_SOCKET;
@@ -1546,7 +1546,7 @@ IocpWinError TcpListenerAccept(
         return 0;
     }
 
-    IOCP_ASSERT(lockedChanPtr == IOCP_STATE_LISTENING); /* Else logic awry */
+    IOCP_ASSERT(lockedChanPtr->state == IOCP_STATE_LISTENING); /* Else logic awry */
 
     /* Accepts are queued on the input queue. */
     while ((linkPtr = IocpListPopFront(&lockedChanPtr->inputBuffers)) != NULL) {
@@ -1561,7 +1561,19 @@ IocpWinError TcpListenerAccept(
         IocpWinError        winError;
         IocpInetAddress     localAddr, remoteAddr;
 
-        IOCP_ASSERT(bufPtr->op == IOCP_BUFFER_OP_ACCEPT);
+        IOCP_ASSERT(bufPtr->operation == IOCP_BUFFER_OP_ACCEPT);
+
+        /*
+         * Although the lockedChanPtr will be valid because of the reference
+         * caller is supposed to be holding, because it is unlocked during
+         * the accept callback, the listening socket(s) may have been closed.
+         */
+        /* TBD - do we need to check both listeners AND numListeners? */
+        if (lockedTcpPtr->listeners == NULL ||
+            listenerIndex >= lockedTcpPtr->numListeners) {
+            IocpBufferFree(bufPtr);
+            break;
+        }
 
         /* The listener that did the accept */
         listenerPtr = &lockedTcpPtr->listeners[listenerIndex];

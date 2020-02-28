@@ -10,6 +10,7 @@
  */
 #include "tclWinIocp.h"
 
+static void IocpNotifyChannel(IocpChannel *lockedChanPtr);
 static int  IocpEventHandler(Tcl_Event *evPtr, int flags);
 static void IocpThreadExitHandler (ClientData clientData);
 static int IocpChannelFileEventMask(IocpChannel *lockedChanPtr);
@@ -235,7 +236,13 @@ void IocpChannelDrop(
  *
  *    Called when a connection has completed. Calls the channel type-specific
  *    handler and depending on its return value, transitions into OPEN
- *    or DISCONNECTED state. Registered channel events are notified.
+ *    or DISCONNECTED state. If channel event notifications are registered,
+ *    the callbacks may further change state before this connection returns.
+ *
+ *    In the case Tcl has to be notified, lockedChanPtr has to be unlocked.
+ *    before Tcl_NotifyChannel is called. It is then relocked before returning.
+ *    It is up to the caller to ensure the memory is till valid by holding
+ *    a reference.
  *
  * Results:
  *    None.
@@ -249,16 +256,13 @@ void IocpChannelExitConnectedState(
     IocpChannel *lockedChanPtr
     )
 {
-    int readyMask;
     if (lockedChanPtr->vtblPtr->connected &&
         lockedChanPtr->vtblPtr->connected(lockedChanPtr) != 0) {
         lockedChanPtr->state = IOCP_STATE_DISCONNECTED;
     } else {
         lockedChanPtr->state = IOCP_STATE_OPEN;
     }
-    readyMask = IocpChannelFileEventMask(lockedChanPtr);
-    if (readyMask != 0)
-        Tcl_NotifyChannel(lockedChanPtr->channel, readyMask);
+    IocpNotifyChannel(lockedChanPtr);
 }
 
 /*
@@ -1093,10 +1097,10 @@ IocpChannelOutput (
         }
         /* Blocking write on a async connect. Wait for connect to complete */
         IocpChannelAwaitConnectCompletion(chanPtr);
-        /* State may have changed but no matter, handled below */
     } else if (chanPtr->state == IOCP_STATE_CONNECTED) {
         IocpChannelExitConnectedState(chanPtr);
     }
+    /* State may have changed but no matter, handled below */
 
     /*
      * We loop because for blocking case we will keep retrying.
@@ -1328,9 +1332,14 @@ IocpChannelWatch (
     chanPtr->flags &= ~ (IOCP_CHAN_F_WATCH_INPUT | IOCP_CHAN_F_WATCH_OUTPUT);
     if (mask & TCL_READABLE)
         chanPtr->flags |= IOCP_CHAN_F_WATCH_INPUT;
-    if (mask & TCL_WRITABLE)
-        chanPtr->flags |= IOCP_CHAN_F_WATCH_OUTPUT;
-
+    if (mask & TCL_WRITABLE) {
+        /*
+         * Writeable event notifications are only posted if a previous
+         * write completed and app is watching output. The WRITE_DONE
+         * flag fakes a previous write having been completed.
+         */
+        chanPtr->flags |= IOCP_CHAN_F_WRITE_DONE | IOCP_CHAN_F_WATCH_OUTPUT;
+    }
     /*
      * As per WatchProc man page, we will use the event queue to do the
      * actual channel notification.
@@ -1454,6 +1463,62 @@ void IocpChannelThreadAction(
 /*
  *------------------------------------------------------------------------
  *
+ * IocpNotifyChannel --
+ *
+ *    Notifies the Tcl channel subsystem of file events if it has asked
+ *    for them. The notification is made through Tcl_NotifyChannel which
+ *    can call back into the driver so lockedChanPtr is unlocked before
+ *    calling that function and relocked on return. Caller has to ensure
+ *    it is holding a reference to lockedChanPtr so it does not disappear
+ *    while unlocked. In case of EOF, Tcl_NotifyChannel will be called
+ *    continuously until the callback closes the channel.
+ *
+ * Results:
+ *    None.
+ *
+ * Side effects:
+ *    File event callbacks are invoked, the IocpChannel state may change.
+ *
+ *------------------------------------------------------------------------
+ */
+static void IocpNotifyChannel(
+    IocpChannel *lockedChanPtr  /* Locked on entry, locked on return but
+                                 * unlocked in between */
+    )
+{
+    int         readyMask;
+    Tcl_Channel channel;
+
+    /*
+     * Notify fileevent handlers. In case of EOF, we need to keep looping
+     * as EOF event generation has to be sticky for compatibility with Tcl
+     * sockets.
+     */
+    do {
+        /*
+         * Unlock before calling Tcl_NotifyChannel which may recurse via the
+         * callback script which again calls us through the channel commands.
+         * Note the IocpChannel will not be freed when unlocked as caller
+         * should hold a reference count to it from evPtr.
+         */
+        channel = lockedChanPtr->channel; /* Get before unlocking */
+        if (channel == NULL)
+            break;
+        readyMask = IocpChannelFileEventMask(lockedChanPtr);
+        if (readyMask == 0)
+            break;
+        IocpChannelUnlock(lockedChanPtr);
+        Tcl_NotifyChannel(channel, readyMask);
+        IocpChannelLock(lockedChanPtr);
+
+        /* Loop for EOF stickiness */
+    } while (lockedChanPtr->flags & IOCP_CHAN_F_REMOTE_EOF);
+}
+
+
+/*
+ *------------------------------------------------------------------------
+ *
  * IocpEventHandler --
  *
  *    Called from the event loop. Processes all ready channels and notifies
@@ -1476,8 +1541,7 @@ int IocpEventHandler(
     )
 {
     IocpChannel *chanPtr;
-    Tcl_Channel  channel;
-    int          readyMask = 0; /* Which ready notifications to pass to Tcl */
+    int          notify = 0; /* Whether to notify fileevent callbacks */
 
     if (!(flags & TCL_FILE_EVENTS)) {
         return 0;               /* We are not to process file/network events */
@@ -1485,7 +1549,6 @@ int IocpEventHandler(
 
     chanPtr = ((IocpTclEvent *)evPtr)->chanPtr;
     IocpChannelLock(chanPtr);
-    channel = chanPtr->channel;
 
     switch (chanPtr->state) {
     case IOCP_STATE_LISTENING:
@@ -1501,7 +1564,7 @@ int IocpEventHandler(
             /* No means to retry or retry failed. chanPtr->winError is error */
             chanPtr->state = IOCP_STATE_DISCONNECTED;
             chanPtr->flags |= IOCP_CHAN_F_REMOTE_EOF;
-            readyMask = IocpChannelFileEventMask(chanPtr);
+            notify = 1;
         }
         else {
             chanPtr->state = IOCP_STATE_CONNECTING;
@@ -1509,38 +1572,34 @@ int IocpEventHandler(
         break;
 
     case IOCP_STATE_CONNECTED:
+        notify = 1;
         if (chanPtr->vtblPtr->connected &&
             chanPtr->vtblPtr->connected(chanPtr) != 0) {
             chanPtr->state = IOCP_STATE_DISCONNECTED;
-            readyMask = IocpChannelFileEventMask(chanPtr);
             break;
         }
         chanPtr->state = IOCP_STATE_OPEN;
-        /* FALLTHRU to OPEN state */
+        chanPtr->flags |= IOCP_CHAN_F_WRITE_DONE; /* In case app registered file event */
+        break;
+
     case IOCP_STATE_OPEN:
         /*
          * If Tcl wants to be notified of input and has not shutdown the read
          * side, notify if either data is available or EOF has been reached.
          */
-        readyMask = IocpChannelFileEventMask(chanPtr);
+        notify = 1;
         break;
     default:
         /* TBD - other cases */
         break;
     }
 
-    /*
-     * Drop the reference corresponding to queueing to the event q
-     * Do this before calling Tcl_NotifyChannel which may recurse via the
-     * callback script which again calls us through the channel commands.
-     * Note the IocpChannel will not be freed as long as the Tcl channel
-     * system still has a reference to it.
-     */
+    if (notify)
+        IocpNotifyChannel(chanPtr);
+
+    /* Drop the reference corresponding to queueing to the event q. */
     ((IocpTclEvent *)evPtr)->chanPtr = NULL;
     IocpChannelDrop(chanPtr);
-
-    if (channel != NULL && readyMask != 0)
-        Tcl_NotifyChannel(channel, readyMask);
 
     return 1;
 }

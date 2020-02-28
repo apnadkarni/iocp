@@ -1808,7 +1808,8 @@ test socket_$af-12.3 {testing inheritance of accepted sockets} -setup {
 
 test socket_$af-13.1 {Testing use of shared socket between two threads} -body {
     # create a thread
-    set serverthread [thread::create -preserved [string map [list @localhost@ $localhost] {
+    set script "$iocp_load_command\n"
+    append script [string map [list @localhost@ $localhost] {
         set f [iocp::socket -server accept -myaddr @localhost@ 0]
         set listen [lindex [fconfigure $f -sockname] 2]
         proc accept {s a p} {
@@ -1830,7 +1831,8 @@ test socket_$af-13.1 {Testing use of shared socket between two threads} -body {
         set i 0
         vwait x
         close $f
-    }]]
+    }]
+    set serverthread [thread::create -preserved $script]
     set port [thread::send $serverthread {set listen}]
     set s [iocp::socket $localhost $port]
     fconfigure $s -buffering line

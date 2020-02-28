@@ -28,7 +28,13 @@
 # define IOCP_INLINE static inline
 #endif
 
-#define IOCP_ASSERT(cond_) (void) 0 /* TBD */
+#ifndef IOCP_ASSERT
+# ifdef IOCP_ENABLE_ASSERT
+#  define IOCP_ASSERT(bool_) (void)( (bool_) || (Tcl_Panic("Assertion (%s) failed at line %d in file %s.", #bool_, __LINE__, __FILE__), 0) )
+# else
+#  define IOCP_ASSERT(bool_) (void) 0 /* TBD */
+# endif
+#endif
 
 /* Typedefs just to make return value semantics obvious */
 typedef int   IocpTclCode;      /* TCL_OK etc. */
