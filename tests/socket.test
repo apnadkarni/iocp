@@ -556,8 +556,10 @@ test socket_$af-2.7 {echo server, one line} -constraints [list supported_$af std
     close $f
 } -result {{hello abcdefghijklmnop} done}
 removeFile script
+
 test socket_$af-2.8 {echo server, loop 50 times, single connection} -setup {
-    set path(script) [makeFile {
+    set script "$iocp_load_command\n"
+    append script {
 	set f [iocp::socket -server accept 0]
 	proc accept {s a p} {
             fileevent $s readable [list echo $s]
@@ -583,7 +585,8 @@ test socket_$af-2.8 {echo server, loop 50 times, single connection} -setup {
 	after cancel $timer
 	close $f
 	puts "done $i"
-    } script]
+    }
+    set path(script) [makeFile $script script]
     set f [open "|[list [interpreter] $path(script)]" r]
     gets $f
     gets $f listen
@@ -631,6 +634,7 @@ test socket_$af-2.10 {close on accept, accepted socket lives} -setup {
 	fconfigure $s -trans lf
     }
     proc readit {s} {
+        puts readit
 	global done
 	gets $s
 	close $s

@@ -545,7 +545,8 @@ IocpLink *IocpListPopFront(IocpList *listPtr);
 Tcl_Obj *Iocp_MapWindowsError(DWORD error, HANDLE moduleHandle, const char *msgPtr);
 IocpTclCode Iocp_ReportWindowsError(Tcl_Interp *interp, DWORD winerr, const char *msgPtr);
 IocpTclCode Iocp_ReportLastWindowsError(Tcl_Interp *interp, const char *msgPtr);
-void IocpSetTclErrnoFromWin32(DWORD winError);
+void IocpSetTclErrnoFromWin32(IocpWinError winError);
+void IocpSetInterpPosixErrorFromWin32(Tcl_Interp *interp, IocpWinError winError);
 
 /* Buffer utilities */
 int IocpDataBufferMoveOut(IocpDataBuffer *bufPtr, char *outPtr, int len);

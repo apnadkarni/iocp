@@ -181,9 +181,36 @@ IocpTclCode Iocp_ReportLastWindowsError(
  *
  *------------------------------------------------------------------------
  */
-void IocpSetTclErrnoFromWin32(DWORD winError)
+void IocpSetTclErrnoFromWin32(IocpWinError winError)
 {
     IOCP_TCL85_INTERNAL_PLATFORM_STUB(tclWinConvertError)(winError);
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpSetInterpPosixErrorFromWin32 --
+ *
+ *    Sets Tcl's errno value and stores POSIX error message based on a Win32 error code.
+ *
+ * Results:
+ *    None.
+ *
+ * Side effects:
+ *    Sets Tcl's internal errno value and interp result.
+ *
+ *------------------------------------------------------------------------
+ */
+void IocpSetInterpPosixErrorFromWin32 (
+    Tcl_Interp *interp,         /* May be NULL */
+    IocpWinError winError)      /* Win32 error code */
+{
+    IocpSetTclErrnoFromWin32(winError);
+    if (interp != NULL) {
+        Tcl_SetObjResult(interp, Tcl_ObjPrintf(
+                             "couldn't open socket: %s",
+                             Tcl_PosixError(interp)));
+    }
 }
 
 

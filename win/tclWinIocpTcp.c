@@ -1569,7 +1569,6 @@ IocpWinError TcpListenerAccept(
         IOCP_ASSERT(listenerPtr->pendingAcceptPosts > 0);
         listenerPtr->pendingAcceptPosts -= 1;
 
-
         /* connSocket is the socket for a new connection. */
         connSocket  = bufPtr->context[0].so;
         bufPtr->context[0].so = INVALID_SOCKET;
@@ -1639,6 +1638,7 @@ IocpWinError TcpListenerAccept(
             IocpChannelDrop(TcpClientToIocpChannel(dataChanPtr));
             continue;
         }
+        /* Note dataChanPtr not locked at this point but no other thread has access */
         dataChanPtr->base.channel = channel;
 
         if (IocpTcpSetChannelDefaults(channel) != TCL_OK) {
@@ -1658,8 +1658,20 @@ IocpWinError TcpListenerAccept(
             char host[NI_MAXHOST], port[NI_MAXSERV];
             getnameinfo(&remoteAddr.sa, remoteAddrLen, host, sizeof(host),
                         port, sizeof(port), NI_NUMERICHOST|NI_NUMERICSERV);
+            /*
+             * Need to unlock before calling acceptProc as that can recurse
+             * and call us back to close the channel.
+             */
+            IocpChannelUnlock(lockedChanPtr);
             lockedTcpPtr->acceptProc(lockedTcpPtr->acceptProcData, channel,
                                  host, atoi(port));
+            /*
+             * Re-lock before returning. This is safe (i.e. lockedTcpPtr would
+             * not have been freed) as our caller (event handler) is holding
+             * a reference to it from having been placed on the event queue
+             * which will only be dropped on return.
+             */
+            IocpChannelLock(lockedChanPtr);
         }
 
     }
@@ -2070,7 +2082,12 @@ Iocp_OpenTcpServer(
 
     if (tcpPtr->numListeners == 0) {
         /* No addresses could be bound. Report the last error */
+#if 0
+        /* Do as below for Tcl socket error message test compatibility */
         Iocp_ReportWindowsError(interp, winError, NULL);
+#else
+        IocpSetInterpPosixErrorFromWin32(interp, winError);
+#endif
         goto fail;
     }
 
