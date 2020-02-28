@@ -634,7 +634,6 @@ test socket_$af-2.10 {close on accept, accepted socket lives} -setup {
 	fconfigure $s -trans lf
     }
     proc readit {s} {
-        puts readit
 	global done
 	gets $s
 	close $s
@@ -1055,8 +1054,8 @@ test socket_$af-7.3 {testing iocp::socket specific options} -constraints [list s
     set l [fconfigure $s]
     close $s
     update
-    llength $l
-} -result 14
+    lsort [dict keys $l]
+} -result {-blocking -buffering -buffersize -connecting -encoding -eofchar -error -maxpendingaccepts -maxpendingreads -maxpendingwrites -sockname -translation}
 test socket_$af-7.4 {testing iocp::socket specific options} -constraints [list supported_$af] -setup {
     set timer [after 10000 "set x timed_out"]
     set l ""
@@ -2422,4 +2421,5 @@ return
 # Local Variables:
 # mode: tcl
 # fill-column: 78
+# tab-width: 8
 # End:

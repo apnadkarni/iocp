@@ -231,7 +231,83 @@ void IocpChannelDrop(
 /*
  *------------------------------------------------------------------------
  *
- * IocpChannelSleepForIO --
+ * IocpChannelExitConnectedState --
+ *
+ *    Called when a connection has completed. Calls the channel type-specific
+ *    handler and depending on its return value, transitions into OPEN
+ *    or DISCONNECTED state. Registered channel events are notified.
+ *
+ * Results:
+ *    None.
+ *
+ * Side effects:
+ *    If registered, channel file events are queued.
+ *
+ *------------------------------------------------------------------------
+ */
+void IocpChannelExitConnectedState(
+    IocpChannel *lockedChanPtr
+    )
+{
+    int readyMask;
+    if (lockedChanPtr->vtblPtr->connected &&
+        lockedChanPtr->vtblPtr->connected(lockedChanPtr) != 0) {
+        lockedChanPtr->state = IOCP_STATE_DISCONNECTED;
+    } else {
+        lockedChanPtr->state = IOCP_STATE_OPEN;
+    }
+    readyMask = IocpChannelFileEventMask(lockedChanPtr);
+    if (readyMask != 0)
+        Tcl_NotifyChannel(lockedChanPtr->channel, readyMask);
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpChannelAwaitConnectCompletion --
+ *
+ *    Waits for an outgoing connection request to complete. Must be called
+ *    only on a blocking channel. The locked channel will be unlocked while
+ *    waiting and may change state.
+ *
+ * Results:
+ *    None.
+ *
+ * Side effects:
+ *    chanPtr state is changed depending on whether connection completed
+ *    successfully or not.
+ *
+ *------------------------------------------------------------------------
+ */
+static void IocpChannelAwaitConnectCompletion(
+    IocpChannel *lockedChanPtr  /* Must be locked on entry and will be locked
+                                 * on return. But may be unlocked and changed
+                                 * state in between. */
+    )
+{
+
+    IOCP_ASSERT(lockedChanPtr->state == IOCP_STATE_CONNECTING);
+    IOCP_ASSERT((lockedChanPtr->flags & IOCP_CHAN_F_NONBLOCKING) == 0);
+
+    IocpChannelAwaitCompletion(lockedChanPtr, IOCP_CHAN_F_BLOCKED_CONNECT);
+
+    /* TBD - refactor this with the state handling in event handler */
+    if (lockedChanPtr->state == IOCP_STATE_CONNECTED) {
+        IocpChannelExitConnectedState(lockedChanPtr);
+    }
+    else if (lockedChanPtr->state == IOCP_STATE_CONNECT_RETRY) {
+        /* Retry connecting in blocking mode if possible */
+        if (lockedChanPtr->vtblPtr->blockingconnect) {
+            lockedChanPtr->vtblPtr->blockingconnect(lockedChanPtr);
+            /* Don't care about success. Caller responsible to check state */
+        }
+    }
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpChannelAwaitCompletion --
  *
  *    Releases the lock on a IocpChannel and then blocks until an I/O
  *    completion is signaled. On returning the IocpChannel lock is reacquired.
@@ -694,7 +770,6 @@ static IocpTclCode IocpProcessCleanup(ClientData clientdata)
         CloseHandle(iocpModuleState.completion_port);
         iocpModuleState.completion_port = NULL;
 
-
         IocpLockDelete(iocpModuleState.tsd_lock);
 
         WSACleanup();
@@ -848,16 +923,16 @@ IocpChannelInput (
             goto vamoose;
         }
         /* Channel is blocking and we are awaiting async connect to complete */
-        IocpChannelAwaitCompletion(chanPtr, IOCP_CHAN_F_BLOCKED_CONNECT);
-        if (chanPtr->state == IOCP_STATE_CONNECT_RETRY) {
-            /* Retry connecting in blocking mode if possible */
-            if (chanPtr->vtblPtr->blockingconnect) {
-                chanPtr->vtblPtr->blockingconnect(chanPtr);
-                /* Don't care about success. All taken care below */
-            }
-        }
-        /* Note state may have changed, but no matter. Taken care of below */
+        IocpChannelAwaitConnectCompletion(chanPtr);
+    } else if (chanPtr->state == IOCP_STATE_CONNECTED) {
+        IocpChannelExitConnectedState(chanPtr);
     }
+
+    /*
+     * Note state may have changed above, but no matter. Taken care of below
+     * based on whether there are any input buffers or not.
+     */
+
     /*
      * Unless channel is marked as write-only (via shutdown) pass up data
      * irrespective of state. TBD - is this needed or does channel ensure this?
@@ -1017,13 +1092,10 @@ IocpChannelOutput (
             return -1;
         }
         /* Blocking write on a async connect. Wait for connect to complete */
-        IocpChannelAwaitCompletion(chanPtr, IOCP_CHAN_F_BLOCKED_CONNECT);
-        if (chanPtr->state == IOCP_STATE_CONNECT_RETRY) {
-            /* Retry connecting in blocking mode if possible */
-            if (chanPtr->vtblPtr->blockingconnect) {
-                chanPtr->vtblPtr->blockingconnect(chanPtr);
-            }
-        }
+        IocpChannelAwaitConnectCompletion(chanPtr);
+        /* State may have changed but no matter, handled below */
+    } else if (chanPtr->state == IOCP_STATE_CONNECTED) {
+        IocpChannelExitConnectedState(chanPtr);
     }
 
     /*
