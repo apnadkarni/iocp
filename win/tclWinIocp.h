@@ -305,7 +305,7 @@ enum IocpState {
  */
 typedef struct IocpChannel {
     const IocpChannelVtbl *vtblPtr; /* Dispatch for specific IocpChannel types */
-    Tcl_Channel  channel;      /* Tcl channel. TBD - needed ? */
+    Tcl_Channel  channel;      /* Tcl channel */
     IocpList     inputBuffers; /* Input buffers whose data is to be
                                 * passed up to the Tcl channel layer. */
     Tcl_ThreadId owningThread; /* Pointer to owning thread. */
@@ -510,10 +510,26 @@ typedef struct IocpChannelVtbl {
 
 } IocpChannelVtbl;
 
+/* Reason codes for event notifications */
+enum IocpEventReason {
+    IOCP_EVENT_IO_COMPLETED,    /* Sent from completion thread */
+    IOCP_EVENT_NOTIFY_CHANNEL,  /* Sent to indicate application fileevent
+                                 * callbacks should be invoked */
+    IOCP_EVENT_THREAD_INSERTED  /* Channel inserted into a thread */
+};
+
+/* Used to notify the thread owning a channel through Tcl event loop */
+typedef struct IocpTclEvent {
+    Tcl_Event    event;         /* Must be first field */
+    IocpChannel *chanPtr;       /* Channel associated with this event */
+    enum IocpEventReason reason;  /* Currently mostly used for tracing/debugging */
+} IocpTclEvent;
+
 /*
  * Tcl channel function dispatch structure.
  */
 extern Tcl_ChannelType IocpChannelDispatch;
+
 
 #ifdef BUILD_iocp
 
@@ -583,7 +599,7 @@ Tcl_Channel  IocpCreateTclChannel(IocpChannel*, const char*, int);
 IocpChannel *IocpChannelNew(const IocpChannelVtbl *vtblPtr);
 void         IocpChannelAwaitCompletion(IocpChannel *lockedChanPtr, int flags);
 int          IocpChannelWakeAfterCompletion(IocpChannel *lockedChanPtr, int blockMask);
-void         IocpChannelEnqueueEvent(IocpChannel *lockedChanPtr, int force);
+void         IocpChannelEnqueueEvent(IocpChannel *lockedChanPtr, enum IocpEventReason,  int force);
 void         IocpChannelDrop(IocpChannel *lockedChanPtr);
 DWORD        IocpChannelPostReads(IocpChannel *lockedChanPtr);
 void         IocpChannelNudgeThread(IocpChannel *lockedChanPtr, int blockMask, int force);

@@ -15,19 +15,12 @@ static int  IocpEventHandler(Tcl_Event *evPtr, int flags);
 static void IocpThreadExitHandler (ClientData clientData);
 static int IocpChannelFileEventMask(IocpChannel *lockedChanPtr);
 
-/* Used to notify the thread owning a channel of a completion on that channel */
-typedef struct IocpTclEvent {
-    Tcl_Event    event;         /* Must be first field */
-    IocpChannel *chanPtr;       /* Channel associated with this event */
-} IocpTclEvent;
-
 /*
  * Static data
  */
 
 /* Holds global IOCP state */
 IocpSubSystem iocpModuleState;
-
 
 /*
  * Initializes a IocpDataBuffer to be able to hold capacity bytes worth of
@@ -371,8 +364,8 @@ int IocpChannelWakeAfterCompletion(
  *
  * IocpChannelEnqueueEvent --
  *
- *    Notifies the Tcl thread owning a channel of the completion of a
- *    posted I/O operation.
+ *    Enqueues a event on Tcl's event queue to notify the thread owning a
+ *    channel.
  *
  * Results:
  *    None.
@@ -387,9 +380,9 @@ int IocpChannelWakeAfterCompletion(
  */
 void IocpChannelEnqueueEvent(
     IocpChannel *lockedChanPtr,  /* Must be locked and caller holding a reference
-                                  * to ensure it does not go away even if unlocked
-                                  */
-    int          force          /* If true, queue even if already queued. */
+                                  * to ensure it does not go away even if unlocked */
+    enum IocpEventReason reason, /* Indicates reason for notification */
+    int          force           /* If true, queue even if already queued. */
     )
 {
     if (lockedChanPtr->owningThread != 0) {
@@ -398,6 +391,7 @@ void IocpChannelEnqueueEvent(
             IocpTclEvent *evPtr = ckalloc(sizeof(*evPtr));
             evPtr->event.proc = IocpEventHandler;
             evPtr->chanPtr    = lockedChanPtr;
+            evPtr->reason     = reason;
             lockedChanPtr->numRefs++; /* Corresponding to above,
                                          reversed by IocpEventHandler */
             /* Optimization if enqueuing to current thread */
@@ -453,7 +447,7 @@ void IocpChannelNudgeThread(
                                      IOCP_CHAN_F_WATCH_INPUT |
                                      IOCP_CHAN_F_WATCH_OUTPUT)) ||
             forceEvent) {
-            IocpChannelEnqueueEvent(lockedChanPtr, forceEvent);
+            IocpChannelEnqueueEvent(lockedChanPtr, IOCP_EVENT_IO_COMPLETED, forceEvent);
         }
     }
 }
@@ -1345,7 +1339,7 @@ IocpChannelWatch (
      * actual channel notification.
      */
     if (mask)
-        IocpChannelEnqueueEvent(chanPtr, 0);
+        IocpChannelEnqueueEvent(chanPtr, IOCP_EVENT_NOTIFY_CHANNEL, 0);
 
     IocpChannelUnlock(chanPtr);
 }
@@ -1453,7 +1447,7 @@ void IocpChannelThreadAction(
          * Notify in case any I/O completion notifications pending. No harm
          * if there aren't
          */
-        IocpChannelEnqueueEvent(chanPtr, 1);
+        IocpChannelEnqueueEvent(chanPtr, IOCP_EVENT_THREAD_INSERTED, 1);
     } else {
         chanPtr->owningThread = 0;
     }
@@ -1489,30 +1483,40 @@ static void IocpNotifyChannel(
     int         readyMask;
     Tcl_Channel channel;
 
-    /*
-     * Notify fileevent handlers. In case of EOF, we need to keep looping
-     * as EOF event generation has to be sticky for compatibility with Tcl
-     * sockets.
-     */
-    do {
-        /*
-         * Unlock before calling Tcl_NotifyChannel which may recurse via the
-         * callback script which again calls us through the channel commands.
-         * Note the IocpChannel will not be freed when unlocked as caller
-         * should hold a reference count to it from evPtr.
-         */
-        channel = lockedChanPtr->channel; /* Get before unlocking */
-        if (channel == NULL)
-            break;
-        readyMask = IocpChannelFileEventMask(lockedChanPtr);
-        if (readyMask == 0)
-            break;
-        IocpChannelUnlock(lockedChanPtr);
-        Tcl_NotifyChannel(channel, readyMask);
-        IocpChannelLock(lockedChanPtr);
+    channel = lockedChanPtr->channel; /* Get before unlocking */
+    if (channel == NULL)
+        return;                 /* Tcl channel has gone away */
+    readyMask = IocpChannelFileEventMask(lockedChanPtr);
+    if (readyMask == 0)
+        return;                 /* Nothing to notify */
 
-        /* Loop for EOF stickiness */
-    } while (lockedChanPtr->flags & IOCP_CHAN_F_REMOTE_EOF);
+    /*
+     * Unlock before calling Tcl_NotifyChannel which may recurse via the
+     * callback script which again calls us through the channel commands.
+     * Note the IocpChannel will not be freed when unlocked as caller
+     * should hold a reference count to it from evPtr.
+     */
+    IocpChannelUnlock(lockedChanPtr);
+    Tcl_NotifyChannel(channel, readyMask);
+    IocpChannelLock(lockedChanPtr);
+
+    if (lockedChanPtr->flags & IOCP_CHAN_F_REMOTE_EOF) {
+        /*
+         * In case of EOF, we have to keep notifying until application closes
+         * the channel. Originally we were looping calling Tcl_NotifyChannel.
+         * However that does not work in the case of applications that do
+         * not close the channel in the callback but rather set some vwait
+         * variable and close it after the vwait completes. A hard loop
+         * here will not allow them to do that so we post an event to
+         * the Tcl event loop instead.
+         */
+
+        /* Recompute ready mask in case callback turned off handlers */
+        readyMask = IocpChannelFileEventMask(lockedChanPtr);
+        if (readyMask != 0) {
+            IocpChannelEnqueueEvent(lockedChanPtr, IOCP_EVENT_NOTIFY_CHANNEL, 1);
+        }
+    }
 }
 
 

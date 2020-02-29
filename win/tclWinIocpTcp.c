@@ -811,6 +811,8 @@ IocpWinError TcpClientPostDisconnect(
         if (fnDisconnectEx(lockedTcpPtr->so, &bufPtr->u.wsaOverlap, 0, 0) == FALSE) {
             IocpWinError    winError = WSAGetLastError();
             if (winError != WSA_IO_PENDING) {
+                lockedTcpPtr->base.numRefs -= 1; /* Reverse above increment */
+                bufPtr->chanPtr = NULL;          /* Else IocpBufferFree will assert */
                 IocpBufferFree(bufPtr);
                 return winError;
             }
