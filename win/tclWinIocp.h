@@ -569,6 +569,12 @@ IocpTclCode Iocp_ReportWindowsError(Tcl_Interp *interp, DWORD winerr, const char
 IocpTclCode Iocp_ReportLastWindowsError(Tcl_Interp *interp, const char *msgPtr);
 void IocpSetTclErrnoFromWin32(IocpWinError winError);
 void IocpSetInterpPosixErrorFromWin32(Tcl_Interp *interp, IocpWinError winError);
+void __cdecl IocpDebuggerOut(const char *formatStr, ...);
+#ifdef IOCP_DEBUG
+# define DEBUGOUT(params_) IocpDebuggerOut params_;
+#else
+# define DEBUGOUT(params_) (void) 0;
+#endif
 
 /* Buffer utilities */
 int IocpDataBufferMoveOut(IocpDataBuffer *bufPtr, char *outPtr, int len);

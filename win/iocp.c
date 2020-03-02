@@ -254,6 +254,7 @@ void IocpChannelExitConnectedState(
         lockedChanPtr->state = IOCP_STATE_DISCONNECTED;
     } else {
         lockedChanPtr->state = IOCP_STATE_OPEN;
+        IocpChannelPostReads(lockedChanPtr);
     }
     IocpNotifyChannel(lockedChanPtr);
 }
@@ -282,6 +283,7 @@ static void IocpChannelAwaitConnectCompletion(
                                  * state in between. */
     )
 {
+    DEBUGOUT(("IocpChannelAwaitConnectCompletion Enter: lockedChanPtr=%p\n", lockedChanPtr));
 
     IOCP_ASSERT(lockedChanPtr->state == IOCP_STATE_CONNECTING);
     IOCP_ASSERT((lockedChanPtr->flags & IOCP_CHAN_F_NONBLOCKING) == 0);
@@ -322,6 +324,7 @@ void IocpChannelAwaitCompletion(
     IocpChannel *lockedChanPtr,    /* Must be locked on entry */
     int          blockType)        /* Exactly one of IOCP_CHAN_F_BLOCKED_* values  */
 {
+    DEBUGOUT(("IocpChannelAwaitCompletion Enter: lockedChanPtr=%p, blockType=%d\n", lockedChanPtr, blockType));
     lockedChanPtr->flags &= ~ IOCP_CHAN_F_BLOCKED_MASK;
     lockedChanPtr->flags |= blockType;
     IocpChannelCVWait(lockedChanPtr);
@@ -348,9 +351,11 @@ int IocpChannelWakeAfterCompletion(
                                   * thread will be woken if waiting on any of these */
 
 {
+    DEBUGOUT(("IocpChannelWakeAfterCompletion Enter"));
     /* Checking the flag, saves a potential unnecessary kernel transition */
     if (lockedChanPtr->flags & blockMask) {
         lockedChanPtr->flags &= ~blockMask;
+        DEBUGOUT(("IocpChannelWakeAfterCompletion: waking condition variable\n"));
         WakeConditionVariable(&lockedChanPtr->cv);
         return 1;
     }
@@ -437,6 +442,7 @@ void IocpChannelNudgeThread(
                                   * the function will not queue an event in these
                                   * cases. */
 {
+    DEBUGOUT(("IocpChannelNudgeThread Enter: lockedChanPtr=%p, blockMask=%d, forceEvent=%d\n", lockedChanPtr, blockMask, forceEvent));
     if (! IocpChannelWakeAfterCompletion(lockedChanPtr, blockMask) || forceEvent) {
         /*
          * Owning thread was not woken, either it was not blocked for the
@@ -600,6 +606,8 @@ static void IocpCompleteRead(
     IocpChannel *lockedChanPtr, /* Locked channel, will be dropped */
     IocpBuffer *bufPtr)         /* I/O completion buffer */
 {
+    DEBUGOUT(("IocpCompleteRead Enter: lockedChanPtr=%p. state=%d\n", lockedChanPtr, lockedChanPtr->state));
+
     IOCP_ASSERT(lockedChanPtr->pendingReads > 0);
     lockedChanPtr->pendingReads--;
 
@@ -687,6 +695,7 @@ IocpCompletionThread (LPVOID lpParam)
 
             ok = GetQueuedCompletionStatus(iocpPort, &nbytes, &key,
                                            &overlapPtr, INFINITE);
+            DEBUGOUT(("IocpCompletionThread: GetQueuedCompletionStatus returned %d, overlapPtr=%p\n", ok, overlapPtr));
             if (overlapPtr == NULL) {
                 /* If ok, exit signal. Else some error */
                 if (! ok) {
@@ -718,6 +727,7 @@ IocpCompletionThread (LPVOID lpParam)
              * NOTE - it is responsibility of called completion routines
              * to dispose of both chanPtr and bufPtr respectively.
              */
+            DEBUGOUT(("IocpCompletionThread: chanPtr=%p, chanPtr->state=%d, bufPtr->operation=%d, bufPtr->winError=%d\n", chanPtr, chanPtr->state, bufPtr->operation, bufPtr->winError));
             switch (bufPtr->operation) {
             case IOCP_BUFFER_OP_READ:
                 IocpCompleteRead(chanPtr, bufPtr);
@@ -740,6 +750,8 @@ IocpCompletionThread (LPVOID lpParam)
     __except (winError = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) {
         Tcl_Panic("Tcl IOCP thread died with exception %#x\n", winError);
     }
+
+    DEBUGOUT(("CompletionThread exiting\n"));
 
     return winError;
 }
@@ -911,6 +923,8 @@ IocpChannelInput (
     int          remaining;
     DWORD        winError;
 
+    DEBUGOUT(("IocpChannelInput Enter: chanPtr=%p, state=%d\n", chanPtr, chanPtr->state));
+
     *errorCodePtr = 0;
     IocpChannelLock(chanPtr);
 
@@ -921,10 +935,13 @@ IocpChannelInput (
             goto vamoose;
         }
         /* Channel is blocking and we are awaiting async connect to complete */
+        DEBUGOUT(("IocpChannelInput Awaiting connection completion: chanPtr=%p, state=%d\n", chanPtr, chanPtr->state));
         IocpChannelAwaitConnectCompletion(chanPtr);
+        DEBUGOUT(("IocpChannelInput Awaiting connection completion done: chanPtr=%p, state=%d\n", chanPtr, chanPtr->state));
     } else if (chanPtr->state == IOCP_STATE_CONNECTED) {
         IocpChannelExitConnectedState(chanPtr);
     }
+    DEBUGOUT(("IocpChannelInput: chanPtr=%p, state=%d\n", chanPtr, chanPtr->state));
 
     /*
      * Note state may have changed above, but no matter. Taken care of below
@@ -1079,6 +1096,8 @@ IocpChannelOutput (
     DWORD        winError;
     IocpChannel *chanPtr = (IocpChannel *) instanceData;
     int          written = -1;
+
+    DEBUGOUT(("IocpChannelInput Enter: chanPtr=%p, state=%d\n", chanPtr, chanPtr->state));
 
     IocpChannelLock(chanPtr);
 
@@ -1546,6 +1565,8 @@ int IocpEventHandler(
 {
     IocpChannel *chanPtr;
     int          notify = 0; /* Whether to notify fileevent callbacks */
+
+    DEBUGOUT(("IocpEventHandler Enter: chanPtr=%p, evPtr->reason=%d\n", ((IocpTclEvent *)evPtr)->chanPtr, ((IocpTclEvent *)evPtr)->reason));
 
     if (!(flags & TCL_FILE_EVENTS)) {
         return 0;               /* We are not to process file/network events */

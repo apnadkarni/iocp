@@ -9,6 +9,7 @@
  * of this file, and for a DISCLAIMER OF ALL WARRANTIES.
  */
 #include "tclWinIocp.h"
+#include <stdarg.h>
 
 /* Used to name the interp-associated hash table for accept callback scripts */
 static const char *iocpAcceptCallbackHashName = "iocpAcceptCallbacks";
@@ -540,4 +541,34 @@ Tcl_Channel IocpCreateTclChannel(
     return Tcl_CreateChannel(&IocpChannelDispatch, channelName,
                              chanPtr, flags);
 
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpDebuggerOut --
+ *
+ *    Writes a formatted string to a Windows debugger console.
+ *
+ * Results:
+ *    None.
+ *
+ * Side effects:
+ *    As above.
+ *
+ *------------------------------------------------------------------------
+ */
+void __cdecl IocpDebuggerOut(
+    const char *formatStr,
+    ...
+    )
+{
+    char buf[1024];
+    va_list args;
+
+    va_start(args, formatStr);
+    _vsnprintf_s(buf, sizeof(buf), _TRUNCATE, formatStr, args);
+    va_end(args);
+    buf[sizeof(buf)-1] = '\0';
+    OutputDebugString(buf);
 }

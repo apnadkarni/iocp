@@ -1252,7 +1252,7 @@ Iocp_OpenTcpClient(
 {
     const char *errorMsg = NULL;
     struct addrinfo *remoteAddrs = NULL, *localAddrs = NULL;
-    TcpClient *tcpPtr;
+    TcpClient *tcpPtr = NULL;
     Tcl_Channel     channel;
     IocpWinError winError;
 
@@ -2018,7 +2018,7 @@ Iocp_OpenTcpServer(
     ClientData acceptProcData)	/* Data for the callback. */
 {
     const char      *errorMsg   = NULL;
-    TcpListener     *tcpPtr;
+    TcpListener     *tcpPtr = NULL;
     Tcl_Channel      channel;
     IocpWinError     winError;
     struct addrinfo *localAddrs = NULL;
