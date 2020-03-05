@@ -1100,8 +1100,11 @@ static IocpWinError TcpClientInitiateConnection(
                 SetHandleInformation((HANDLE)so, HANDLE_FLAG_INHERIT, 0);
                 tcpPtr->so = so;
                 winError = TcpClientPostConnect(tcpPtr);
-                if (winError == 0)
+                if (winError == 0) {
+                    /* Update so next attempt will be with next local addr */
+                    tcpPtr->localAddr = tcpPtr->localAddr->ai_next;
                     return 0;
+                }
                 closesocket(so);
                 so         = INVALID_SOCKET;
                 tcpPtr->so = INVALID_SOCKET;

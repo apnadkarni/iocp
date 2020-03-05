@@ -484,7 +484,12 @@ static void IocpCompleteConnect(
     case IOCP_STATE_CONNECTING:
         lockedChanPtr->winError = bufPtr->winError;
         lockedChanPtr->state = bufPtr->winError == 0 ? IOCP_STATE_CONNECTED : IOCP_STATE_CONNECT_RETRY;
-        IocpChannelNudgeThread(lockedChanPtr, IOCP_CHAN_F_BLOCKED_CONNECT, 0);
+        /*
+         * Note last param is 1, forcing a thread to be notified even if no
+         * WATCH flags are set. This is for async connects where Tcl thread
+         * does not do a gets/read but only fconfigure -error.
+         */
+        IocpChannelNudgeThread(lockedChanPtr, IOCP_CHAN_F_BLOCKED_CONNECT, 1);
         break;
 
     case IOCP_STATE_CLOSED: /* Ignore, nothing to be done */
@@ -1587,11 +1592,13 @@ int IocpEventHandler(
         if (chanPtr->vtblPtr->connectfailed  == NULL ||
             chanPtr->vtblPtr->connectfailed(chanPtr) != 0) {
             /* No means to retry or retry failed. chanPtr->winError is error */
+            DEBUGOUT(("IocpEventHandler state IOCP_STATE_CONNECT_RETRY: disconnecting"));
             chanPtr->state = IOCP_STATE_DISCONNECTED;
             chanPtr->flags |= IOCP_CHAN_F_REMOTE_EOF;
             notify = 1;
         }
         else {
+            DEBUGOUT(("IocpEventHandler state IOCP_STATE_CONNECT_RETRY: reconnecting"));
             chanPtr->state = IOCP_STATE_CONNECTING;
         }
         break;
