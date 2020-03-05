@@ -568,7 +568,7 @@ Tcl_Obj *Iocp_MapWindowsError(DWORD error, HANDLE moduleHandle, const char *msgP
 IocpTclCode Iocp_ReportWindowsError(Tcl_Interp *interp, DWORD winerr, const char *msgPtr);
 IocpTclCode Iocp_ReportLastWindowsError(Tcl_Interp *interp, const char *msgPtr);
 void IocpSetTclErrnoFromWin32(IocpWinError winError);
-void IocpSetInterpPosixErrorFromWin32(Tcl_Interp *interp, IocpWinError winError);
+void IocpSetInterpPosixErrorFromWin32(Tcl_Interp *interp, IocpWinError winError, const char *prefix);
 void __cdecl IocpDebuggerOut(const char *formatStr, ...);
 #ifdef IOCP_DEBUG
 # define DEBUGOUT(params_) IocpDebuggerOut params_;

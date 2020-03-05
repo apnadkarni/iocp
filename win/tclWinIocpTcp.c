@@ -51,6 +51,9 @@ typedef union {
 #undef setsockopt
 /* END Copied from Tcl */
 
+/* Just to ensure consistency */
+const char *gSocketOpenErrorMessage = "couldn't open socket: ";
+
 /*
  * Tcp socket options. Note order must match order of string option names
  * in the iocpTcpOptionNames array.
@@ -545,15 +548,6 @@ IocpTclCode TcpClientGetOption(
     int  noRDNS = 0;
 #define SUPPRESS_RDNS_VAR "::tcl::unsupported::noReverseDNS"
 
-    if (lockedTcpPtr->so == INVALID_SOCKET) {
-        if (interp)
-            Tcl_SetResult(interp, "No socket associated with channel.", TCL_STATIC);
-        return TCL_ERROR;
-    }
-    if (interp != NULL && Tcl_GetVar(interp, SUPPRESS_RDNS_VAR, 0) != NULL) {
-	noRDNS = NI_NUMERICHOST;
-    }
-
     switch (opt) {
     case IOCP_TCP_OPT_CONNECTING:
         Tcl_DStringAppend(dsPtr,
@@ -564,16 +558,30 @@ IocpTclCode TcpClientGetOption(
         /* As per Tcl winsock, do not report errors in connecting state */
         if (lockedTcpPtr->base.state != IOCP_STATE_CONNECTING &&
             lockedTcpPtr->base.winError != ERROR_SUCCESS) {
+#if 1
+            IocpSetTclErrnoFromWin32(lockedTcpPtr->base.winError);
+            Tcl_DStringAppend(dsPtr, Tcl_ErrnoMsg(Tcl_GetErrno()), -1);
+#else
+            /* This would give more detail but Tcl test suite demands Posix error */
             Tcl_Obj *objPtr = Iocp_MapWindowsError(lockedTcpPtr->base.winError,
                                                    NULL, NULL);
             int      nbytes;
             char    *emessage = Tcl_GetStringFromObj(objPtr, &nbytes);
             Tcl_DStringAppend(dsPtr, emessage, nbytes);
             Tcl_DecrRefCount(objPtr);
+#endif
         }
         return TCL_OK;
     case IOCP_TCP_OPT_PEERNAME:
     case IOCP_TCP_OPT_SOCKNAME:
+        if (lockedTcpPtr->so == INVALID_SOCKET) {
+            if (interp)
+                Tcl_SetResult(interp, "No socket associated with channel.", TCL_STATIC);
+            return TCL_ERROR;
+        }
+        if (interp != NULL && Tcl_GetVar(interp, SUPPRESS_RDNS_VAR, 0) != NULL) {
+            noRDNS = NI_NUMERICHOST;
+        }
         addrSize = sizeof(addr);
         if ((opt==IOCP_TCP_OPT_PEERNAME?getpeername:getsockname)(lockedTcpPtr->so, &addr.sa, &addrSize) != 0)
             winError = WSAGetLastError();
@@ -1305,14 +1313,14 @@ Iocp_OpenTcpClient(
     if (async) {
         winError = TcpClientInitiateConnection(tcpPtr);
         if (winError != ERROR_SUCCESS) {
-            Iocp_ReportWindowsError(interp, winError, "couldn't open socket: ");
+            IocpSetInterpPosixErrorFromWin32(interp, winError, gSocketOpenErrorMessage);
             goto fail;
         }
     }
     else {
         winError = TcpClientBlockingConnect( TcpClientToIocpChannel(tcpPtr) );
         if (winError != ERROR_SUCCESS) {
-            Iocp_ReportWindowsError(interp, winError, "couldn't open socket: ");
+            IocpSetInterpPosixErrorFromWin32(interp, winError, gSocketOpenErrorMessage);
             goto fail;
         }
         TcpClientFreeAddresses(tcpPtr);
@@ -2103,7 +2111,7 @@ Iocp_OpenTcpServer(
         /* Do as below for Tcl socket error message test compatibility */
         Iocp_ReportWindowsError(interp, winError, NULL);
 #else
-        IocpSetInterpPosixErrorFromWin32(interp, winError);
+        IocpSetInterpPosixErrorFromWin32(interp, winError, gSocketOpenErrorMessage);
 #endif
         goto fail;
     }

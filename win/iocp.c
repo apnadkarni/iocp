@@ -1608,17 +1608,16 @@ int IocpEventHandler(
         if (chanPtr->vtblPtr->connected &&
             chanPtr->vtblPtr->connected(chanPtr) != 0) {
             chanPtr->state = IOCP_STATE_DISCONNECTED;
-            break;
         }
-        chanPtr->state = IOCP_STATE_OPEN;
-        chanPtr->flags |= IOCP_CHAN_F_WRITE_DONE; /* In case app registered file event */
+        else {
+            chanPtr->state = IOCP_STATE_OPEN;
+            chanPtr->flags |= IOCP_CHAN_F_WRITE_DONE; /* In case app registered file event */
+        }
         break;
 
     case IOCP_STATE_OPEN:
-        /*
-         * If Tcl wants to be notified of input and has not shutdown the read
-         * side, notify if either data is available or EOF has been reached.
-         */
+    case IOCP_STATE_DISCONNECTED:
+        /* Notify Tcl channel subsystem if it has asked for it */
         notify = 1;
         break;
     default:

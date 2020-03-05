@@ -204,13 +204,19 @@ void IocpSetTclErrnoFromWin32(IocpWinError winError)
  */
 void IocpSetInterpPosixErrorFromWin32 (
     Tcl_Interp *interp,         /* May be NULL */
-    IocpWinError winError)      /* Win32 error code */
+    IocpWinError winError,      /* Win32 error code */
+    const char *messagePrefix)  /* A message prefix if any. May be NULL */
 {
+    
     IocpSetTclErrnoFromWin32(winError);
     if (interp != NULL) {
-        Tcl_SetObjResult(interp, Tcl_ObjPrintf(
-                             "couldn't open socket: %s",
-                             Tcl_PosixError(interp)));
+        const char *posixMessage = Tcl_ErrnoMsg(Tcl_GetErrno());
+        if (messagePrefix == NULL) {
+            Tcl_SetResult(interp, (char *)posixMessage, TCL_STATIC);
+        }
+        else {
+            Tcl_AppendResult(interp, messagePrefix, posixMessage, NULL);
+        }
     }
 }
 
