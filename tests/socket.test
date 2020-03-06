@@ -2,7 +2,7 @@ set iocp_load_command {
     load ../win/Release_AMD64_VC1916/iocp01t.dll
 }
 {*}$iocp_load_command
-rename socket {}
+#rename socket {}
 # Commands tested in this file: socket.
 #
 # This file contains a collection of tests for one or more of the Tcl built-in
@@ -2042,14 +2042,17 @@ test socket-14.6.1 {[iocp::socket -async] with no event loop and server listenin
     unset -nocomplain x
 } -result {ok bye}
 test socket-14.7.0 {pending [iocp::socket -async] and blocking [gets], server is IPv4} -setup {
-    makeFile {
+    set server_code "$iocp_load_command\n"
+    append server_code {
 	fileevent stdin readable exit
 	set server [iocp::socket -server accept -myaddr 127.0.0.1 0]
 	proc accept {s h p} {puts $s ok; close $s; set ::x 1}
 	puts [lindex [fconfigure $server -sockname] 2]
 	flush stdout
 	vwait x
-    } script
+    }
+    makeFile $server_code script
+    file copy -force -- script  script.sav
     set fd [open |[list [interpreter] script] RDWR]
     set port [gets $fd]
 } -constraints {supported_inet localhost_v4 notOSX} -body {
@@ -2061,14 +2064,16 @@ test socket-14.7.0 {pending [iocp::socket -async] and blocking [gets], server is
     removeFile script
 } -result {{} ok {}}
 test socket-14.7.1 {pending [iocp::socket -async] and blocking [gets], server is IPv6} -setup {
-    makeFile {
+    set server_code "$iocp_load_command\n"
+    append server_code {
 	fileevent stdin readable exit
 	set server [iocp::socket -server accept -myaddr ::1 0]
 	proc accept {s h p} {puts $s ok; close $s; set ::x 1}
 	puts [lindex [fconfigure $server -sockname] 2]
 	flush stdout
 	vwait x
-    } script
+    }
+    makeFile $server_code script
     set fd [open |[list [interpreter] script] RDWR]
     set port [gets $fd]
 } -constraints {supported_inet6 localhost_v6 notOSX} -body {
@@ -2091,14 +2096,16 @@ test socket-14.7.2 {pending [iocp::socket -async] and blocking [gets], no listen
     catch {close $sock}
 } -match glob -result {{error reading "sock*": socket is not connected} {connection refused} {}}
 test socket-14.8.0 {pending [iocp::socket -async] and nonblocking [gets], server is IPv4} -setup {
-    makeFile {
+    set server_code "$iocp_load_command\n"
+    append server_code {
 	fileevent stdin readable exit
 	set server [iocp::socket -server accept -myaddr 127.0.0.1 0]
 	proc accept {s h p} {puts $s ok; close $s; set ::x 1}
 	puts [lindex [fconfigure $server -sockname] 2]
 	flush stdout
 	vwait x
-    } script
+    }
+    makeFile $server_code script
     set fd [open |[list [interpreter] script] RDWR]
     set port [gets $fd]
 } -constraints {supported_inet localhost_v4} -body {
@@ -2115,14 +2122,16 @@ test socket-14.8.0 {pending [iocp::socket -async] and nonblocking [gets], server
     removeFile script
 } -result {ok}
 test socket-14.8.1 {pending [iocp::socket -async] and nonblocking [gets], server is IPv6} -setup {
-    makeFile {
+    set server_code "$iocp_load_command\n"
+    append server_code {
 	fileevent stdin readable exit
 	set server [iocp::socket -server accept -myaddr ::1 0]
 	proc accept {s h p} {puts $s ok; close $s; set ::x 1}
 	puts [lindex [fconfigure $server -sockname] 2]
 	flush stdout
 	vwait x
-    } script
+    }
+    makeFile $server_code script
     set fd [open |[list [interpreter] script] RDWR]
     set port [gets $fd]
 } -constraints {supported_inet6 localhost_v6} -body {
@@ -2150,7 +2159,8 @@ test socket-14.8.2 {pending [iocp::socket -async] and nonblocking [gets], no lis
     catch {close $sock}
 } -match glob -result {{error reading "sock*": socket is not connected} {connection refused} {}}
 test socket-14.9.0 {pending [iocp::socket -async] and blocking [puts], server is IPv4} -setup {
-    makeFile {
+    set server_code "$iocp_load_command\n"
+    append server_code {
 	fileevent stdin readable exit
 	after 10000 exit
 	set server [iocp::socket -server accept -myaddr 127.0.0.1 0]
@@ -2159,7 +2169,8 @@ test socket-14.9.0 {pending [iocp::socket -async] and blocking [puts], server is
 	flush stdout
 	vwait x
 	puts [gets $x]
-    } script
+    }
+    makeFile $server_code script
     set fd [open |[list [interpreter] script] RDWR]
     set port [gets $fd]
 } -constraints {supported_inet localhost_v4 notOSX} -body {
@@ -2173,7 +2184,8 @@ test socket-14.9.0 {pending [iocp::socket -async] and blocking [puts], server is
     removeFile script
 } -result {{} ok}
 test socket-14.9.1 {pending [iocp::socket -async] and blocking [puts], server is IPv6} -setup {
-    makeFile {
+    set server_code "$iocp_load_command\n"
+    append server_code {
 	fileevent stdin readable exit
 	after 10000 exit
 	set server [iocp::socket -server accept -myaddr ::1 0]
@@ -2182,7 +2194,8 @@ test socket-14.9.1 {pending [iocp::socket -async] and blocking [puts], server is
 	flush stdout
 	vwait x
 	puts [gets $x]
-    } script
+    }
+    makeFile $server_code script
     set fd [open |[list [interpreter] script] RDWR]
     set port [gets $fd]
 } -constraints {supported_inet6 localhost_v6 notOSX} -body {
@@ -2196,7 +2209,8 @@ test socket-14.9.1 {pending [iocp::socket -async] and blocking [puts], server is
     removeFile script
 } -result {{} ok}
 test socket-14.10.0 {pending [iocp::socket -async] and nonblocking [puts], server is IPv4} -setup {
-    makeFile {
+    set server_code "$iocp_load_command\n"
+    append server_code {
 	fileevent stdin readable exit
 	set server [iocp::socket -server accept -myaddr 127.0.0.1 0]
 	proc accept {s h p} {set ::x $s}
@@ -2204,7 +2218,8 @@ test socket-14.10.0 {pending [iocp::socket -async] and nonblocking [puts], serve
 	flush stdout
 	vwait x
 	puts [gets $x]
-    } script
+    }
+    makeFile $server_code script
     set fd [open |[list [interpreter] script] RDWR]
     set port [gets $fd]
     set after [after $latency set x timeout]
@@ -2223,7 +2238,8 @@ test socket-14.10.0 {pending [iocp::socket -async] and nonblocking [puts], serve
     removeFile script
 } -result {{} ok}
 test socket-14.10.1 {pending [iocp::socket -async] and nonblocking [puts], server is IPv6} -setup {
-    makeFile {
+    set server_code "$iocp_load_command\n"
+    append server_code {
 	fileevent stdin readable exit
 	set server [iocp::socket -server accept -myaddr ::1 0]
 	proc accept {s h p} {set ::x $s}
@@ -2231,7 +2247,8 @@ test socket-14.10.1 {pending [iocp::socket -async] and nonblocking [puts], serve
 	flush stdout
 	vwait x
 	puts [gets $x]
-    } script
+    }
+    makeFile $server_code script
     set fd [open |[list [interpreter] script] RDWR]
     set port [gets $fd]
     set after [after $latency set x timeout]
@@ -2378,7 +2395,7 @@ test socket-14.18 {bug c6ed4acfd8: running async socket connect made other conne
 set num 0
 
 set x {localhost {win} 127.0.0.1 {supported_inet} ::1 {supported_inet6}}
-set resultok {-result "sock*" -match glob}
+set resultok {-result "tcp*" -match glob}
 set resulterr {
     -result {couldn't open socket: connection refused}
     -returnCodes 1
