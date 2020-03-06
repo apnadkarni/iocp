@@ -253,7 +253,9 @@ void IocpChannelExitConnectedState(
         lockedChanPtr->vtblPtr->connected(lockedChanPtr) != 0) {
         lockedChanPtr->state = IOCP_STATE_DISCONNECTED;
     } else {
-        lockedChanPtr->state = IOCP_STATE_OPEN;
+        lockedChanPtr->state    = IOCP_STATE_OPEN;
+        /* Clear any errors stored while cycling through address list */
+        lockedChanPtr->winError = ERROR_SUCCESS;
         IocpChannelPostReads(lockedChanPtr);
     }
     IocpNotifyChannel(lockedChanPtr);
@@ -966,6 +968,7 @@ IocpChannelInput (
      * Note that a zero length input buffer signifies EOF.
      */
     if (chanPtr->inputBuffers.headPtr == NULL) {
+        DEBUGOUT(("IocpChannelInput: No input buffers queued, chanPtr=%p\n", chanPtr));
         /* No input buffers. */
         if (chanPtr->state != IOCP_STATE_OPEN ||
             (chanPtr->flags & IOCP_CHAN_F_REMOTE_EOF)) {
@@ -1071,6 +1074,8 @@ vamoose:
      *  >0 - bytes read
      */
     IocpChannelUnlock(chanPtr);
+
+    DEBUGOUT(("IocpChannelInput Returning: %d\n", bytesRead));
     return bytesRead;
 }
 
@@ -1664,6 +1669,7 @@ DWORD IocpChannelPostReads(
         if (winError)
             break;
     }
+    DEBUGOUT(("IocpChannelPostReads returning with lockedChanPtr=%p, pendingReads=%d\n", lockedChanPtr, lockedChanPtr->pendingReads));
     return (lockedChanPtr->pendingReads > 0) ? 0 : winError;
 }
 

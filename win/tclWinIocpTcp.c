@@ -1010,7 +1010,8 @@ static void TcpClientFreeAddresses(
  *
  * Side effects:
  *    On success, a TCP connection is establised. The tcpPtr state is changed
- *    to OPEN and an initialized socket is stored in it.
+ *    to OPEN and an initialized socket is stored in it. The IOCP completion
+ *    port is associated with it.
  *
  *    On failure, tcpPtr state is changed to CONNECT_FAILED and the returned
  *    error is also stored in tcpPtr->base.winError.
@@ -1034,19 +1035,32 @@ static IocpWinError TcpClientBlockingConnect(
             so = socket(localAddr->ai_family, SOCK_STREAM, 0);
             /* Note socket call, unlike WSASocket is overlapped by default */
 
-            if (so != INVALID_SOCKET) {
+            if (so != INVALID_SOCKET &&
+                bind(so, localAddr->ai_addr, (int) localAddr->ai_addrlen) == 0 &&
+                connect(so, remoteAddr->ai_addr, (int) remoteAddr->ai_addrlen) == 0) {
+
                 /* Sockets should not be inherited by children */
                 SetHandleInformation((HANDLE)so, HANDLE_FLAG_INHERIT, 0);
 
-                /* Bind local address. */
-                if (bind(so, localAddr->ai_addr, (int) localAddr->ai_addrlen) == 0 &&
-                    connect(so, remoteAddr->ai_addr, (int) remoteAddr->ai_addrlen) == 0) {
+                if (CreateIoCompletionPort((HANDLE) so,
+                                           iocpModuleState.completion_port,
+                                           0, /* Completion key - unused */
+                                           0) != NULL) {
                     tcpPtr->base.state = IOCP_STATE_OPEN;
-                    tcpPtr->so    = so;
-                    return TCL_OK;
+                    tcpPtr->so = so;
+                    /*
+                     * Clear any error stored during -async operation prior to
+                     * blocking connect
+                     */
+                    tcpPtr->base.winError = ERROR_SUCCESS;
+                    return ERROR_SUCCESS;
                 }
+                else
+                    winError = GetLastError();
             }
-            winError = WSAGetLastError();
+            else
+                winError = WSAGetLastError();
+
             /* No joy. Keep trying. */
             if (so != INVALID_SOCKET) {
                 closesocket(so);
@@ -1325,13 +1339,6 @@ Iocp_OpenTcpClient(
         }
         TcpClientFreeAddresses(tcpPtr);
 
-        if (CreateIoCompletionPort((HANDLE) tcpPtr->so,
-                                   iocpModuleState.completion_port,
-                                   0, /* Completion key - unused */
-                                   0) == NULL) {
-            Iocp_ReportLastWindowsError(interp, "couldn't attach socket to completion port: ");
-            goto fail;
-        }
         /*
          * NOTE Connection now open but note no other thread has access to tcpPtr
          * yet and hence no locking needed. But once Reads are posted that
