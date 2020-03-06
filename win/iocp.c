@@ -935,7 +935,8 @@ IocpChannelInput (
     *errorCodePtr = 0;
     IocpChannelLock(chanPtr);
 
-    if (chanPtr->state == IOCP_STATE_CONNECTING) {
+    if (chanPtr->state == IOCP_STATE_CONNECTING ||
+        chanPtr->state == IOCP_STATE_CONNECT_RETRY) {
         if (chanPtr->flags & IOCP_CHAN_F_NONBLOCKING) {
             *errorCodePtr = EAGAIN;
             bytesRead = -1;
@@ -952,8 +953,21 @@ IocpChannelInput (
 
     /*
      * Note state may have changed above, but no matter. Taken care of below
-     * based on whether there are any input buffers or not.
+     * based on whether there are any input buffers or not. CONNECT_FAILED
+     * will never have any input buffers. For others, if there are unconsumed
+     * buffers, we have to pass them up.
      */
+    if (chanPtr->state == IOCP_STATE_CONNECT_FAILED) {
+        IOCP_ASSERT(chanPtr->inputBuffers.headPtr == NULL);
+        *errorCodePtr= ENOTCONN;
+        bytesRead = -1;
+        goto vamoose;
+    }
+
+    /* All these states would have taken early exit or transition above */
+    IOCP_ASSERT(chanPtr->state != IOCP_STATE_CONNECTING);
+    IOCP_ASSERT(chanPtr->state != IOCP_STATE_CONNECT_RETRY);
+    IOCP_ASSERT(chanPtr->state != IOCP_STATE_CONNECTED);
 
     /*
      * Unless channel is marked as write-only (via shutdown) pass up data
@@ -972,10 +986,9 @@ IocpChannelInput (
         /* No input buffers. */
         if (chanPtr->state != IOCP_STATE_OPEN ||
             (chanPtr->flags & IOCP_CHAN_F_REMOTE_EOF)) {
-            /* Connection not OPEN or closed from remote end */
             goto vamoose; /* bytesRead is already 0 indicating EOF */
         }
-        /* If non-blocking, just return. */
+        /* Either OPEN. If non-blocking, just return. */
         if (chanPtr->flags & IOCP_CHAN_F_NONBLOCKING) {
             *errorCodePtr = EAGAIN;
             bytesRead     = -1;
@@ -1597,8 +1610,8 @@ int IocpEventHandler(
         if (chanPtr->vtblPtr->connectfailed  == NULL ||
             chanPtr->vtblPtr->connectfailed(chanPtr) != 0) {
             /* No means to retry or retry failed. chanPtr->winError is error */
-            DEBUGOUT(("IocpEventHandler state IOCP_STATE_CONNECT_RETRY: disconnecting"));
-            chanPtr->state = IOCP_STATE_DISCONNECTED;
+            DEBUGOUT(("IocpEventHandler state IOCP_STATE_CONNECT_RETRY: failed"));
+            chanPtr->state = IOCP_STATE_CONNECT_FAILED;
             chanPtr->flags |= IOCP_CHAN_F_REMOTE_EOF;
             notify = 1;
         }
@@ -1621,6 +1634,7 @@ int IocpEventHandler(
         break;
 
     case IOCP_STATE_OPEN:
+    case IOCP_STATE_CONNECT_FAILED:
     case IOCP_STATE_DISCONNECTED:
         /* Notify Tcl channel subsystem if it has asked for it */
         notify = 1;
@@ -1690,11 +1704,23 @@ Iocp_Init (Tcl_Interp *interp)
     }
 
     Tcl_CreateObjCommand(interp, "iocp::socket", Iocp_SocketObjCmd, 0L, 0L);
+    Tcl_CreateObjCommand(interp, "iocp::debugout", Iocp_DebugOutObjCmd, 0L, 0L);
     Tcl_PkgProvide(interp, PACKAGE_NAME, PACKAGE_VERSION);
     return TCL_OK;
 }
 
-
+/* Outputs a string using Windows OutputDebugString */
+IocpTclCode
+Iocp_DebugOutObjCmd (
+    ClientData notUsed,			/* Not used. */
+    Tcl_Interp *interp,			/* Current interpreter. */
+    int objc,				/* Number of arguments. */
+    Tcl_Obj *CONST objv[])		/* Argument objects. */
+{
+    if (objc > 1)
+        OutputDebugString(Tcl_GetString(objv[1]));
+    return TCL_OK;
+}
 
 /*
  * TBD - design change - would it be faster to post zero-byte read and then

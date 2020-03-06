@@ -250,6 +250,7 @@ enum IocpState {
     IOCP_STATE_OPEN,           /* Open for data transfer */
     IOCP_STATE_DISCONNECTING,  /* Local end has initiated disconnection */
     IOCP_STATE_DISCONNECTED,   /* Remote end has disconnected */
+    IOCP_STATE_CONNECT_FAILED, /* All connect attempts failed */
     IOCP_STATE_CLOSED,         /* Channel closed from both ends */
 };
 
@@ -612,6 +613,7 @@ void         IocpChannelNudgeThread(IocpChannel *lockedChanPtr, int blockMask, i
 
 /* Tcl commands */
 Tcl_ObjCmdProc	Iocp_SocketObjCmd;
+Tcl_ObjCmdProc	Iocp_DebugOutObjCmd;
 
 /* If building as an extension, polyfill internal Tcl routines. */
 #ifdef BUILD_iocp

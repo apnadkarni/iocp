@@ -557,10 +557,12 @@ IocpTclCode TcpClientGetOption(
     case IOCP_TCP_OPT_ERROR:
         /* As per Tcl winsock, do not report errors in connecting state */
         if (lockedTcpPtr->base.state != IOCP_STATE_CONNECTING &&
+            lockedTcpPtr->base.state != IOCP_STATE_CONNECT_RETRY &&
             lockedTcpPtr->base.winError != ERROR_SUCCESS) {
 #if 1
             IocpSetTclErrnoFromWin32(lockedTcpPtr->base.winError);
             Tcl_DStringAppend(dsPtr, Tcl_ErrnoMsg(Tcl_GetErrno()), -1);
+            lockedTcpPtr->base.winError = ERROR_SUCCESS; /* As per socket man page */
 #else
             /* This would give more detail but Tcl test suite demands Posix error */
             Tcl_Obj *objPtr = Iocp_MapWindowsError(lockedTcpPtr->base.winError,
@@ -569,11 +571,17 @@ IocpTclCode TcpClientGetOption(
             char    *emessage = Tcl_GetStringFromObj(objPtr, &nbytes);
             Tcl_DStringAppend(dsPtr, emessage, nbytes);
             Tcl_DecrRefCount(objPtr);
+            lockedTcpPtr->base.winError = ERROR_SUCCESS; /* As per socket man page */
 #endif
         }
         return TCL_OK;
     case IOCP_TCP_OPT_PEERNAME:
     case IOCP_TCP_OPT_SOCKNAME:
+        if (lockedTcpPtr->base.state != IOCP_STATE_CONNECTING &&
+            lockedTcpPtr->base.state != IOCP_STATE_CONNECT_RETRY) {
+            /* As per TIP 427, empty string to be returned in these states */
+            return TCL_OK;
+        }
         if (lockedTcpPtr->so == INVALID_SOCKET) {
             if (interp)
                 Tcl_SetResult(interp, "No socket associated with channel.", TCL_STATIC);
@@ -1071,7 +1079,7 @@ static IocpWinError TcpClientBlockingConnect(
 
 
     /* Failed to connect. Return an error */
-    tcpPtr->base.state    = IOCP_STATE_DISCONNECTED;
+    tcpPtr->base.state    = IOCP_STATE_CONNECT_FAILED;
     tcpPtr->base.winError = winError;
 
     if (so != INVALID_SOCKET)
@@ -1122,10 +1130,10 @@ static IocpWinError TcpClientInitiateConnection(
                 SetHandleInformation((HANDLE)so, HANDLE_FLAG_INHERIT, 0);
                 tcpPtr->so = so;
                 winError = TcpClientPostConnect(tcpPtr);
-                if (winError == 0) {
+                if (winError == ERROR_SUCCESS) {
                     /* Update so next attempt will be with next local addr */
                     tcpPtr->localAddr = tcpPtr->localAddr->ai_next;
-                    return 0;
+                    return ERROR_SUCCESS;
                 }
                 closesocket(so);
                 so         = INVALID_SOCKET;
@@ -1143,7 +1151,7 @@ static IocpWinError TcpClientInitiateConnection(
     /*
      * Failed. We report the stored error in preference to error in current call.
      */
-    tcpPtr->base.state = IOCP_STATE_DISCONNECTED;
+    tcpPtr->base.state = IOCP_STATE_CONNECT_FAILED;
     if (tcpPtr->base.winError == 0)
         tcpPtr->base.winError = winError;
     if (so != INVALID_SOCKET)

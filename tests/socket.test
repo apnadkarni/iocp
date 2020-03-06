@@ -2094,7 +2094,7 @@ test socket-14.7.2 {pending [iocp::socket -async] and blocking [gets], no listen
     list $x [fconfigure $sock -error] [fconfigure $sock -error]
 } -constraints {notOSX} -cleanup {
     catch {close $sock}
-} -match glob -result {{error reading "sock*": socket is not connected} {connection refused} {}}
+} -match glob -result {{error reading "tcp*": socket is not connected} {connection refused} {}}
 test socket-14.8.0 {pending [iocp::socket -async] and nonblocking [gets], server is IPv4} -setup {
     set server_code "$iocp_load_command\n"
     append server_code {
@@ -2157,7 +2157,7 @@ test socket-14.8.2 {pending [iocp::socket -async] and nonblocking [gets], no lis
     list $x [fconfigure $sock -error] [fconfigure $sock -error]
 } -cleanup {
     catch {close $sock}
-} -match glob -result {{error reading "sock*": socket is not connected} {connection refused} {}}
+} -match glob -result {{error reading "tcp*": socket is not connected} {connection refused} {}}
 test socket-14.9.0 {pending [iocp::socket -async] and blocking [puts], server is IPv4} -setup {
     set server_code "$iocp_load_command\n"
     append server_code {
