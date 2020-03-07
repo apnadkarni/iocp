@@ -577,8 +577,8 @@ IocpTclCode TcpClientGetOption(
         return TCL_OK;
     case IOCP_TCP_OPT_PEERNAME:
     case IOCP_TCP_OPT_SOCKNAME:
-        if (lockedTcpPtr->base.state != IOCP_STATE_CONNECTING &&
-            lockedTcpPtr->base.state != IOCP_STATE_CONNECT_RETRY) {
+        if (lockedTcpPtr->base.state == IOCP_STATE_CONNECTING ||
+            lockedTcpPtr->base.state == IOCP_STATE_CONNECT_RETRY) {
             /* As per TIP 427, empty string to be returned in these states */
             return TCL_OK;
         }

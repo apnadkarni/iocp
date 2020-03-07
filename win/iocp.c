@@ -14,6 +14,9 @@ static void IocpNotifyChannel(IocpChannel *lockedChanPtr);
 static int  IocpEventHandler(Tcl_Event *evPtr, int flags);
 static void IocpThreadExitHandler (ClientData clientData);
 static int IocpChannelFileEventMask(IocpChannel *lockedChanPtr);
+static void IocpChannelConnectionStep(IocpChannel *lockedChanPtr, int blockable);
+static void IocpChannelExitConnectedState(IocpChannel *lockedChanPtr);
+static void IocpChannelAwaitConnectCompletion(IocpChannel *lockedChanPtr);
 
 /*
  * Static data
@@ -225,6 +228,90 @@ void IocpChannelDrop(
 /*
  *------------------------------------------------------------------------
  *
+ * IocpChannelConnectionStep --
+ *
+ *    Executes one step in a async connection. lockedChanPtr must be in one
+ *    of the connecting states, CONNECTING, CONNECT_RETRY or CONNECTED.
+ *
+ *    If the blockable parameter is true, the function will return when the
+ *    connection is open or fails completely. The channel will then be in OPEN,
+ *    CONNECT_FAILED or DISCONNECTED states.
+ *
+ *    If blockable is false, the function will transition the channel to
+ *    the next appropriate state if possible or remain in the same state.
+ *    A CONNECTING state will remain as is as it indicates a connection attempt
+ *    is still in progress and we just need to wait for it to complete. A
+ *    CONNECT_RETRY state indicates the completion thread signalled the previous
+ *    attempt failed. In this case, a new attempt is initiated if there are
+ *    additional addresses to try and the channel is transitioned to CONNECTING.
+ *    If not, the channel state is set to CONNECT_FAILED. Finally, a CONNECTED
+ *    state indicates the completion thread signalled a successful connect, and
+ *    the channel state is set to OPEN.
+ *
+ * Results:
+ *    None.
+ *
+ * Side effects:
+ *    The channel state may change. If a blocking channel, the function may
+ *    block until connection completes or fails. In case of errors,
+ *    lockedChanPtr->winError is set. If channel state transitions to OPEN,
+ *    reads are posted on socket and Tcl channel is notified if required.
+ *
+ *------------------------------------------------------------------------
+ */
+static void IocpChannelConnectionStep(
+    IocpChannel *lockedChanPtr, /* Must be locked, will be locked on return, may
+                                 * be unlocked interim. Caller must be holding reference
+                                 * to ensure it is not deallocated */
+    int blockable)              /* If true, the function is allowed to block. */
+{
+    switch (lockedChanPtr->state) {
+    case IOCP_STATE_CONNECTED:
+        /* IOCP thread has already signalled completion, transition to OPEN */
+        IocpChannelExitConnectedState(lockedChanPtr);
+        break;
+    case IOCP_STATE_CONNECTING:
+        /*
+         * If blockable we just wait for connection to complete. If non-blockable,
+         * nought to do until the IOCP thread completes the connection.
+         */
+        if (blockable) {
+            /* Note this will also call IocpChannelExitConnectedState if needed */
+            IocpChannelAwaitConnectCompletion(lockedChanPtr);
+        }
+        break;
+    case IOCP_STATE_CONNECT_RETRY:
+        if (blockable) {
+            if (lockedChanPtr->vtblPtr->blockingconnect) {
+                lockedChanPtr->vtblPtr->blockingconnect(lockedChanPtr);
+                /* Don't care about success. Caller responsible to check state */
+                IocpNotifyChannel(lockedChanPtr);
+            }
+        } else {
+            if (lockedChanPtr->vtblPtr->connectfailed  == NULL ||
+                lockedChanPtr->vtblPtr->connectfailed(lockedChanPtr) != 0) {
+                /* No means to retry or retry failed. lockedChanPtr->winError is error */
+                lockedChanPtr->state = IOCP_STATE_CONNECT_FAILED;
+                lockedChanPtr->flags |= IOCP_CHAN_F_REMOTE_EOF;
+                IocpNotifyChannel(lockedChanPtr);
+            }
+            else {
+                /* Revert to CONNECTING state when retry ongoing */
+                lockedChanPtr->state = IOCP_STATE_CONNECTING;
+            }
+        }
+        break;
+
+    default:
+        Tcl_Panic("IocpChanConnectionStep: unexpected state %d",
+                  lockedChanPtr->state);
+        break;
+    }
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
  * IocpChannelExitConnectedState --
  *
  *    Called when a connection has completed. Calls the channel type-specific
@@ -245,7 +332,7 @@ void IocpChannelDrop(
  *
  *------------------------------------------------------------------------
  */
-void IocpChannelExitConnectedState(
+static void IocpChannelExitConnectedState(
     IocpChannel *lockedChanPtr
     )
 {
@@ -258,6 +345,7 @@ void IocpChannelExitConnectedState(
         lockedChanPtr->winError = ERROR_SUCCESS;
         IocpChannelPostReads(lockedChanPtr);
     }
+    lockedChanPtr->flags |= IOCP_CHAN_F_WRITE_DONE; /* In case registered file event */
     IocpNotifyChannel(lockedChanPtr);
 }
 
@@ -266,9 +354,9 @@ void IocpChannelExitConnectedState(
  *
  * IocpChannelAwaitConnectCompletion --
  *
- *    Waits for an outgoing connection request to complete. Must be called
- *    only on a blocking channel. The locked channel will be unlocked while
- *    waiting and may change state.
+ *    Waits for an outgoing connection request to complete. Must be called only
+ *    on a blocking channel as the function will block. The locked channel will
+ *    be unlocked while waiting and may change state.
  *
  * Results:
  *    None.
@@ -292,16 +380,15 @@ static void IocpChannelAwaitConnectCompletion(
 
     IocpChannelAwaitCompletion(lockedChanPtr, IOCP_CHAN_F_BLOCKED_CONNECT);
 
-    /* TBD - refactor this with the state handling in event handler */
-    if (lockedChanPtr->state == IOCP_STATE_CONNECTED) {
-        IocpChannelExitConnectedState(lockedChanPtr);
-    }
-    else if (lockedChanPtr->state == IOCP_STATE_CONNECT_RETRY) {
+    if (lockedChanPtr->state == IOCP_STATE_CONNECT_RETRY) {
         /* Retry connecting in blocking mode if possible */
         if (lockedChanPtr->vtblPtr->blockingconnect) {
             lockedChanPtr->vtblPtr->blockingconnect(lockedChanPtr);
             /* Don't care about success. Caller responsible to check state */
         }
+    }
+    if (lockedChanPtr->state == IOCP_STATE_CONNECTED) {
+        IocpChannelExitConnectedState(lockedChanPtr);
     }
 }
 
@@ -935,33 +1022,27 @@ IocpChannelInput (
     *errorCodePtr = 0;
     IocpChannelLock(chanPtr);
 
-    if (chanPtr->state == IOCP_STATE_CONNECTING ||
-        chanPtr->state == IOCP_STATE_CONNECT_RETRY) {
-        if (chanPtr->flags & IOCP_CHAN_F_NONBLOCKING) {
+    /*
+     * At this point, Tcl channel system is holding a reference. However, if
+     * any of the calls below recurse into a fileevent callback, the callback
+     * script could close the channel and release that reference causing memory
+     * to be deallocated. To prevent losing the memory, add an additional reference
+     * while this function is executing.
+     */
+    chanPtr->numRefs += 1;
+
+    if (IocpStateConnectionInProgress(chanPtr->state)) {
+        IocpChannelConnectionStep(chanPtr,
+                               (chanPtr->flags & IOCP_CHAN_F_NONBLOCKING) == 0);
+        if (chanPtr->state == IOCP_STATE_CONNECTING ||
+            chanPtr->state == IOCP_STATE_CONNECT_RETRY) {
+            /* Only possible when above call returns for non-blocking case */
+            IOCP_ASSERT(chanPtr->flags & IOCP_CHAN_F_NONBLOCKING);
             *errorCodePtr = EAGAIN;
             bytesRead = -1;
             goto vamoose;
         }
-        /* Channel is blocking and we are awaiting async connect to complete */
-        DEBUGOUT(("IocpChannelInput Awaiting connection completion: chanPtr=%p, state=%d\n", chanPtr, chanPtr->state));
-        IocpChannelAwaitConnectCompletion(chanPtr);
-        DEBUGOUT(("IocpChannelInput Awaiting connection completion done: chanPtr=%p, state=%d\n", chanPtr, chanPtr->state));
-    } else if (chanPtr->state == IOCP_STATE_CONNECTED) {
-        IocpChannelExitConnectedState(chanPtr);
-    }
-    DEBUGOUT(("IocpChannelInput: chanPtr=%p, state=%d\n", chanPtr, chanPtr->state));
-
-    /*
-     * Note state may have changed above, but no matter. Taken care of below
-     * based on whether there are any input buffers or not. CONNECT_FAILED
-     * will never have any input buffers. For others, if there are unconsumed
-     * buffers, we have to pass them up.
-     */
-    if (chanPtr->state == IOCP_STATE_CONNECT_FAILED) {
-        IOCP_ASSERT(chanPtr->inputBuffers.headPtr == NULL);
-        *errorCodePtr= ENOTCONN;
-        bytesRead = -1;
-        goto vamoose;
+        DEBUGOUT(("IocpChannelInput: chanPtr=%p, state=%d\n", chanPtr, chanPtr->state));
     }
 
     /* All these states would have taken early exit or transition above */
@@ -978,6 +1059,12 @@ IocpChannelInput (
     }
 
     /*
+     * Note state may have changed above, but no matter. Taken care of below
+     * based on whether there are any input buffers or not. If there are unconsumed
+     * buffers, we have to pass them up.
+     */
+
+    /*
      * Now we get to copy data out from our buffers to the Tcl buffer.
      * Note that a zero length input buffer signifies EOF.
      */
@@ -986,9 +1073,10 @@ IocpChannelInput (
         /* No input buffers. */
         if (chanPtr->state != IOCP_STATE_OPEN ||
             (chanPtr->flags & IOCP_CHAN_F_REMOTE_EOF)) {
+            /* No longer OPEN so no hope of further data */
             goto vamoose; /* bytesRead is already 0 indicating EOF */
         }
-        /* Either OPEN. If non-blocking, just return. */
+        /* OPEN but no data available. If non-blocking, just return. */
         if (chanPtr->flags & IOCP_CHAN_F_NONBLOCKING) {
             *errorCodePtr = EAGAIN;
             bytesRead     = -1;
@@ -1009,7 +1097,6 @@ IocpChannelInput (
          * care. What matters is if input data is available in the buffers.
          * Fall through for processing.
          */
-
     }
 
     /*
@@ -1086,7 +1173,15 @@ vamoose:
      *  -1 - error, *errorCodePtr should contain POSIX error.
      *  >0 - bytes read
      */
-    IocpChannelUnlock(chanPtr);
+
+    if (chanPtr->state == IOCP_STATE_CONNECT_FAILED) {
+        /* Always treat as error */
+        IOCP_ASSERT(chanPtr->inputBuffers.headPtr == NULL);
+        *errorCodePtr= ENOTCONN;
+        bytesRead = -1;
+    }
+
+    IocpChannelDrop(chanPtr);   /* Release the reference held by this function */
 
     DEBUGOUT(("IocpChannelInput Returning: %d\n", bytesRead));
     return bytesRead;
@@ -1120,22 +1215,33 @@ IocpChannelOutput (
     IocpChannel *chanPtr = (IocpChannel *) instanceData;
     int          written = -1;
 
-    DEBUGOUT(("IocpChannelInput Enter: chanPtr=%p, state=%d\n", chanPtr, chanPtr->state));
+    DEBUGOUT(("IocpChannelOutput Enter: chanPtr=%p, state=%d\n", chanPtr, chanPtr->state));
 
     IocpChannelLock(chanPtr);
 
-    if (chanPtr->state == IOCP_STATE_CONNECTING) {
-        /* If in non-blocking mode, ask caller to retry */
-        if (chanPtr->flags & IOCP_CHAN_F_NONBLOCKING) {
-            IocpChannelUnlock(chanPtr);
+    /*
+     * At this point, Tcl channel system is holding a reference. However, if
+     * any of the calls below recurse into a fileevent callback, the callback
+     * script could close the channel and release that reference causing memory
+     * to be deallocated. To prevent losing the memory, add an additional reference
+     * while this function is executing.
+     */
+    chanPtr->numRefs += 1;
+
+    if (IocpStateConnectionInProgress(chanPtr->state)) {
+        IocpChannelConnectionStep(chanPtr,
+                                  (chanPtr->flags & IOCP_CHAN_F_NONBLOCKING) == 0);
+        if (chanPtr->state == IOCP_STATE_CONNECTING ||
+            chanPtr->state == IOCP_STATE_CONNECT_RETRY) {
+            /* Only possible when above call returns for non-blocking case */
+            IOCP_ASSERT(chanPtr->flags & IOCP_CHAN_F_NONBLOCKING);
+            IocpChannelDrop(chanPtr);   /* Release the reference held by this function */
             *errorCodePtr = EAGAIN;
             return -1;
         }
-        /* Blocking write on a async connect. Wait for connect to complete */
-        IocpChannelAwaitConnectCompletion(chanPtr);
-    } else if (chanPtr->state == IOCP_STATE_CONNECTED) {
-        IocpChannelExitConnectedState(chanPtr);
+        DEBUGOUT(("IocpChannelOutput: chanPtr=%p, state=%d\n", chanPtr, chanPtr->state));
     }
+
     /* State may have changed but no matter, handled below */
 
     /*
@@ -1168,7 +1274,14 @@ IocpChannelOutput (
         IocpChannelAwaitCompletion(chanPtr, IOCP_CHAN_F_BLOCKED_WRITE);
     }
 
-    IocpChannelUnlock(chanPtr);
+    /* If nothing was written and state is not OPEN, indicate error */
+    if (written <= 0 && chanPtr->state != IOCP_STATE_OPEN) {
+        *errorCodePtr = ENOTCONN; /* socket.test expects this error */
+        written = -1;
+    }
+
+    IocpChannelDrop(chanPtr);   /* Release the reference held by this function */
+
     return written;
 }
 
@@ -1224,6 +1337,20 @@ IocpChannelSetOption (
 
     IocpChannelLock(chanPtr);
 
+    /*
+     * At this point, Tcl channel system is holding a reference. However, if
+     * any of the calls below recurse into a fileevent callback, the callback
+     * script could close the channel and release that reference causing memory
+     * to be deallocated. To prevent losing the memory, add an additional reference
+     * while this function is executing.
+     */
+    chanPtr->numRefs += 1;
+
+    if (IocpStateConnectionInProgress(chanPtr->state)) {
+        /* If in connecting state, advance one step. See TIP 427 */
+        IocpChannelConnectionStep(chanPtr, 0);
+    }
+
     if (chanPtr->vtblPtr->optionNames && chanPtr->vtblPtr->setoption) {
         opt = IocpParseOption(interp, chanPtr->vtblPtr->optionNames, optName);
         if (opt == -1)
@@ -1235,7 +1362,7 @@ IocpChannelSetOption (
         ret = Tcl_BadChannelOption(interp, optName, "");
     }
 
-    IocpChannelUnlock(chanPtr);
+    IocpChannelDrop(chanPtr);   /* Release the reference held by this function */
     return ret;
 }
 
@@ -1255,6 +1382,21 @@ IocpChannelGetOption (
     int          opt;
 
     IocpChannelLock(chanPtr);
+
+    /*
+     * At this point, Tcl channel system is holding a reference. However, if
+     * any of the calls below recurse into a fileevent callback, the callback
+     * script could close the channel and release that reference causing memory
+     * to be deallocated. To prevent losing the memory, add an additional reference
+     * while this function is executing.
+     */
+    chanPtr->numRefs += 1;
+
+    if (IocpStateConnectionInProgress(chanPtr->state)) {
+        /* If in connecting state, advance one step. See TIP 427 */
+        IocpChannelConnectionStep(chanPtr, 0);
+    }
+
     if (chanPtr->vtblPtr->optionNames && chanPtr->vtblPtr->getoption) {
         /* Channel type supports type-specific options */
         if (optName) {
@@ -1296,7 +1438,7 @@ IocpChannelGetOption (
         }
     }
 
-    IocpChannelUnlock(chanPtr);
+    IocpChannelDrop(chanPtr);   /* Release the reference held by this function */
     return ret;
 }
 
@@ -1364,6 +1506,14 @@ IocpChannelWatch (
     IocpChannel *chanPtr = (IocpChannel*)instanceData;
 
     IocpChannelLock(chanPtr);
+    /*
+     * At this point, Tcl channel system is holding a reference. However, if
+     * any of the calls below recurse into a fileevent callback, the callback
+     * script could close the channel and release that reference causing memory
+     * to be deallocated. To prevent losing the memory, add an additional reference
+     * while this function is executing.
+     */
+    chanPtr->numRefs += 1;
 
     chanPtr->flags &= ~ (IOCP_CHAN_F_WATCH_INPUT | IOCP_CHAN_F_WATCH_OUTPUT);
     if (mask & TCL_READABLE)
@@ -1383,7 +1533,7 @@ IocpChannelWatch (
     if (mask)
         IocpChannelEnqueueEvent(chanPtr, IOCP_EVENT_NOTIFY_CHANNEL, 0);
 
-    IocpChannelUnlock(chanPtr);
+    IocpChannelDrop(chanPtr);   /* Release the reference held by this function */
 }
 
 static int
@@ -1410,6 +1560,14 @@ IocpChannelClose2 (
     }
 
     IocpChannelLock(chanPtr);
+    /*
+     * At this point, Tcl channel system is holding a reference. However, if
+     * any of the calls below recurse into a fileevent callback, the callback
+     * script could close the channel and release that reference causing memory
+     * to be deallocated. To prevent losing the memory, add an additional reference
+     * while this function is executing.
+     */
+    chanPtr->numRefs += 1;
 
     /* Call specific IOCP type to close OS handles */
     ret = (chanPtr->vtblPtr->shutdown)(interp, chanPtr, flags);
@@ -1419,7 +1577,7 @@ IocpChannelClose2 (
     if (flags & TCL_CLOSE_WRITE)
         chanPtr->flags |= IOCP_CHAN_F_READONLY;
 
-    IocpChannelUnlock(chanPtr);
+    IocpChannelDrop(chanPtr);   /* Release the reference held by this function */
 
     return ret;
 
@@ -1605,47 +1763,22 @@ int IocpEventHandler(
         }
         break;
 
+    case IOCP_STATE_CONNECTING:
     case IOCP_STATE_CONNECT_RETRY:
-        /* Async connect failed. chanPtr->winError contains error. */
-        if (chanPtr->vtblPtr->connectfailed  == NULL ||
-            chanPtr->vtblPtr->connectfailed(chanPtr) != 0) {
-            /* No means to retry or retry failed. chanPtr->winError is error */
-            DEBUGOUT(("IocpEventHandler state IOCP_STATE_CONNECT_RETRY: failed"));
-            chanPtr->state = IOCP_STATE_CONNECT_FAILED;
-            chanPtr->flags |= IOCP_CHAN_F_REMOTE_EOF;
-            notify = 1;
-        }
-        else {
-            DEBUGOUT(("IocpEventHandler state IOCP_STATE_CONNECT_RETRY: reconnecting"));
-            chanPtr->state = IOCP_STATE_CONNECTING;
-        }
-        break;
-
     case IOCP_STATE_CONNECTED:
-        notify = 1;
-        if (chanPtr->vtblPtr->connected &&
-            chanPtr->vtblPtr->connected(chanPtr) != 0) {
-            chanPtr->state = IOCP_STATE_DISCONNECTED;
-        }
-        else {
-            chanPtr->state = IOCP_STATE_OPEN;
-            chanPtr->flags |= IOCP_CHAN_F_WRITE_DONE; /* In case app registered file event */
-        }
+        IocpChannelConnectionStep(chanPtr, 0); /* May change state */
         break;
 
     case IOCP_STATE_OPEN:
     case IOCP_STATE_CONNECT_FAILED:
     case IOCP_STATE_DISCONNECTED:
         /* Notify Tcl channel subsystem if it has asked for it */
-        notify = 1;
+        IocpNotifyChannel(chanPtr); /* May change state */
         break;
-    default:
-        /* TBD - other cases */
+    default: /* INIT and CLOSED */
+        /* TBD - should not happen - log somewhere ? */
         break;
     }
-
-    if (notify)
-        IocpNotifyChannel(chanPtr);
 
     /* Drop the reference corresponding to queueing to the event q. */
     ((IocpTclEvent *)evPtr)->chanPtr = NULL;

@@ -240,19 +240,22 @@ typedef struct IocpBuffer {
                                    *  (meaning wsaOverlap, not overlap) */
 } IocpBuffer;
 
-/* State values for IOCP channels */
+/* State values for IOCP channels. Used as bit masks. */
 enum IocpState {
-    IOCP_STATE_INIT,           /* Just allocated */
-    IOCP_STATE_LISTENING,      /* Listening server socket */
-    IOCP_STATE_CONNECTING,     /* Connect sent, awaiting completion */
-    IOCP_STATE_CONNECTED,      /* Connect succeeded */
-    IOCP_STATE_CONNECT_RETRY,  /* Connect failed, retrying */
-    IOCP_STATE_OPEN,           /* Open for data transfer */
-    IOCP_STATE_DISCONNECTING,  /* Local end has initiated disconnection */
-    IOCP_STATE_DISCONNECTED,   /* Remote end has disconnected */
-    IOCP_STATE_CONNECT_FAILED, /* All connect attempts failed */
-    IOCP_STATE_CLOSED,         /* Channel closed from both ends */
+    IOCP_STATE_INIT           = 0x01, /* Just allocated */
+    IOCP_STATE_LISTENING      = 0x02, /* Listening server socket */
+    IOCP_STATE_CONNECTING     = 0x04, /* Connect sent, awaiting completion */
+    IOCP_STATE_CONNECTED      = 0x08, /* Connect succeeded */
+    IOCP_STATE_CONNECT_RETRY  = 0x10, /* Connect failed, retrying */
+    IOCP_STATE_OPEN           = 0x20, /* Open for data transfer */
+    IOCP_STATE_DISCONNECTING  = 0x40, /* Local end has initiated disconnection */
+    IOCP_STATE_DISCONNECTED   = 0x80, /* Remote end has disconnected */
+    IOCP_STATE_CONNECT_FAILED = 0x100, /* All connect attempts failed */
+    IOCP_STATE_CLOSED         = 0x200, /* Channel closed from both ends */
 };
+IOCP_INLINE int IocpStateConnectionInProgress(enum IocpState state) {
+    return (state & ( IOCP_STATE_CONNECTING | IOCP_STATE_CONNECTED | IOCP_STATE_CONNECT_RETRY)) != 0;
+}
 
 /*
  * IocpChannel contains the generic portion of Tcl IOCP channels that is
