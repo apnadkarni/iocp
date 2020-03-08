@@ -303,7 +303,7 @@ static void IocpChannelConnectionStep(
         break;
 
     default:
-        Tcl_Panic("IocpChanConnectionStep: unexpected state %d",
+        Iocp_Panic("IocpChanConnectionStep: unexpected state %d",
                   lockedChanPtr->state);
         break;
     }
@@ -842,7 +842,7 @@ IocpCompletionThread (LPVOID lpParam)
         }
     }
     __except (winError = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) {
-        Tcl_Panic("Tcl IOCP thread died with exception %#x\n", winError);
+        Iocp_Panic("Tcl IOCP thread died with exception %#x\n", winError);
     }
 
     DEBUGOUT(("CompletionThread exiting\n"));
@@ -1836,6 +1836,7 @@ Iocp_Init (Tcl_Interp *interp)
         return TCL_ERROR;
     }
 
+    IOCP_ASSERT(0);
     Tcl_CreateObjCommand(interp, "iocp::socket", Iocp_SocketObjCmd, 0L, 0L);
     Tcl_CreateObjCommand(interp, "iocp::debugout", Iocp_DebugOutObjCmd, 0L, 0L);
     Tcl_PkgProvide(interp, PACKAGE_NAME, PACKAGE_VERSION);

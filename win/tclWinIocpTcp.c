@@ -2297,7 +2297,7 @@ Iocp_SocketObjCmd (
 	    script = TclGetString(objv[a]);
 	    break;
 	default:
-	    Tcl_Panic("Tcl_SocketObjCmd: bad option index to SocketOptions");
+	    Iocp_Panic("Tcl_SocketObjCmd: bad option index to SocketOptions");
 	}
     }
     if (server) {

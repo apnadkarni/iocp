@@ -717,7 +717,7 @@ test socket_$af-2.12 {} [list stdio supported_$af] {
     close $f
     set ::done
 } 0
-test socket_$af-2.13 {Bug 1758a0b603} {iocp::socket stdio} {
+test socket_$af-2.13 {Bug 1758a0b603} {stdio} {
     file delete $path(script)
     set f [open $path(script) w]
     puts $f $iocp_load_command

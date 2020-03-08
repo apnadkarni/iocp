@@ -428,7 +428,7 @@ IocpRegisterAcceptCallbackCleanup(
 
     hPtr = Tcl_CreateHashEntry(hTblPtr, acceptCallbackPtr, &isNew);
     if (!isNew) {
-	Tcl_Panic("IocpRegisterAcceptCallbackCleanup: damaged accept record table");
+	Iocp_Panic("IocpRegisterAcceptCallbackCleanup: damaged accept record table");
     }
     Tcl_SetHashValue(hPtr, acceptCallbackPtr);
 }
@@ -577,4 +577,41 @@ void __cdecl IocpDebuggerOut(
     va_end(args);
     buf[sizeof(buf)-1] = '\0';
     OutputDebugString(buf);
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * Iocp_Panic --
+ *
+ *    Causes a debugger break if a debugger is attached, otherwise calls
+ *    Iocp_Panic.
+ *
+ * Results:
+ *    None.
+ *
+ * Side effects:
+ *    Either traps into debugger or exits the process via Iocp_Panic.
+ *
+ *------------------------------------------------------------------------
+ */
+void __cdecl Iocp_Panic(
+    const char *formatStr,
+    ...
+    )
+{
+    va_list args;
+
+    va_start(args, formatStr);
+    if (IsDebuggerPresent()) {
+        char buf[1024];
+        _vsnprintf_s(buf, sizeof(buf), _TRUNCATE, formatStr, args);
+        va_end(args);
+        buf[sizeof(buf)-1] = '\0';
+        OutputDebugString(buf);
+        __debugbreak();
+    } else {
+        Tcl_PanicVA(formatStr, args);
+        va_end(args); /* Not reached but... */
+    }
 }

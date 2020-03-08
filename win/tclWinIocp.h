@@ -30,7 +30,7 @@
 
 #ifndef IOCP_ASSERT
 # ifdef IOCP_ENABLE_ASSERT
-#  define IOCP_ASSERT(bool_) (void)( (bool_) || (Tcl_Panic("Assertion (%s) failed at line %d in file %s.", #bool_, __LINE__, __FILE__), 0) )
+#  define IOCP_ASSERT(bool_) (void)( (bool_) || (Iocp_Panic("Assertion (%s) failed at line %d in file %s.", #bool_, __LINE__, __FILE__), 0) )
 # else
 #  define IOCP_ASSERT(bool_) (void) 0 /* TBD */
 # endif
@@ -573,6 +573,7 @@ IocpTclCode Iocp_ReportWindowsError(Tcl_Interp *interp, DWORD winerr, const char
 IocpTclCode Iocp_ReportLastWindowsError(Tcl_Interp *interp, const char *msgPtr);
 void IocpSetTclErrnoFromWin32(IocpWinError winError);
 void IocpSetInterpPosixErrorFromWin32(Tcl_Interp *interp, IocpWinError winError, const char *prefix);
+void __cdecl Iocp_Panic(const char *formatStr, ...);
 void __cdecl IocpDebuggerOut(const char *formatStr, ...);
 #ifdef IOCP_DEBUG
 # define DEBUGOUT(params_) IocpDebuggerOut params_;
