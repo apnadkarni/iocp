@@ -25,6 +25,9 @@ static void IocpChannelAwaitConnectCompletion(IocpChannel *lockedChanPtr);
 /* Holds global IOCP state */
 IocpSubSystem iocpModuleState;
 
+/* Enable/disable tracing */
+int iocpEnableTrace;
+
 /*
  * Initializes a IocpDataBuffer to be able to hold capacity bytes worth of
  * data.
@@ -1857,6 +1860,11 @@ Iocp_Init (Tcl_Interp *interp)
     Tcl_CreateObjCommand(interp, "iocp::socket", Iocp_SocketObjCmd, 0L, 0L);
     Tcl_CreateObjCommand(interp, "iocp::debugout", Iocp_DebugOutObjCmd, 0L, 0L);
     Tcl_PkgProvide(interp, PACKAGE_NAME, PACKAGE_VERSION);
+
+    /* Note this is globally shared across all interpreters */
+    Tcl_LinkVar(interp, "::iocp::enableTrace",
+                (char *)&iocpEnableTrace, TCL_LINK_BOOLEAN);
+
     return TCL_OK;
 }
 
