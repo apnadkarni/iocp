@@ -719,6 +719,9 @@ static IocpWinError TcpClientTranslateError(IocpChannel *chanPtr, IocpBuffer *bu
  *    The local and remote addresses are those specified in the tcpPtr
  *    localAddr and remoteAddr fields. Neither must be NULL.
  *
+ *    The function does not check or modify the connection state. That is
+ *    the caller's responsibility.
+ *
  * Results:
  *    Returns 0 on success or a Windows error code.
  *
@@ -782,7 +785,6 @@ static IocpWinError TcpClientPostConnect(
         }
     }
 
-    tcpPtr->base.state = IOCP_STATE_CONNECTING;
     return 0;
 }
 
@@ -876,6 +878,8 @@ static IocpWinError TcpClientPostRead(IocpChannel *lockedChanPtr)
     wsaBuf.buf = bufPtr->data.bytes;
     wsaBuf.len = bufPtr->data.capacity;
     flags      = 0;
+
+    IOCP_ASSERT(lockedTcpPtr->so != INVALID_SOCKET);
     if (WSARecv(lockedTcpPtr->so,
                  &wsaBuf,       /* Buffer array */
                  1,             /* Number of elements in array */
@@ -1113,7 +1117,7 @@ static IocpWinError TcpClientInitiateConnection(
     DWORD  winError = WSAHOST_NOT_FOUND; /* In case address lists are empty */
     SOCKET so = INVALID_SOCKET;
 
-    IOCP_ASSERT(tcpPtr->base.state == IOCP_STATE_INIT || IOCP_STATE_CONNECTING);
+    IOCP_ASSERT(tcpPtr->base.state == IOCP_STATE_INIT || tcpPtr->base.state == IOCP_STATE_CONNECT_RETRY);
     IOCP_ASSERT(tcpPtr->so == INVALID_SOCKET);
 
     tcpPtr->base.state = IOCP_STATE_CONNECTING;
@@ -1643,6 +1647,15 @@ IocpWinError TcpListenerAccept(
         IocpBufferFree(bufPtr);
         bufPtr = NULL;
 
+        if (CreateIoCompletionPort((HANDLE) connSocket,
+                                   iocpModuleState.completion_port,
+                                   0, /* Completion key - unused */
+                                   0) == NULL) {
+            /* TBD - notify background error ? */
+            closesocket(connSocket);
+            continue;
+        }
+
         dataChanPtr = (TcpClient *) IocpChannelNew(&tcpClientVtbl);
         if (dataChanPtr == NULL) {
             /* TBD - notify background error ? */
@@ -1652,37 +1665,49 @@ IocpWinError TcpListenerAccept(
         dataChanPtr->so = connSocket;
         dataChanPtr->base.state = IOCP_STATE_OPEN;
 
-        if (CreateIoCompletionPort((HANDLE) connSocket,
-                                   iocpModuleState.completion_port,
-                                   0, /* Completion key - unused */
-                                   0) == NULL) {
-            /* TBD - notify background error ? */
-            closesocket(connSocket);
-            continue;
-        }
-        winError = IocpChannelPostReads(TcpClientToIocpChannel(dataChanPtr));
-        if (winError != ERROR_SUCCESS) {
-            /* TBD - notify background error ? */
-            closesocket(connSocket);
-            continue;
-        }
-
         /* Create a new open channel */
         channel = IocpCreateTclChannel(TcpClientToIocpChannel(dataChanPtr),
                                        IOCP_SOCK_NAME_PREFIX,
                                        (TCL_READABLE | TCL_WRITABLE));
+
+        /*
+         * Need a lock henceforth
+         * - if channel create failed, need lock before IocpChannelDrop below.
+         * - if it succeeded, need a lock, else there will be race condition
+         *   with IOCP thread when we post reads below.
+         */
+        IocpChannelLock(TcpClientToIocpChannel(dataChanPtr));
+
         if (channel == NULL) {
             closesocket(connSocket);
             dataChanPtr->so = INVALID_SOCKET;
-            IocpChannelLock(TcpClientToIocpChannel(dataChanPtr)); /* Need for Drop */
+            dataChanPtr->base.state = IOCP_STATE_DISCONNECTED;
             IocpChannelDrop(TcpClientToIocpChannel(dataChanPtr));
             continue;
         }
-        /* Note dataChanPtr not locked at this point but no other thread has access */
+
+        /* IMPORTANT:
+         * The reference to dataChanPtr from this function is now transferred
+         * to the Tcl channel subsystem and should only be reversed via a
+         * Tcl_Close on the channel. Thus no code below should call
+         * IocpChannelDrop, only IocpChannelUnlock
+         */
         dataChanPtr->base.channel = channel;
 
         if (IocpTcpSetChannelDefaults(channel) != TCL_OK) {
-            Tcl_Close(NULL, channel); /* Will free dataChanPtr as well */
+            IocpChannelUnlock(TcpClientToIocpChannel(dataChanPtr));
+            Tcl_Close(NULL, channel); /* Will close socket, free dataChanPtr as well */
+            continue;
+        }
+
+        winError = IocpChannelPostReads(TcpClientToIocpChannel(dataChanPtr));
+
+        IocpChannelUnlock(TcpClientToIocpChannel(dataChanPtr));
+        /* Do NOT access dataChanPtr hereon */
+
+        if (winError != ERROR_SUCCESS) {
+            /* TBD - notify background error ? */
+            Tcl_Close(NULL, channel); /* Will close socket, free dataChanPtr as well */
             continue;
         }
 

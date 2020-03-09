@@ -265,6 +265,8 @@ static void IocpChannelConnectionStep(
                                  * to ensure it is not deallocated */
     int blockable)              /* If true, the function is allowed to block. */
 {
+    DEBUGOUT(("IocpChannelConnectionStep Enter: lockedChanPtr=%p, blockable=%d, state=0x%x\n", lockedChanPtr, blockable, lockedChanPtr->state));
+
     switch (lockedChanPtr->state) {
     case IOCP_STATE_CONNECTED:
         /* IOCP thread has already signalled completion, transition to OPEN */
@@ -440,7 +442,7 @@ int IocpChannelWakeAfterCompletion(
                                   * thread will be woken if waiting on any of these */
 
 {
-    DEBUGOUT(("IocpChannelWakeAfterCompletion Enter"));
+    DEBUGOUT(("IocpChannelWakeAfterCompletion Enter: lockedChanPtr=%p, blockMask=0x%x, lockedChanPtr->flags=0x%x\n", lockedChanPtr, blockMask, lockedChanPtr->flags));
     /* Checking the flag, saves a potential unnecessary kernel transition */
     if (lockedChanPtr->flags & blockMask) {
         lockedChanPtr->flags &= ~blockMask;
@@ -449,6 +451,7 @@ int IocpChannelWakeAfterCompletion(
         return 1;
     }
     else {
+        DEBUGOUT(("IocpChannelWakeAfterCompletion: Not waking condition variable\n"));
         return 0;
     }
 }
@@ -479,6 +482,7 @@ void IocpChannelEnqueueEvent(
     int          force           /* If true, queue even if already queued. */
     )
 {
+    DEBUGOUT(("IocpChannelEnqueueEvent Enter: lockedChanPtr=%p, reason=%d, force=%d, lockedChanPtr->owningThread=%d\n", lockedChanPtr, reason, force, lockedChanPtr->owningThread));
     if (lockedChanPtr->owningThread != 0) {
         /* Unless forced, only add to thread's event queue if not present. */
         if (force || (lockedChanPtr->flags & IOCP_CHAN_F_ON_EVENTQ) == 0) {
@@ -490,9 +494,11 @@ void IocpChannelEnqueueEvent(
                                          reversed by IocpEventHandler */
             /* Optimization if enqueuing to current thread */
             if (Tcl_GetCurrentThread() == lockedChanPtr->owningThread) {
+                DEBUGOUT(("IocpChannelEnqueueEvent: queuing to current thread\n"));
                 Tcl_QueueEvent((Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
             }
             else {
+                DEBUGOUT(("IocpChannelEnqueueEvent: queuing to another thread\n"));
                 Tcl_ThreadQueueEvent(lockedChanPtr->owningThread,
                                      (Tcl_Event *)evPtr, TCL_QUEUE_TAIL);
                 Tcl_ThreadAlert(lockedChanPtr->owningThread);
@@ -531,8 +537,9 @@ void IocpChannelNudgeThread(
                                   * the function will not queue an event in these
                                   * cases. */
 {
-    DEBUGOUT(("IocpChannelNudgeThread Enter: lockedChanPtr=%p, blockMask=%d, forceEvent=%d\n", lockedChanPtr, blockMask, forceEvent));
+    DEBUGOUT(("IocpChannelNudgeThread Enter: lockedChanPtr=%p, blockMask=%d, forceEvent=%d, lockedChanPtr->state=0x%x, lockedChanPtr->flags=0x%x\n", lockedChanPtr, blockMask, forceEvent, lockedChanPtr->state, lockedChanPtr->flags));
     if (! IocpChannelWakeAfterCompletion(lockedChanPtr, blockMask) || forceEvent) {
+        DEBUGOUT(("IocpChannelNudgeThread: checking if EnqueueEvent to be called\n"));
         /*
          * Owning thread was not woken, either it was not blocked for the
          * right reason or was not blocked at all. Need to notify
@@ -645,6 +652,8 @@ static void IocpCompleteAccept(
     IocpChannel *lockedChanPtr, /* Locked channel, will be dropped */
     IocpBuffer *bufPtr)         /* I/O completion buffer */
 {
+    DEBUGOUT(("IocpCompleteAccept Enter: lockedChanPtr=%p. state=0x%x\n", lockedChanPtr, lockedChanPtr->state));
+
     /*
      * Reminder: unlike reads/writes, the count of pending accept operations
      * is on a per listening socket basis, not per channel. Since we don't
@@ -700,7 +709,7 @@ static void IocpCompleteRead(
     IocpChannel *lockedChanPtr, /* Locked channel, will be dropped */
     IocpBuffer *bufPtr)         /* I/O completion buffer */
 {
-    DEBUGOUT(("IocpCompleteRead Enter: lockedChanPtr=%p. state=%d\n", lockedChanPtr, lockedChanPtr->state));
+    DEBUGOUT(("IocpCompleteRead Enter: lockedChanPtr=%p. state=0x%x\n", lockedChanPtr, lockedChanPtr->state));
 
     IOCP_ASSERT(lockedChanPtr->pendingReads > 0);
     lockedChanPtr->pendingReads--;
@@ -821,7 +830,7 @@ IocpCompletionThread (LPVOID lpParam)
              * NOTE - it is responsibility of called completion routines
              * to dispose of both chanPtr and bufPtr respectively.
              */
-            DEBUGOUT(("IocpCompletionThread: chanPtr=%p, chanPtr->state=%d, bufPtr->operation=%d, bufPtr->winError=%d\n", chanPtr, chanPtr->state, bufPtr->operation, bufPtr->winError));
+            DEBUGOUT(("IocpCompletionThread: chanPtr=%p, chanPtr->state=0x%x, bufPtr->operation=%d, bufPtr->winError=%d\n", chanPtr, chanPtr->state, bufPtr->operation, bufPtr->winError));
             switch (bufPtr->operation) {
             case IOCP_BUFFER_OP_READ:
                 IocpCompleteRead(chanPtr, bufPtr);
@@ -1017,10 +1026,10 @@ IocpChannelInput (
     int          remaining;
     DWORD        winError;
 
-    DEBUGOUT(("IocpChannelInput Enter: chanPtr=%p, state=%d\n", chanPtr, chanPtr->state));
-
     *errorCodePtr = 0;
     IocpChannelLock(chanPtr);
+
+    DEBUGOUT(("IocpChannelInput Enter: chanPtr=%p, state=0x%x\n", chanPtr, chanPtr->state));
 
     /*
      * At this point, Tcl channel system is holding a reference. However, if
@@ -1042,7 +1051,7 @@ IocpChannelInput (
             bytesRead = -1;
             goto vamoose;
         }
-        DEBUGOUT(("IocpChannelInput: chanPtr=%p, state=%d\n", chanPtr, chanPtr->state));
+        DEBUGOUT(("IocpChannelInput: chanPtr=%p, state=0x%x\n", chanPtr, chanPtr->state));
     }
 
     /* All these states would have taken early exit or transition above */
@@ -1215,7 +1224,7 @@ IocpChannelOutput (
     IocpChannel *chanPtr = (IocpChannel *) instanceData;
     int          written = -1;
 
-    DEBUGOUT(("IocpChannelOutput Enter: chanPtr=%p, state=%d\n", chanPtr, chanPtr->state));
+    DEBUGOUT(("IocpChannelOutput Enter: chanPtr=%p, state=0x%x\n", chanPtr, chanPtr->state));
 
     IocpChannelLock(chanPtr);
 
@@ -1239,7 +1248,7 @@ IocpChannelOutput (
             *errorCodePtr = EAGAIN;
             return -1;
         }
-        DEBUGOUT(("IocpChannelOutput: chanPtr=%p, state=%d\n", chanPtr, chanPtr->state));
+        DEBUGOUT(("IocpChannelOutput: chanPtr=%p, state=0x%x\n", chanPtr, chanPtr->state));
     }
 
     /* State may have changed but no matter, handled below */
@@ -1641,6 +1650,8 @@ void IocpChannelThreadAction(
     IocpChannel *chanPtr = (IocpChannel *)instanceData;
     IocpChannelLock(chanPtr);
 
+    DEBUGOUT(("IocpChannelThreadAction Enter: chanPtr=%p, action=%d, chanPtr->state=0x%x\n", chanPtr, action, chanPtr->state));
+
     if (action == TCL_CHANNEL_THREAD_INSERT) {
         chanPtr->owningThread = Tcl_GetCurrentThread();
         /*
@@ -1683,10 +1694,12 @@ static void IocpNotifyChannel(
     int         readyMask;
     Tcl_Channel channel;
 
+    DEBUGOUT(("IocpNotifyChannel Enter: chanPtr=%p, chanPtr->state=0x%x, chanPtr->channel=%p\n", lockedChanPtr, lockedChanPtr->state, lockedChanPtr->channel));
     channel = lockedChanPtr->channel; /* Get before unlocking */
     if (channel == NULL)
         return;                 /* Tcl channel has gone away */
     readyMask = IocpChannelFileEventMask(lockedChanPtr);
+    DEBUGOUT(("IocpNotifyChannel : chanPtr=%p, chanPtr->state=0x%x, readyMask=0x%x\n", lockedChanPtr, lockedChanPtr->state, readyMask));
     if (readyMask == 0)
         return;                 /* Nothing to notify */
 
@@ -1699,6 +1712,8 @@ static void IocpNotifyChannel(
     IocpChannelUnlock(lockedChanPtr);
     Tcl_NotifyChannel(channel, readyMask);
     IocpChannelLock(lockedChanPtr);
+    
+    DEBUGOUT(("IocpNotifyChannel after Tcl_NotifyChannel return: chanPtr=%p, chanPtr->state=0x%x, chanPtr->flags=0x%x\n", lockedChanPtr, lockedChanPtr->state, lockedChanPtr->flags));
 
     if (lockedChanPtr->flags & IOCP_CHAN_F_REMOTE_EOF) {
         /*
@@ -1713,6 +1728,7 @@ static void IocpNotifyChannel(
 
         /* Recompute ready mask in case callback turned off handlers */
         readyMask = IocpChannelFileEventMask(lockedChanPtr);
+        DEBUGOUT(("IocpNotifyChannel EOF: chanPtr=%p, chanPtr->state=0x%x, chanPtr->flags=0x%x, readyMask=0x%x\n", lockedChanPtr, lockedChanPtr->state, lockedChanPtr->flags, readyMask));
         if (readyMask != 0) {
             IocpChannelEnqueueEvent(lockedChanPtr, IOCP_EVENT_NOTIFY_CHANNEL, 1);
         }
@@ -1755,6 +1771,8 @@ int IocpEventHandler(
 
     chanPtr = ((IocpTclEvent *)evPtr)->chanPtr;
     IocpChannelLock(chanPtr);
+
+    DEBUGOUT(("IocpEventHandler: chanPtr=%p, chanPtr->state=0x%x\n", chanPtr, chanPtr->state));
 
     switch (chanPtr->state) {
     case IOCP_STATE_LISTENING:
@@ -1836,7 +1854,6 @@ Iocp_Init (Tcl_Interp *interp)
         return TCL_ERROR;
     }
 
-    IOCP_ASSERT(0);
     Tcl_CreateObjCommand(interp, "iocp::socket", Iocp_SocketObjCmd, 0L, 0L);
     Tcl_CreateObjCommand(interp, "iocp::debugout", Iocp_DebugOutObjCmd, 0L, 0L);
     Tcl_PkgProvide(interp, PACKAGE_NAME, PACKAGE_VERSION);

@@ -90,15 +90,6 @@ IOCP_INLINE BOOL IocpConditionVariableWaitExclusive(
 #endif
 
 /*
- * IocpLockAction is used across interfaces to indicate whether caller
- * wants callee to hold on to locks before returning or not.
- */
-enum IocpLockAction {
-    IOCP_LOCK_RELEASE,
-    IOCP_LOCK_KEEP,
-};
-
-/*
  * Forward declarations for structures
  */
 typedef struct IocpList        IocpList;
