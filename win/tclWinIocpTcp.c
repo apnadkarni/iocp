@@ -1336,6 +1336,7 @@ Iocp_OpenTcpClient(
     tcpPtr->localAddrList  = localAddrs;
     tcpPtr->localAddr      = localAddrs;  /* First in local address list */
 
+    IocpChannelLock(TcpClientToIocpChannel(tcpPtr));
     if (async) {
         winError = TcpClientInitiateConnection(tcpPtr);
         if (winError != ERROR_SUCCESS) {
@@ -1349,19 +1350,14 @@ Iocp_OpenTcpClient(
             IocpSetInterpPosixErrorFromWin32(interp, winError, gSocketOpenErrorMessage);
             goto fail;
         }
-        TcpClientFreeAddresses(tcpPtr);
-
-        /*
-         * NOTE Connection now open but note no other thread has access to tcpPtr
-         * yet and hence no locking needed. But once Reads are posted that
-         * will be no longer true as the completion thread may also access tcpPtr.
-         */
+        TcpClientFreeAddresses(tcpPtr); /* Free unneeded memory */
         winError = IocpChannelPostReads(TcpClientToIocpChannel(tcpPtr));
         if (winError) {
             Iocp_ReportWindowsError(interp, winError, "couldn't post read on socket: ");
             goto fail;
         }
     }
+    IocpChannelUnlock(TcpClientToIocpChannel(tcpPtr));
 
     /*
      * At this point, the completion thread may have modified tcpPtr and
@@ -1372,7 +1368,7 @@ Iocp_OpenTcpClient(
      * thread.
      *
      * HOWEVER, THIS DOES MEAN DO NOT TAKE ANY FURTHER ACTION BASED ON
-     * STATE OF TCPPTR WITHOUT LOCKING IT AND CHECKING THE STATE.
+     * STATE OF TCPPTR WITHOUT RELOCKING IT AND CHECKING THE STATE.
      */
 
     /*
@@ -1385,14 +1381,22 @@ Iocp_OpenTcpClient(
     channel = IocpCreateTclChannel(TcpClientToIocpChannel(tcpPtr),
                                    IOCP_SOCK_NAME_PREFIX,
                                    (TCL_READABLE | TCL_WRITABLE));
+
+    /* Need to relock irrespective of success or failure */
+    IocpChannelLock(TcpClientToIocpChannel(tcpPtr));
+
     if (channel == NULL) {
         if (interp) {
             Tcl_SetResult(interp, "Could not create channel.", TCL_STATIC);
         }
-        goto fail;
+        goto fail; /* Note tcpPtr locked as desired by fail */
     }
 
     tcpPtr->base.channel = channel;
+
+    /* Need to unlock again before calling into Tcl */
+    IocpChannelUnlock(TcpClientToIocpChannel(tcpPtr));
+
     /*
      * Call into Tcl to set channel default configuration.
      * Do not access tcpPtr beyond this point in case calls into Tcl result
@@ -1410,14 +1414,12 @@ Iocp_OpenTcpClient(
 
 fail:
     /*
-     * Failure exit. If tcpPtr is allocated, rely on it to clean up
-     * else we have to free up address list ourselves.
-     * NOTE: tcpPtr (if not NULL) must NOT be locked when jumping here.
+     * Failure exit. If tcpPtr is allocated, it must be locked when
+     * jumping here.
      */
     if (tcpPtr) {
-        IocpChannel *chanPtr = TcpClientToIocpChannel(tcpPtr);
-        IocpChannelLock(chanPtr); /* Because IocpChannelDrop expects that */
-        IocpChannelDrop(chanPtr); /* Will also free attached {local,remote}Addrs */
+        /* Also frees attached {local,remote}Addrs */
+        IocpChannelDrop(TcpClientToIocpChannel(tcpPtr));
     }
     else {
         if (remoteAddrs != NULL) {
