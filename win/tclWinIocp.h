@@ -528,6 +528,26 @@ typedef struct IocpTclEvent {
  */
 extern Tcl_ChannelType IocpChannelDispatch;
 
+/*
+ * Statistics for sanity checking etc.
+ */
+typedef struct IocpStats {
+    volatile long IocpChannelAllocs;
+    volatile long IocpChannelFrees;
+    volatile long IocpBufferAllocs;
+    volatile long IocpBufferFrees;
+    volatile long IocpDataBufferAllocs;
+    volatile long IocpDataBufferFrees;
+} IocpStats;
+extern IocpStats iocpStats;
+/* Wrapper in case we switch to 64bit counters in the future */
+#define IOCP_STATS_GET(field_) Tcl_NewLongObj(iocpStats.field_)
+
+#ifdef IOCP_DEBUG
+#define IOCP_STATS_INCR(field_) InterlockedIncrement(&iocpStats.field_)
+#else
+#define IOCP_STATS_INCR(field_) (void) 0
+#endif
 
 #ifdef BUILD_iocp
 
@@ -612,6 +632,7 @@ void         IocpChannelNudgeThread(IocpChannel *lockedChanPtr, int blockMask, i
 /* Tcl commands */
 Tcl_ObjCmdProc	Iocp_SocketObjCmd;
 Tcl_ObjCmdProc	Iocp_DebugOutObjCmd;
+Tcl_ObjCmdProc	Iocp_StatsObjCmd;
 
 /* If building as an extension, polyfill internal Tcl routines. */
 #ifdef BUILD_iocp

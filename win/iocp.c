@@ -25,6 +25,9 @@ static void IocpChannelAwaitConnectCompletion(IocpChannel *lockedChanPtr);
 /* Holds global IOCP state */
 IocpSubSystem iocpModuleState;
 
+/* Statistics */
+IocpStats iocpStats;
+
 /* Enable/disable tracing */
 int iocpEnableTrace;
 
@@ -47,6 +50,9 @@ char *IocpDataBufferInit(IocpDataBuffer *dataBuf, int capacity)
         dataBuf->bytes = attemptckalloc(capacity);
         if (dataBuf->bytes == NULL)
             dataBuf->capacity = 0;
+        else {
+            IOCP_STATS_INCR(IocpDataBufferAllocs);
+        }
     } else
         dataBuf->bytes = NULL;
     return dataBuf->bytes;
@@ -60,8 +66,10 @@ char *IocpDataBufferInit(IocpDataBuffer *dataBuf, int capacity)
  */
 void IocpDataBufferFini(IocpDataBuffer *dataBufPtr)
 {
-    if (dataBufPtr->bytes)
+    if (dataBufPtr->bytes) {
+        IOCP_STATS_INCR(IocpDataBufferFrees);
         ckfree(dataBufPtr->bytes);
+    }
 }
 
 /*
@@ -106,6 +114,8 @@ IocpBuffer *IocpBufferNew(
     IocpBuffer *bufPtr = attemptckalloc(sizeof(*bufPtr));
     if (bufPtr == NULL)
         return NULL;
+    IOCP_STATS_INCR(IocpBufferAllocs);
+
     memset(&bufPtr->u, 0, sizeof(bufPtr->u));
 
     bufPtr->chanPtr   = NULL; /* Not included in param 'cause then we have to
@@ -141,6 +151,7 @@ void IocpBufferFree(IocpBuffer *bufPtr)
 {
     IOCP_ASSERT(bufPtr->chanPtr == NULL);
     IocpDataBufferFini(&bufPtr->data);
+    IOCP_STATS_INCR(IocpBufferFrees);
     ckfree(bufPtr);
 }
 
@@ -166,6 +177,7 @@ IocpChannel *IocpChannelNew(
 {
     IocpChannel *chanPtr;
     chanPtr          = ckalloc(vtblPtr->allocationSize);
+    IOCP_STATS_INCR(IocpChannelAllocs);
     IocpListInit(&chanPtr->inputBuffers);
     chanPtr->owningThread  = 0;
     chanPtr->channel  = NULL;
@@ -221,6 +233,7 @@ void IocpChannelDrop(
 
         IocpChannelUnlock(lockedChanPtr);
         IocpLockDelete(&lockedChanPtr->lock);
+        IOCP_STATS_INCR(IocpChannelFrees);
         ckfree(lockedChanPtr);
     }
     else {
@@ -1859,6 +1872,7 @@ Iocp_Init (Tcl_Interp *interp)
 
     Tcl_CreateObjCommand(interp, "iocp::socket", Iocp_SocketObjCmd, 0L, 0L);
     Tcl_CreateObjCommand(interp, "iocp::debugout", Iocp_DebugOutObjCmd, 0L, 0L);
+    Tcl_CreateObjCommand(interp, "iocp::stats", Iocp_StatsObjCmd, 0L, 0L);
     Tcl_PkgProvide(interp, PACKAGE_NAME, PACKAGE_VERSION);
 
     /* Note this is globally shared across all interpreters */
@@ -1881,6 +1895,34 @@ Iocp_DebugOutObjCmd (
     return TCL_OK;
 }
 
+/* Returns statistics */
+IocpTclCode
+Iocp_StatsObjCmd (
+    ClientData notUsed,			/* Not used. */
+    Tcl_Interp *interp,			/* Current interpreter. */
+    int objc,				/* Number of arguments. */
+    Tcl_Obj *CONST objv[])		/* Argument objects. */
+{
+    Tcl_Obj *stats[12];
+    int n;
+#define ADDSTATS(field_) do { \
+    stats[n++] = Tcl_NewStringObj(# field_, -1); \
+    stats[n++] = IOCP_STATS_GET(Iocp ## field_); \
+} while (0)
+
+    n = 0;
+    ADDSTATS(ChannelAllocs);
+    ADDSTATS(ChannelFrees);
+    ADDSTATS(BufferAllocs);
+    ADDSTATS(BufferFrees);
+    ADDSTATS(DataBufferAllocs);
+    ADDSTATS(DataBufferFrees);
+
+    IOCP_ASSERT(n <= sizeof(stats)/sizeof(stats[0]));
+
+    Tcl_SetObjResult(interp, Tcl_NewListObj(n, stats));
+    return TCL_OK;
+}
 /*
  * TBD - design change - would it be faster to post zero-byte read and then
  * copy from WSArecv to channel buffer in InputProc ? That may potentially
