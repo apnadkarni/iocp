@@ -15,6 +15,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+#include <TraceLoggingProvider.h>
 #include "tcl.h"
 
 #ifdef BUILD_iocp
@@ -34,6 +35,11 @@
 # else
 #  define IOCP_ASSERT(bool_) (void) 0 /* TBD */
 # endif
+#endif
+
+#ifdef IOCP_ENABLE_TRACE
+/* Used for ETW tracing */
+TRACELOGGING_DECLARE_PROVIDER( iocpWinTraceProvider );
 #endif
 
 /* Typedefs just to make return value semantics obvious */

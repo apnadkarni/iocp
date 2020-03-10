@@ -19,8 +19,10 @@
 PROJECT	= iocp
 #NEED_TCL_SOURCE = 1
 DOTVERSION = 0.1
+
 !include "rules-ext.vc"
 
+PRJ_DEFINES = /D_WIN32_WINNT=_WIN32_WINNT_WIN7
 PRJ_OBJS = \
 	$(TMP_DIR)\iocp.obj \
         $(TMP_DIR)\tclPolyfill.obj \

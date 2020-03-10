@@ -1,0 +1,344 @@
+set iocp_load_command {
+    load ../win/Release_AMD64_VC1916/iocp01t.dll
+}
+{*}$iocp_load_command
+#rename socket {}
+# Commands tested in this file: socket.
+#
+# This file contains a collection of tests for one or more of the Tcl built-in
+# commands. Sourcing this file into Tcl runs the tests and generates output
+# for errors. No output means no errors were found.
+#
+# Copyright (c) 1994-1996 Sun Microsystems, Inc.
+# Copyright (c) 1998-2000 Ajuba Solutions.
+#
+# See the file "license.terms" for information on usage and redistribution of
+# this file, and for a DISCLAIMER OF ALL WARRANTIES.
+
+# Running socket tests with a remote server:
+# ------------------------------------------
+#
+# Some tests in socket.test depend on the existence of a remote server to
+# which they connect. The remote server must be an instance of tcltest and it
+# must run the script found in the file "remote.tcl" in this directory. You
+# can start the remote server on any machine reachable from the machine on
+# which you want to run the socket tests, by issuing:
+#
+#     tcltest remote.tcl -port 2048	# Or choose another port number.
+#
+# If the machine you are running the remote server on has several IP
+# interfaces, you can choose which interface the server listens on for
+# connections by specifying the -address command line flag, so:
+#
+#     tcltest remote.tcl -address your.machine.com
+#
+# These options can also be set by environment variables. On Unix, you can
+# type these commands to the shell from which the remote server is started:
+#
+#     shell% setenv serverPort 2048
+#     shell% setenv serverAddress your.machine.com
+#
+# and subsequently you can start the remote server with:
+#
+#     tcltest remote.tcl
+#
+# to have it listen on port 2048 on the interface your.machine.com.
+#
+# When the server starts, it prints out a detailed message containing its
+# configuration information, and it will block until killed with a Ctrl-C.
+# Once the remote server exists, you can run the tests in socket.test with the
+# server by setting two Tcl variables:
+#
+#     % set remoteServerIP <name or address of machine on which server runs>
+#     % set remoteServerPort 2048
+#
+# These variables are also settable from the environment. On Unix, you can:
+#
+#     shell% setenv remoteServerIP machine.where.server.runs
+#     shell% senetv remoteServerPort 2048
+#
+# The preamble of the socket.test file checks to see if the variables are set
+# either in Tcl or in the environment; if they are, it attempts to connect to
+# the server. If the connection is successful, the tests using the remote
+# server will be performed; otherwise, it will attempt to start the remote
+# server (via exec) on platforms that support this, on the local host,
+# listening at port 2048. If all fails, a message is printed and the tests
+# using the remote server are not performed.
+
+package require tcltest 2
+namespace import -force ::tcltest::*
+
+if {[expr {[info exists ::env(TRAVIS_OSX_IMAGE)] && [string match xcode* $::env(TRAVIS_OSX_IMAGE)]}]} {
+    return
+}
+
+# Some tests require the Thread package or exec command
+testConstraint thread [expr {0 == [catch {package require Thread 2.7-}]}]
+testConstraint exec [llength [info commands exec]]
+
+# Produce a random port number in the Dynamic/Private range
+# from 49152 through 65535.
+proc randport {} {
+    # firstly try dynamic port via server-socket(0):
+    set port 0x7fffffff
+    catch {
+	set port [lindex [fconfigure [set s [iocp::socket -server {} 0]] -sockname] 2]
+	close $s
+    }
+    while {[catch {
+	close [iocp::socket -server {} $port]
+    } msg]} {
+	if {[incr i] > 1000} {return -code error "too many iterations to get free random port: $msg"}
+	# try random port:
+	set port [expr {int(rand()*16383+49152)}]
+    }
+    return $port
+}
+
+# Test the latency of tcp connections over the loopback interface. Some OSes
+# (e.g. NetBSD) seem to use the Nagle algorithm and delayed ACKs, so it takes
+# up to 200ms for a packet sent to localhost to arrive. We're measuring this
+# here, so that OSes that don't have this problem can run the tests at full
+# speed.
+set server [iocp::socket -server {apply {{s a p} {set ::s1 $s}}} 0]
+set s2 [iocp::socket localhost [lindex [fconfigure $server -sockname] 2]]
+vwait s1; close $server
+fconfigure $s1 -buffering line
+fconfigure $s2 -buffering line
+set t1 [clock milliseconds]
+puts $s2 test1; gets $s1
+puts $s2 test2; gets $s1
+close $s1; close $s2
+set t2 [clock milliseconds]
+set lat1 [expr {($t2-$t1)*2}]; # doubled as a safety margin
+
+# Test the latency of failed connection attempts over the loopback
+# interface. They can take more than a second under Windowos and requres
+# additional [after]s in some tests that are not needed on systems that fail
+# immediately.
+set t1 [clock milliseconds]
+catch {iocp::socket 127.0.0.1 [randport]}
+set t2 [clock milliseconds]
+set lat2 [expr {($t2-$t1)*3}]
+
+# Use the maximum of the two latency calculations, but at least 200ms
+set latency [expr {$lat1 > $lat2 ? $lat1 : $lat2}]
+set latency [expr {$latency > 200 ? $latency : 200}]
+unset t1 t2 s1 s2 lat1 lat2 server
+
+# If remoteServerIP or remoteServerPort are not set, check in the environment
+# variables for externally set values.
+#
+
+if {![info exists remoteServerIP]} {
+    if {[info exists env(remoteServerIP)]} {
+	set remoteServerIP $env(remoteServerIP)
+    }
+}
+if {![info exists remoteServerPort]} {
+    if {[info exists env(remoteServerPort)]} {
+	set remoteServerPort $env(remoteServerPort)
+    } else {
+        if {[info exists remoteServerIP]} {
+	    set remoteServerPort 2048
+        }
+    }
+}
+
+proc xtest {args} {
+    set name [lindex $args 0]
+    if {! [string match *-8.1 $name]} return
+    puts $name
+    iocp::debugout "START $name\n"
+    uplevel 1 [linsert $args 0 tcltest::test]
+    iocp::debugout "END $name\n"
+}
+if 0 {
+    # activate this to time the tests
+    proc test {args} {
+        set name [lindex $args 0]
+        puts "[lindex [time {uplevel [linsert $args 0 tcltest::test]}] 0] @@@ $name"
+    }
+}
+
+foreach {af localhost} {
+    inet 127.0.0.1
+    inet6 ::1
+} {
+    # Check if the family is supported and set the constraint accordingly
+    testConstraint supported_$af [expr {![catch {iocp::socket -server foo -myaddr $localhost 0} sock]}]
+    catch {close $sock}
+}
+
+set sock [iocp::socket -server foo -myaddr localhost 0]
+set sockname [fconfigure $sock -sockname]
+close $sock
+testConstraint localhost_v4 [expr {"127.0.0.1" in $sockname}]
+testConstraint localhost_v6 [expr {"::1" in $sockname}]
+
+foreach {af localhost} {
+    any 127.0.0.1
+    inet 127.0.0.1
+    inet6 ::1
+} {
+    if {![testConstraint supported_$af]} {
+        continue
+    }
+    set ::tcl::unsupported::socketAF $af
+#
+# Check if we're supposed to do tests against the remote server
+#
+
+set doTestsWithRemoteServer 1
+if {![info exists remoteServerIP]} {
+    set remoteServerIP $localhost
+}
+if {($doTestsWithRemoteServer == 1) && (![info exists remoteServerPort])} {
+    set remoteServerPort [randport]
+}
+
+# Attempt to connect to a remote server if one is already running. If it is
+# not running or for some other reason the connect fails, attempt to start the
+# remote server on the local host listening on port 2048. This is only done on
+# platforms that support exec (i.e. not on the Mac). On platforms that do not
+# support exec, the remote server must be started by the user before running
+# the tests.
+
+set remoteProcChan ""
+set commandSocket ""
+if {$doTestsWithRemoteServer} {
+    catch {close $commandSocket}
+    if {![catch {
+	set commandSocket [iocp::socket $remoteServerIP $remoteServerPort]
+    }]} then {
+	fconfigure $commandSocket -translation crlf -buffering line
+    } elseif {![testConstraint exec]} {
+	set noRemoteTestReason "can't exec"
+	set doTestsWithRemoteServer 0
+    } else {
+	set remoteServerIP $localhost
+	# Be *extra* careful in case this file is sourced from
+	# a directory other than the current one...
+	set remoteFile [file join [pwd] [file dirname [info script]] \
+		remote.tcl]
+	if {![catch {
+	    set remoteProcChan [open "|[list \
+		    [interpreter] $remoteFile -serverIsSilent \
+		    -port $remoteServerPort -address $remoteServerIP]" w+]
+	} msg]} then {
+	    gets $remoteProcChan
+	    if {[catch {
+		set commandSocket [iocp::socket $remoteServerIP $remoteServerPort]
+	    } msg] == 0} then {
+		fconfigure $commandSocket -translation crlf -buffering line
+	    } else {
+		set noRemoteTestReason $msg
+		set doTestsWithRemoteServer 0
+	    }
+	} else {
+	    set noRemoteTestReason "$msg [interpreter]"
+	    set doTestsWithRemoteServer 0
+	}
+    }
+}
+
+# Some tests are run only if we are doing testing against a remote server.
+testConstraint doTestsWithRemoteServer $doTestsWithRemoteServer
+if {!$doTestsWithRemoteServer} {
+    if {[string first s $::tcltest::verbose] != -1} {
+    	puts "Skipping tests with remote server. See tests/socket.test for"
+	puts "information on how to run remote server."
+	puts "Reason for not doing remote tests: $noRemoteTestReason"
+    }
+}
+
+#
+# If we do the tests, define a command to send a command to the remote server.
+#
+
+if {[testConstraint doTestsWithRemoteServer]} {
+    proc sendCommand {c} {
+	global commandSocket
+
+	if {[eof $commandSocket]} {
+	    error "remote server disappeared"
+	}
+	if {[catch {puts $commandSocket $c} msg]} {
+	    error "remote server disappaered: $msg"
+	}
+	if {[catch {puts $commandSocket "--Marker--Marker--Marker--"} msg]} {
+	    error "remote server disappeared: $msg"
+	}
+
+	while {1} {
+	    set line [gets $commandSocket]
+	    if {[eof $commandSocket]} {
+		error "remote server disappaered"
+	    }
+	    if {$line eq "--Marker--Marker--Marker--"} {
+		lassign $result code info value
+                return -code $code -errorinfo $info $value
+	    }
+            append result $line "\n"
+	}
+    }
+}
+
+proc getPort sock {
+    lindex [fconfigure $sock -sockname] 2
+}
+
+# Some tests in this file are known to hang *occasionally* on OSX; stop the
+# worst offenders.
+testConstraint notOSX [expr {$::tcl_platform(os) ne "Darwin"}]
+}
+
+unset ::tcl::unsupported::socketAF
+set last [clock seconds]
+#set iocp::enableTrace 1
+while {1} {
+    if {[file exists stopfile]} {
+        puts "stopfile found, stopping"
+        iocp::debugout  "stopfile found, stopping"
+        break
+    }
+    foreach {af localhost} {
+        inet6 ::1
+        inet 127.0.0.1
+    } {
+        incr ::test_count
+        set now [clock seconds]
+        if {($now - $last) > 10} {
+            set last $now
+            puts Test#$::test_count
+#            puts [iocp::stats]
+        }
+        test socket_$af-8.1 {
+            testing -async flag on sockets
+        } -constraints [list supported_$af] -body {
+            set s [iocp::socket -server accept -myaddr $localhost 0]
+            proc accept {s a p} {
+                global x
+                puts $s bye
+                close $s
+                set x done
+            }
+            set s1 [iocp::socket -async $localhost [lindex [fconfigure $s -sockname] 2]]
+            vwait x
+            gets $s1
+        } -cleanup {
+            close $s
+            close $s1
+        } -result bye
+    }; # foreach
+}; # while (1)
+
+::tcltest::cleanupTests
+flush stdout
+return
+
+# Local Variables:
+# mode: tcl
+# fill-column: 78
+# tab-width: 8
+# End:

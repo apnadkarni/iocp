@@ -32,6 +32,15 @@ IocpStats iocpStats;
 int iocpEnableTrace;
 
 /*
+ * GUID format for traceview
+ * 3a674e76-fe96-4450-b634-24fc587b2828
+ */
+TRACELOGGING_DEFINE_PROVIDER(
+    iocpWinTraceProvider,
+    "SimpleTraceLoggingProvider",
+    (0x3a674e76, 0xfe96, 0x4450, 0xb6, 0x34, 0x24, 0xfc, 0x58, 0x7b, 0x28, 0x28));
+
+/*
  * Initializes a IocpDataBuffer to be able to hold capacity bytes worth of
  * data.
  * dataBuf  - pointer to uninitialized raw memory
@@ -1869,6 +1878,10 @@ Iocp_Init (Tcl_Interp *interp)
         }
         return TCL_ERROR;
     }
+
+#ifdef IOCP_ENABLE_TRACE
+    TraceLoggingRegister(iocpWinTraceProvider);
+#endif
 
     Tcl_CreateObjCommand(interp, "iocp::socket", Iocp_SocketObjCmd, 0L, 0L);
     Tcl_CreateObjCommand(interp, "iocp::debugout", Iocp_DebugOutObjCmd, 0L, 0L);
