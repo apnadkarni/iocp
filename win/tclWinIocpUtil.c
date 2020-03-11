@@ -549,6 +549,42 @@ Tcl_Channel IocpCreateTclChannel(
 
 }
 
+#ifdef IOCP_ENABLE_TRACE
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpTrace --
+ *
+ *    Writes a formatted string to an ETW trace.
+ *
+ * Results:
+ *    None.
+ *
+ * Side effects:
+ *    As above.
+ *
+ *------------------------------------------------------------------------
+ */
+void __cdecl IocpTrace(
+    const char *formatStr,
+    ...
+    )
+{
+    char buf[1024];
+    va_list args;
+
+    va_start(args, formatStr);
+    _vsnprintf_s(buf, sizeof(buf), _TRUNCATE, formatStr, args);
+    va_end(args);
+    buf[sizeof(buf)-1] = '\0';
+
+    TraceLoggingWrite(iocpWinTraceProvider,
+                      "TclIocpTrace",
+                      TraceLoggingString(buf, "Trace Message")
+                      );
+}
+#endif
+
 /*
  *------------------------------------------------------------------------
  *
@@ -577,15 +613,7 @@ void __cdecl IocpDebuggerOut(
     va_end(args);
     buf[sizeof(buf)-1] = '\0';
 
-    /* TBD - separate trace from debug messages */
-#if IOCP_ENABLE_TRACE
-    TraceLoggingWrite(iocpWinTraceProvider,
-                      "TclIocpTrace",
-                      TraceLoggingString(buf, "Trace Message")
-                      );
-#else
     OutputDebugString(buf);
-#endif
 }
 
 /*

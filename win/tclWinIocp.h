@@ -595,10 +595,11 @@ void IocpSetTclErrnoFromWin32(IocpWinError winError);
 void IocpSetInterpPosixErrorFromWin32(Tcl_Interp *interp, IocpWinError winError, const char *prefix);
 void __cdecl Iocp_Panic(const char *formatStr, ...);
 void __cdecl IocpDebuggerOut(const char *formatStr, ...);
+void __cdecl IocpTrace(const char *formatStr, ...);
 #ifdef IOCP_DEBUG
-# define DEBUGOUT(params_) do { if (iocpEnableTrace) {IocpDebuggerOut params_;} } while (0)
+# define IOCP_TRACE(params_) do { if (iocpEnableTrace) {IocpTrace params_;} } while (0)
 #else
-# define DEBUGOUT(params_) (void) 0;
+# define IOCP_TRACE(params_) (void) 0;
 #endif
 
 /* Buffer utilities */
