@@ -338,3 +338,5 @@ ASALocalRun/
 [Dd]ebug*/
 [Rr]elease*/
 
+version*.vc
+nmakehlp.out

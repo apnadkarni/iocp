@@ -17,6 +17,7 @@
 #include <windows.h>
 #include <TraceLoggingProvider.h>
 #include "tcl.h"
+#include "opaque.h"
 
 #ifdef BUILD_iocp
 # undef TCL_STORAGE_CLASS
@@ -33,7 +34,7 @@
 # ifdef IOCP_ENABLE_ASSERT
 #  define IOCP_ASSERT(bool_) (void)( (bool_) || (Iocp_Panic("Assertion (%s) failed at line %d in file %s.", #bool_, __LINE__, __FILE__), 0) )
 # else
-#  define IOCP_ASSERT(bool_) (void) 0 /* TBD */
+#  define IOCP_ASSERT(bool_) (void) 0
 # endif
 #endif
 
@@ -636,10 +637,9 @@ void         IocpChannelDrop(IocpChannel *lockedChanPtr);
 DWORD        IocpChannelPostReads(IocpChannel *lockedChanPtr);
 void         IocpChannelNudgeThread(IocpChannel *lockedChanPtr, int blockMask, int force);
 
-/* Tcl commands */
-Tcl_ObjCmdProc	Iocp_SocketObjCmd;
-Tcl_ObjCmdProc	Iocp_DebugOutObjCmd;
-Tcl_ObjCmdProc	Iocp_StatsObjCmd;
+const char *Iocp_BTMapToName(
+    unsigned int companyId
+    );
 
 /* If building as an extension, polyfill internal Tcl routines. */
 #ifdef BUILD_iocp
@@ -658,6 +658,19 @@ int TclSockGetPort(Tcl_Interp *interp,
 void AcceptCallbackProc(ClientData callbackData, Tcl_Channel chan,
                         char *address, int port);
 #endif
+
+/* Tcl commands */
+Tcl_ObjCmdProc	Iocp_SocketObjCmd;
+Tcl_ObjCmdProc	BT_FindFirstRadioObjCmd;
+Tcl_ObjCmdProc	BT_FindNextRadioObjCmd;
+Tcl_ObjCmdProc	BT_FindFirstRadioCloseObjCmd;
+Tcl_ObjCmdProc	BT_GetRadioInfoObjCmd;
+Tcl_ObjCmdProc	BT_FindFirstDeviceObjCmd;
+Tcl_ObjCmdProc	BT_FindNextDeviceObjCmd;
+Tcl_ObjCmdProc	BT_FindFirstDeviceCloseObjCmd;
+Tcl_ObjCmdProc	BT_CloseHandleObjCmd;
+Tcl_ObjCmdProc	Iocp_DebugOutObjCmd;
+Tcl_ObjCmdProc	Iocp_StatsObjCmd;
 
 /*
  * Prototypes for IOCP exported functions.
