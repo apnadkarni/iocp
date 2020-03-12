@@ -596,7 +596,7 @@ void IocpSetInterpPosixErrorFromWin32(Tcl_Interp *interp, IocpWinError winError,
 void __cdecl Iocp_Panic(const char *formatStr, ...);
 void __cdecl IocpDebuggerOut(const char *formatStr, ...);
 void __cdecl IocpTrace(const char *formatStr, ...);
-#ifdef IOCP_DEBUG
+#ifdef IOCP_ENABLE_TRACE
 # define IOCP_TRACE(params_) do { if (iocpEnableTrace) {IocpTrace params_;} } while (0)
 #else
 # define IOCP_TRACE(params_) (void) 0;
