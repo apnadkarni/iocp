@@ -22,15 +22,14 @@ DOTVERSION = 0.1
 
 !include "rules-ext.vc"
 
-PRJ_DEFINES = /D_WIN32_WINNT=_WIN32_WINNT_WIN7
+PRJ_DEFINES = /D_WIN32_WINNT=_WIN32_WINNT_WIN7 /DTCLH_SHORTNAMES
 PRJ_OBJS = \
 	$(TMP_DIR)\iocp.obj \
         $(TMP_DIR)\tclPolyfill.obj \
         $(TMP_DIR)\tclWinIocpTcp.obj \
 	$(TMP_DIR)\tclWinIocpBT.obj \
 	$(TMP_DIR)\tclWinIocpBTNames.obj \
-	$(TMP_DIR)\tclWinIocpUtil.obj \
-	$(TMP_DIR)\opaque.obj
+	$(TMP_DIR)\tclWinIocpUtil.obj
 
 PRJ_LIBS  = ws2_32.lib Bthprops.lib
 

@@ -340,3 +340,6 @@ ASALocalRun/
 
 version*.vc
 nmakehlp.out
+
+NDConfig*/
+NDDocs*/

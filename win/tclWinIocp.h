@@ -17,7 +17,8 @@
 #include <windows.h>
 #include <TraceLoggingProvider.h>
 #include "tcl.h"
-#include "opaque.h"
+
+#include "tclhPointer.h"
 
 #ifdef BUILD_iocp
 # undef TCL_STORAGE_CLASS
