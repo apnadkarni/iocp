@@ -27,7 +27,7 @@ BT_CloseHandleObjCmd (
         return TCL_ERROR;
     }
 
-    tclResult = PointerUnwrapAnyOf(interp, objv[1], &handle, "HRADIO", NULL);
+    tclResult = PointerObjUnregisterAnyOf(interp, objv[1], &handle, "HRADIO", NULL);
     if (tclResult != TCL_OK)
         return tclResult;
 
@@ -45,6 +45,7 @@ BT_SelectObjCmd (
     int objc,				/* Number of arguments. */
     Tcl_Obj *CONST objv[])		/* Argument objects. */
 {
+    /* TBD */
     BLUETOOTH_SELECT_DEVICE_PARAMS btparams;
     memset(&btparams, 0, sizeof(btparams));
     btparams.dwSize = sizeof(btparams);
@@ -80,11 +81,22 @@ BT_FindFirstRadioObjCmd (
     if (findHandle == NULL)
         return Iocp_ReportLastWindowsError(interp, "Could not locate Bluetooth radios: ");
 
-    objs[0] = PointerWrap(findHandle, "HBLUETOOTH_RADIO_FIND");
-    objs[1] = PointerWrap(radioHandle, "HRADIO");
-    Tcl_SetObjResult(interp, Tcl_NewListObj(2,objs));
-
-    return TCL_OK;
+    if (PointerRegister(interp, findHandle, "HBLUETOOTH_RADIO_FIND", &objs[0])
+        == TCL_OK) {
+        if (PointerRegister(interp, radioHandle, "HRADIO", &objs[1])
+            == TCL_OK) {
+            Tcl_SetObjResult(interp, Tcl_NewListObj(2,objs));
+            return TCL_OK;
+        } else {
+            PointerUnregister(interp, findHandle, "HBLUETOOTH_RADIO_FIND");
+            Tcl_DecrRefCount(objv[0]);
+        }
+    }
+    if (radioHandle)
+        CloseHandle(radioHandle);
+    if (findHandle)
+        BluetoothFindRadioClose(findHandle);
+    return TCL_ERROR;
 }
 
 IocpTclCode
@@ -101,7 +113,8 @@ BT_FindFirstRadioCloseObjCmd (
         Tcl_WrongNumArgs(interp, 1, objv, "HBLUETOOTH_RADIO_FIND");
         return TCL_ERROR;
     }
-    tclResult = PointerUnwrap(interp, objv[1], &findHandle, "HBLUETOOTH_RADIO_FIND");
+    tclResult = PointerObjUnregister(interp, objv[1],
+                                     &findHandle, "HBLUETOOTH_RADIO_FIND");
     if (tclResult != TCL_OK)
         return tclResult;
 
@@ -121,12 +134,13 @@ BT_FindNextRadioObjCmd (
     HBLUETOOTH_RADIO_FIND findHandle;
     HANDLE radioHandle;
     int tclResult;
+    Tcl_Obj *objP;
 
     if (objc != 2) {
         Tcl_WrongNumArgs(interp, 1, objv, "HBLUETOOTH_RADIO_FIND");
         return TCL_ERROR;
     }
-    tclResult = PointerUnwrap(interp, objv[1], &findHandle, "HBLUETOOTH_RADIO_FIND");
+    tclResult = PointerObjVerify(interp, objv[1], &findHandle, "HBLUETOOTH_RADIO_FIND");
     if (tclResult != TCL_OK)
         return tclResult;
 
@@ -138,7 +152,11 @@ BT_FindNextRadioObjCmd (
             return Iocp_ReportWindowsError(interp, winError, "Error fetching next radio: ");
     }
 
-    Tcl_SetObjResult(interp, PointerWrap(radioHandle, "HRADIO"));
+    tclResult = PointerRegister(interp, radioHandle, "HRADIO", &objP);
+    if (tclResult == TCL_OK)
+        Tcl_SetObjResult(interp, objP);
+    else
+        CloseHandle(radioHandle);
     return TCL_OK;
 }
 
@@ -157,7 +175,7 @@ BT_GetRadioInfoObjCmd (
         Tcl_WrongNumArgs(interp, 1, objv, "HRADIO");
         return TCL_ERROR;
     }
-    tclResult = PointerUnwrap(interp, objv[1], &radioHandle, "HRADIO");
+    tclResult = PointerObjVerify(interp, objv[1], &radioHandle, "HRADIO");
     if (tclResult != TCL_OK)
         return tclResult;
 
@@ -198,7 +216,7 @@ int BT_FindFirstDeviceObjCmd(
     enum Opts {
         AUTHENTICATED, REMEMBERED, UNKNOWN, CONNECTED, INQUIRE, TIMEOUT, RADIO
     };
-    int i, opt, timeout;
+    int i, opt, timeout, tclResult;
     BLUETOOTH_DEVICE_SEARCH_PARAMS params;
     BLUETOOTH_DEVICE_INFO          info;
     HBLUETOOTH_DEVICE_FIND         findHandle;
@@ -251,10 +269,13 @@ int BT_FindFirstDeviceObjCmd(
     if (findHandle == NULL)
         return Iocp_ReportLastWindowsError(interp, "Bluetooth device search failed: ");
 
-    objs[0] = PointerWrap(findHandle, "HBLUETOOTH_DEVICE_FIND");
-    objs[1] = ObjFromBLUETOOTH_DEVICE_INFO(&info);
-    Tcl_SetObjResult(interp, Tcl_NewListObj(2, objs));
-    return TCL_OK;
+    tclResult = PointerRegister(interp, findHandle,
+                                "HBLUETOOTH_DEVICE_FIND", &objs[0]);
+    if (tclResult == TCL_OK) {
+        objs[1] = ObjFromBLUETOOTH_DEVICE_INFO(&info);
+        Tcl_SetObjResult(interp, Tcl_NewListObj(2, objs));
+    }
+    return tclResult;
 }
 
 IocpTclCode
@@ -271,14 +292,12 @@ BT_FindFirstDeviceCloseObjCmd (
         Tcl_WrongNumArgs(interp, 1, objv, "HBLUETOOTH_DEVICE_FIND");
         return TCL_ERROR;
     }
-    tclResult = PointerUnwrap(interp, objv[1], &findHandle, "HBLUETOOTH_DEVICE_FIND");
-    if (tclResult != TCL_OK)
-        return tclResult;
-
-    if (BluetoothFindDeviceClose(findHandle) != TRUE)
-        return Iocp_ReportLastWindowsError(interp, "Could not close Bluetooth device search handle: ");
-
-    return TCL_OK;
+    tclResult = PointerObjUnregister(interp, objv[1], &findHandle, "HBLUETOOTH_DEVICE_FIND");
+    if (tclResult == TCL_OK) {
+        if (BluetoothFindDeviceClose(findHandle) != TRUE)
+            tclResult = Iocp_ReportLastWindowsError(interp, "Could not close Bluetooth device search handle: ");
+    }
+    return tclResult;
 }
 
 IocpTclCode
@@ -296,7 +315,7 @@ BT_FindNextDeviceObjCmd (
         Tcl_WrongNumArgs(interp, 1, objv, "HBLUETOOTH_DEVICE_FIND");
         return TCL_ERROR;
     }
-    tclResult = PointerUnwrap(interp, objv[1], &findHandle, "HBLUETOOTH_DEVICE_FIND");
+    tclResult = PointerObjVerify(interp, objv[1], &findHandle, "HBLUETOOTH_DEVICE_FIND");
     if (tclResult != TCL_OK)
         return tclResult;
 

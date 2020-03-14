@@ -5,6 +5,12 @@
 
 typedef const char *Tclh_TypeTag;
 
+/* TBD - move to common header */
+static int Tclh_strlen(const char *s)
+{
+    return (int) strlen(s);
+}
+
 /* Section: Registered Pointers
  *
  * Provides a facility for safely passing pointers, Windows handles etc. to the
@@ -103,6 +109,21 @@ int Tclh_PointerUnregister(Tcl_Interp *interp, const void *pointer, Tclh_TypeTag
  *             is stored in interp.
  */
 int Tclh_PointerVerify(Tcl_Interp *interp, const void *voidP, Tclh_TypeTag tag);
+
+/* Function: Tclh_PointerUnwrapTag
+ * Returns the pointer type tag for a Tcl_Obj pointer wrapper.
+ *
+ * Params:
+ * interp - Interpreter to store errors if any. May be NULL.
+ * objP   - Tcl_Obj holding the wrapped pointer.
+ * tagPtr - Location to store the type tag.
+ *
+ * Returns:
+ * TCL_OK    - objP holds a valid pointer. *tagPtr will hold the type tag.
+ * TCL_ERROR - objP is not a wrapped pointer. interp, if not NULL, will hold
+ *             error message.
+ */
+int Tclh_PointerUnwrapTag(Tcl_Interp *interp, Tcl_Obj *objP, Tclh_TypeTag *tagPtr);
 
 /* Function: Tclh_PointerObjUnregister
  * Unregisters a previously registered pointer passed in as a Tcl_Obj.
@@ -236,7 +257,7 @@ int Tclh_PointerUnwrapAnyOf(Tcl_Interp *interp, Tcl_Obj *objP,
 
 #ifdef TCLH_SHORTNAMES
 
-#define PointerRegister           Tcl_PointerRegister
+#define PointerRegister           Tclh_PointerRegister
 #define PointerUnregister         Tclh_PointerUnregister
 #define PointerVerify             Tclh_PointerVerify
 #define PointerObjUnregister      Tclh_PointerObjUnregister
@@ -245,6 +266,7 @@ int Tclh_PointerUnwrapAnyOf(Tcl_Interp *interp, Tcl_Obj *objP,
 #define PointerObjVerifyAnyOf     Tclh_PointerObjVerifyAnyOf
 #define PointerWrap               Tclh_PointerWrap
 #define PointerUnwrap             Tclh_PointerUnwrap
+#define PointerUnwrapTag          Tclh_PointerUnwrapTag
 #define PointerUnwrapAnyOf        Tclh_PointerUnwrapAnyOf
 
 #endif
@@ -305,16 +327,240 @@ TCLH_INLINE void PointerValueSet(Tcl_Obj *objP, void *valueP) {
     objP->internalRep.twoPtrValue.ptr1 = valueP;
 }
 /* May return NULL */
-TCLH_INLINE Tcl_Obj *PointerTypeGet(Tcl_Obj *objP) {
+TCLH_INLINE Tclh_TypeTag PointerTypeGet(Tcl_Obj *objP) {
     return objP->internalRep.twoPtrValue.ptr2;
 }
-TCLH_INLINE void PointerTypeSet(Tcl_Obj *objP, Tcl_Obj *typeP) {
-    objP->internalRep.twoPtrValue.ptr2 = typeP;
+TCLH_INLINE void PointerTypeSet(Tcl_Obj *objP, Tclh_TypeTag tag) {
+    objP->internalRep.twoPtrValue.ptr2 = (void*)tag;
+}
+TCLH_INLINE int PointerTypeSame(Tclh_TypeTag taga, Tclh_TypeTag tagb) {
+    return strcmp(taga, tagb) == 0;
 }
 
 int Tclh_PointerLibInit(Tcl_Interp *interp)
 {
     return TCL_OK;
+}
+
+Tcl_Obj *Tclh_PointerWrap(void *pointerValue, Tclh_TypeTag tag)
+{
+    Tcl_Obj *objP;
+
+    objP = Tcl_NewObj();
+    Tcl_InvalidateStringRep(objP);
+    PointerValueSet(objP, pointerValue);
+    if (tag) {
+        int len = Tclh_strlen(tag) + 1;
+        char *tag2 = ckalloc(len);
+        memcpy(tag2, tag, len);
+        PointerTypeSet(objP, tag2);
+    } else {
+        PointerTypeSet(objP, NULL);
+    }
+    objP->typePtr = &gPointerType;
+    return objP;
+}
+
+int Tclh_PointerUnwrap(Tcl_Interp *interp, Tcl_Obj *objP, void **pvP, Tclh_TypeTag tag)
+{
+    /* Try converting Tcl_Obj internal rep */
+    if (objP->typePtr != &gPointerType) {
+        if (SetPointerFromAny(interp, objP) != TCL_OK)
+            return TCL_ERROR;
+    }
+
+    /* We need to check types only if both object type and caller specified
+       type are not void */
+    if (tag && tag[0] == 0)
+        tag = NULL;
+    if (tag) {
+        Tclh_TypeTag tag2 = PointerTypeGet(objP);
+        if (tag2) {
+            if (!PointerTypeSame(tag, tag2)) {
+                if (interp) {
+                    Tcl_AppendResult(interp, "Unexpected type '", tag2, "', expected '",
+                                     tag, "'.", NULL);
+                }
+                return TCL_ERROR;
+            }
+        }
+    }
+
+    *pvP = PointerValueGet(objP);
+    return TCL_OK;
+}
+
+int Tclh_PointerUnwrapTag(Tcl_Interp *interp, Tcl_Obj *objP, Tclh_TypeTag *tagPtr)
+{
+    /* Try converting Tcl_Obj internal rep */
+    if (objP->typePtr != &gPointerType) {
+        if (SetPointerFromAny(interp, objP) != TCL_OK)
+            return TCL_ERROR;
+    }
+    *tagPtr = PointerTypeGet(objP);
+    return TCL_OK;
+}
+
+int PointerUnwrapAnyOfVA(Tcl_Interp *interp, Tcl_Obj *objP, void **pvP, va_list args)
+{
+    Tclh_TypeTag tag;
+
+    while ((tag = va_arg(args, Tclh_TypeTag)) != NULL) {
+        if (PointerUnwrap(NULL, objP, pvP, tag) == TCL_OK) {
+            return TCL_OK;
+        }
+    }
+
+    if (interp)
+        Tcl_SetResult(interp, "Unexpected type.", TCL_STATIC);
+    return TCL_ERROR;
+}
+
+int Tclh_PointerUnwrapAnyOf(Tcl_Interp *interp, Tcl_Obj *objP, void **pvP, ...)
+{
+    int     tclResult;
+    va_list args;
+
+    va_start(args, pvP);
+    tclResult = PointerUnwrapAnyOfVA(interp, objP, pvP, args);
+    va_end(args);
+    return tclResult;
+}
+
+static void UpdatePointerTypeString(Tcl_Obj *objP)
+{
+    Tcl_Obj *objs[2];
+    Tcl_Obj *listObj;
+    const char *s;
+    Tclh_TypeTag tag;
+    int len;
+
+    TCLH_ASSERT(objP->bytes == NULL);
+    TCLH_ASSERT(objP->typePtr == &gPointerType);
+
+    /* TBD - change this to use DString? */
+
+    /* Construct a list string representation */
+    objs[0] = Tcl_NewWideIntObj((Tcl_WideInt) PointerValueGet(objP));
+    tag = PointerTypeGet(objP);
+    if (tag)
+        objs[1] = Tcl_NewStringObj(tag, -1);
+    else
+        objs[1] = Tcl_NewObj();
+
+    listObj = Tcl_NewListObj(2, objs);
+
+    /* We could just shift the bytes field from listObj to objP resetting
+       the former to NULL. But I'm nervous about doing that behind Tcl's back */
+    s = Tcl_GetStringFromObj(listObj, &len);
+    objP->length = len; /* Note does not include terminating \0 */
+    objP->bytes = ckalloc(len+1);
+    memcpy(objP->bytes, s, len+1);
+    Tcl_DecrRefCount(listObj);
+}
+
+static void FreePointerType(Tcl_Obj *objP)
+{
+    Tclh_TypeTag tag = PointerTypeGet(objP);
+    if (tag)
+        ckfree(tag);
+    PointerTypeSet(objP, NULL);
+    PointerValueSet(objP, NULL);
+    objP->typePtr = NULL;
+}
+
+static void DupPointerType(Tcl_Obj *srcP, Tcl_Obj *dstP)
+{
+    Tclh_TypeTag tag;
+
+    dstP->typePtr = &gPointerType;
+    PointerValueSet(dstP, PointerValueGet(srcP));
+    tag = PointerTypeGet(srcP);
+    if (tag) {
+        int len = Tclh_strlen(tag) + 1;
+        char *tag2 = ckalloc(len);
+        memcpy(tag2, tag, len);
+        PointerTypeSet(dstP, tag2);
+    } else
+        PointerTypeSet(dstP, NULL);
+}
+
+static int SetPointerFromAny(Tcl_Interp *interp, Tcl_Obj *objP)
+{
+    Tcl_Obj     **objs;
+    int           nobjs;
+    void         *pv;
+    char         *tag;
+    char         *s;
+    Tcl_WideInt   value;
+    int           len;
+
+    if (objP->typePtr == &gPointerType)
+        return TCL_OK;
+
+    /* Should be a two element list */
+    if (Tcl_ListObjGetElements(NULL, objP, &nobjs, &objs) != TCL_OK ||
+        nobjs != 2)
+        goto invalid_value;
+    if (Tcl_GetWideIntFromObj(NULL, objs[0], &value) != TCL_OK)
+            goto invalid_value;
+    pv = (void*) value;
+    s = Tcl_GetStringFromObj(objs[1], &len);
+    if (len == 0)
+        tag = NULL;
+    else {
+        tag = ckalloc(len+1);
+        memcpy((void *)tag, s, len);
+    }
+
+    /* OK, valid opaque rep. Convert the passed object's internal rep */
+    if (objP->typePtr && objP->typePtr->freeIntRepProc) {
+        objP->typePtr->freeIntRepProc(objP);
+    }
+    objP->typePtr = &gPointerType;
+    PointerValueSet(objP, pv);
+    PointerTypeSet(objP, tag);
+
+    return TCL_OK;
+
+invalid_value: /* s must point to value */
+    if (interp)
+        Tcl_AppendResult(interp, "Invalid pointer or opaque value '",
+                         Tcl_GetString(objP), "'.", NULL);
+    return TCL_ERROR;
+}
+
+/*
+ * Pointer registry implementation.
+ */
+
+static int PointerTypeError(
+    Tcl_Interp *interp,
+    Tclh_TypeTag registered,
+    Tclh_TypeTag tag)
+{
+    if (interp) {
+        Tcl_SetObjResult(interp,
+                         Tcl_ObjPrintf("Pointer type mismatch. Current type %s, registered type %s.",
+                                       tag, registered));
+    }
+    return TCL_ERROR;
+}
+
+int PointerNotRegisteredError(Tcl_Interp *interp, const void *p, Tclh_TypeTag tag) {
+    if (interp) {
+        /* Not sure Tcl_ObjPrintf supports %p so treat as int */
+        if (sizeof(p) > sizeof(unsigned int)) {
+            Tcl_SetObjResult(interp,
+                             Tcl_ObjPrintf("Pointer 0x%x of type %s is not registered.",
+                                           (int) p, tag));
+        } else {
+            Tcl_SetObjResult(interp,
+                             Tcl_ObjPrintf("Pointer 0x%" TCL_LL_MODIFIER "x of type %s is not registered.",
+                                           (Tcl_WideInt) p, tag));
+        }
+    }
+    return TCL_ERROR;
 }
 
 static void TclhCleanupPointerRegistry(ClientData *clientData, Tcl_Interp *interp)
@@ -351,165 +597,150 @@ static Tcl_HashTable *TclhInitPointerRegistry(Tcl_Interp *interp)
     return hTblPtr;
 }
 
-Tcl_Obj *Tclh_PointerWrap(void *pointerValue, Tclh_TypeTag tag)
+int Tclh_PointerRegister(Tcl_Interp *interp, void *pointer,
+                         Tclh_TypeTag tag, Tcl_Obj **objPP)
 {
-    Tcl_Obj *objP;
+    Tcl_HashTable *hTblPtr;
+    Tcl_HashEntry *he;
+    int            newEntry;
 
-    objP = Tcl_NewObj();
-    Tcl_InvalidateStringRep(objP);
-    PointerValueSet(objP, pointerValue);
-    if (tag) {
-        Tcl_Obj *typeObj = Tcl_NewStringObj(tag, -1);
-        Tcl_IncrRefCount(typeObj);
-        PointerTypeSet(objP, typeObj);
-    } else {
-        PointerTypeSet(objP, NULL);
+    if (pointer == NULL) {
+        Tcl_SetResult(interp, "Attempt to register null pointer", TCL_STATIC);
     }
-    objP->typePtr = &gPointerType;
-    return objP;
+
+    hTblPtr = TclhInitPointerRegistry(interp);
+    he = Tcl_CreateHashEntry(hTblPtr, pointer, &newEntry);
+
+    if (he) {
+        if (newEntry) {
+            Tcl_SetHashValue(he, tag);
+            return TCL_OK;
+        } else {
+            Tcl_SetResult(interp, "Pointer is already registered.", TCL_STATIC);
+        }
+    } else {
+        Tcl_Panic("Failed to allocate hash table entry");
+    }
+    return TCL_ERROR;
 }
 
-int Tclh_PointerUnwrap(Tcl_Interp *interp, Tcl_Obj *objP, void **pvP, Tclh_TypeTag tag)
+static int PointerVerifyOrUnregister(Tcl_Interp *interp,
+                                     const void *pointer,
+                                     Tclh_TypeTag tag,
+                                     int delete)
 {
-    /* Try converting Tcl_Obj internal rep */
-    if (objP->typePtr != &gPointerType) {
-        if (SetPointerFromAny(interp, objP) != TCL_OK)
-            return TCL_ERROR;
-    }
+    Tcl_HashTable *hTblPtr;
+    Tcl_HashEntry *he;
 
-    /* We need to check types only if both object type and caller specified
-       type are not void */
-    if (tag && tag[0] == 0)
-        tag = NULL;
-    if (tag) {
-        Tcl_Obj *typeObj = PointerTypeGet(objP);
-        if (typeObj) {
-            const char *s = Tcl_GetString(typeObj);
-            if (strcmp(tag, s)) {
-                if (interp) {
-                    Tcl_AppendResult(interp, "Unexpected type '", s, "', expected '",
-                                     tag, "'.", NULL);
-                }
-                return TCL_ERROR;
+    hTblPtr = TclhInitPointerRegistry(interp);
+    he = Tcl_FindHashEntry(hTblPtr, pointer);
+    if (he) {
+        /* If type tag specified, need to check it. */
+        if (tag != NULL) {
+            Tclh_TypeTag heTag = Tcl_GetHashValue(he);
+            if (!PointerTypeSame(heTag, tag)) {
+                return PointerTypeError(interp, heTag, tag);
+            }
+        }
+        if (delete)
+            Tcl_DeleteHashEntry(he);
+        return TCL_OK;
+    }
+    return PointerNotRegisteredError(interp, pointer, tag);
+}
+
+int Tclh_PointerUnregister(Tcl_Interp *interp, const void *pointer, Tclh_TypeTag tag)
+{
+    return PointerVerifyOrUnregister(interp, pointer, tag, 1);
+}
+
+int Tclh_PointerVerify(Tcl_Interp *interp, const void *pointer, Tclh_TypeTag tag)
+{
+    return PointerVerifyOrUnregister(interp, pointer, tag, 0);
+}
+
+int Tclh_PointerObjUnregister(Tcl_Interp *interp, Tcl_Obj *objP,
+                              void **pointerP, Tclh_TypeTag tag)
+{
+    void *pv;
+    int   tclResult;
+
+    tclResult = Tclh_PointerUnwrap(interp, objP, &pv, tag);
+    if (tclResult == TCL_OK) {
+        tclResult = Tclh_PointerUnregister(interp, pv, tag);
+        if (tclResult == TCL_OK) {
+            if (pointerP)
+                *pointerP = pv;
+        }
+    }
+    return tclResult;
+}
+
+static int PointerObjAnyOf(Tcl_Interp *interp, Tcl_Obj *objP,
+                           void **pointerP, int unregister, va_list args)
+{
+    int tclResult;
+    void *pv;
+    Tclh_TypeTag tag;
+
+    tclResult = PointerUnwrapAnyOfVA(interp, objP, &pv, args);
+    if (tclResult == TCL_OK) {
+        tclResult = Tclh_PointerUnwrapTag(interp, objP, &tag);
+        if (tclResult == TCL_OK) {
+            if (unregister)
+                tclResult = Tclh_PointerUnregister(interp, pv, tag);
+            else
+                tclResult = Tclh_PointerVerify(interp, pv, tag);
+            if (tclResult == TCL_OK) {
+                if (pointerP)
+                    *pointerP = pv;
+                return TCL_OK;
             }
         }
     }
-
-    *pvP = PointerValueGet(objP);
-    return TCL_OK;
+    return tclResult;
 }
 
-int Tclh_PointerUnwrapAnyOf(Tcl_Interp *interp, Tcl_Obj *objP, void **pvP, ...)
+int Tclh_PointerObjUnregisterAnyOf(Tcl_Interp *interp, Tcl_Obj *objP,
+                                   void **pointerP, ... /* tag, ... , NULL */)
 {
-    Tclh_TypeTag tag;
-    va_list     args;
+    int tclResult;
+    va_list args;
 
-    va_start(args, pvP);
-    while ((tag = va_arg(args, Tclh_TypeTag)) != NULL) {
-        if (PointerUnwrap(NULL, objP, pvP, tag) == TCL_OK) {
-            va_end(args);
-            return TCL_OK;
+    va_start(args, pointerP);
+    tclResult = PointerObjAnyOf(interp, objP, pointerP, 1, args);
+    va_end(args);
+    return tclResult;
+}
+
+int Tclh_PointerObjVerify(Tcl_Interp *interp, Tcl_Obj *objP,
+                          void **pointerP, Tclh_TypeTag tag)
+{
+    void *pv;
+    int   tclResult;
+
+    tclResult = Tclh_PointerUnwrap(interp, objP, &pv, tag);
+    if (tclResult == TCL_OK) {
+        tclResult = Tclh_PointerVerify(interp, pv, tag);
+        if (tclResult == TCL_OK) {
+            if (pointerP)
+                *pointerP = pv;
         }
     }
+    return tclResult;
+}
+
+int Tclh_PointerObjVerifyAnyOf(Tcl_Interp *interp, Tcl_Obj *objP,
+                               void **pointerP, ... /* tag, tag, NULL */)
+{
+    int tclResult;
+    va_list args;
+
+    va_start(args, pointerP);
+    tclResult = PointerObjAnyOf(interp, objP, pointerP, 0, args);
     va_end(args);
-
-    if (interp)
-        Tcl_SetResult(interp, "Unexpected type.", TCL_STATIC);
-    return TCL_ERROR;
+    return tclResult;
 }
-
-static void UpdatePointerTypeString(Tcl_Obj *objP)
-{
-    Tcl_Obj *objs[2];
-    Tcl_Obj *listObj;
-    const char *s;
-    int len;
-
-    TCLH_ASSERT(objP->bytes == NULL);
-    TCLH_ASSERT(objP->typePtr == &gPointerType);
-
-    /* Construct a list string representation */
-    objs[0] = Tcl_NewWideIntObj((Tcl_WideInt) PointerValueGet(objP));
-    objs[1] = PointerTypeGet(objP);
-    if (objs[1] == NULL)
-        objs[1] = Tcl_NewObj();
-
-    listObj = Tcl_NewListObj(2, objs);
-
-    /* We could just shift the bytes field from listObj to objP resetting
-       the former to NULL. But I'm nervous about doing that behind Tcl's back */
-    s = Tcl_GetStringFromObj(listObj, &len);
-    objP->length = len; /* Note does not include terminating \0 */
-    objP->bytes = ckalloc(len+1);
-    memcpy(objP->bytes, s, len+1);
-    Tcl_DecrRefCount(listObj);
-}
-
-static void FreePointerType(Tcl_Obj *objP)
-{
-    Tcl_Obj *typeObj = PointerTypeGet(objP);
-    if (typeObj)
-        Tcl_DecrRefCount(typeObj);
-    PointerTypeSet(objP, NULL);
-    PointerValueSet(objP, NULL);
-    objP->typePtr = NULL;
-}
-
-static void DupPointerType(Tcl_Obj *srcP, Tcl_Obj *dstP)
-{
-    Tcl_Obj *typeObj;
-    dstP->typePtr = &gPointerType;
-    PointerValueSet(dstP, PointerValueGet(srcP));
-    typeObj = PointerTypeGet(srcP);
-    if (typeObj)
-        Tcl_IncrRefCount(typeObj);
-    PointerTypeSet(dstP, typeObj);
-}
-
-static int SetPointerFromAny(Tcl_Interp *interp, Tcl_Obj *objP)
-{
-    Tcl_Obj **objs;
-    int nobjs;
-    void *pv;
-    Tcl_Obj *ctype;
-    char *s;
-    Tcl_WideInt value;
-
-    if (objP->typePtr == &gPointerType)
-        return TCL_OK;
-
-    /* Should be a two element list */
-    if (Tcl_ListObjGetElements(NULL, objP, &nobjs, &objs) != TCL_OK ||
-        nobjs != 2)
-        goto invalid_value;
-    if (Tcl_GetWideIntFromObj(NULL, objs[0], &value) != TCL_OK)
-            goto invalid_value;
-    pv = (void*) value;
-    s = Tcl_GetString(objs[1]);
-    if (s[0] == 0)
-        ctype = NULL;
-    else {
-        ctype = objs[1];
-        Tcl_IncrRefCount(ctype);
-    }
-
-    /* OK, valid opaque rep. Convert the passed object's internal rep */
-    if (objP->typePtr && objP->typePtr->freeIntRepProc) {
-        objP->typePtr->freeIntRepProc(objP);
-    }
-    objP->typePtr = &gPointerType;
-    PointerValueSet(objP, pv);
-    PointerTypeSet(objP, ctype);
-
-    return TCL_OK;
-
-invalid_value: /* s must point to value */
-    if (interp)
-        Tcl_AppendResult(interp, "Invalid pointer or opaque value '",
-                         Tcl_GetString(objP), "'.", NULL);
-    return TCL_ERROR;
-}
-
 
 #endif /* TCLH_IMPL */
 
