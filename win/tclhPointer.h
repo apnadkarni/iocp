@@ -2,6 +2,7 @@
 #define TCLHELPERS_H
 
 #include "tcl.h"
+#include <string.h>
 
 typedef const char *Tclh_TypeTag;
 
@@ -406,7 +407,7 @@ int PointerUnwrapAnyOfVA(Tcl_Interp *interp, Tcl_Obj *objP, void **pvP, va_list 
     Tclh_TypeTag tag;
 
     while ((tag = va_arg(args, Tclh_TypeTag)) != NULL) {
-        if (PointerUnwrap(NULL, objP, pvP, tag) == TCL_OK) {
+        if (Tclh_PointerUnwrap(NULL, objP, pvP, tag) == TCL_OK) {
             return TCL_OK;
         }
     }
@@ -548,22 +549,16 @@ static int PointerTypeError(
 }
 
 int PointerNotRegisteredError(Tcl_Interp *interp, const void *p, Tclh_TypeTag tag) {
+    /* Tcl_ObjPrintf does not support wide ints or pointers so sprintf */
     if (interp) {
-        /* Not sure Tcl_ObjPrintf supports %p so treat as int */
-        if (sizeof(p) > sizeof(unsigned int)) {
-            Tcl_SetObjResult(interp,
-                             Tcl_ObjPrintf("Pointer 0x%x of type %s is not registered.",
-                                           (int) p, tag));
-        } else {
-            Tcl_SetObjResult(interp,
-                             Tcl_ObjPrintf("Pointer 0x%" TCL_LL_MODIFIER "x of type %s is not registered.",
-                                           (Tcl_WideInt) p, tag));
-        }
+        char buf[100];
+        snprintf(buf, sizeof(buf), "Pointer %p of type %s is not registered.", p, tag);
+        Tcl_SetObjResult(interp, Tcl_NewStringObj(buf, -1));
     }
     return TCL_ERROR;
 }
 
-static void TclhCleanupPointerRegistry(ClientData *clientData, Tcl_Interp *interp)
+static void TclhCleanupPointerRegistry(ClientData clientData, Tcl_Interp *interp)
 {
     Tcl_HashTable *hTblPtr = (Tcl_HashTable *)clientData;
 
@@ -614,6 +609,9 @@ int Tclh_PointerRegister(Tcl_Interp *interp, void *pointer,
     if (he) {
         if (newEntry) {
             Tcl_SetHashValue(he, tag);
+            if (objPP) {
+                *objPP = Tclh_PointerWrap(pointer, tag);
+            }
             return TCL_OK;
         } else {
             Tcl_SetResult(interp, "Pointer is already registered.", TCL_STATIC);

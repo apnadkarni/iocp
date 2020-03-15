@@ -33,6 +33,9 @@ PRJ_OBJS = \
 
 PRJ_LIBS  = ws2_32.lib Bthprops.lib
 
+"$(WIN_DIR)\tclWinIocp.h" : "$(WIN_DIR)\tclhPointer.h"
+$(PRJ_OBJS) : "$(WIN_DIR)\tclWinIocp.h"
+
 !include "$(_RULESDIR)\targets.vc"
 
 install:    install-docs
