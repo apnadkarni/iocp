@@ -9,6 +9,10 @@
 
 static Tcl_Obj *ObjFromSYSTEMTIME(const SYSTEMTIME *timeP);
 static Tcl_Obj *ObjFromBLUETOOTH_ADDRESS (const BLUETOOTH_ADDRESS *addrPtr);
+static IocpTclCode ObjToBLUETOOTH_ADDRESS(
+    Tcl_Interp *interp,
+    Tcl_Obj *objP,
+    BLUETOOTH_ADDRESS *btAddrPtr);
 static Tcl_Obj *ObjFromBLUETOOTH_RADIO_INFO (const BLUETOOTH_RADIO_INFO *infoPtr);
 static Tcl_Obj *ObjFromBLUETOOTH_DEVICE_INFO (const BLUETOOTH_DEVICE_INFO *infoPtr);
 
@@ -332,26 +336,35 @@ BT_FindNextDeviceObjCmd (
     return TCL_OK;
 }
 
-static Tcl_Obj *ObjFromBLUETOOTH_ADDRESS (const BLUETOOTH_ADDRESS *addrPtr)
+IocpTclCode
+BT_GetDeviceInfoObjCmd (
+    ClientData notUsed,			/* Not used. */
+    Tcl_Interp *interp,			/* Current interpreter. */
+    int objc,				/* Number of arguments. */
+    Tcl_Obj *CONST objv[])		/* Argument objects. */
 {
-    Tcl_Obj *objP;
-    char *bytes = ckalloc(18);
-    /* NOTE: *p must be unsigned for the snprintf to format correctly */
-    const unsigned char *p = addrPtr->rgBytes;
+    HANDLE radioHandle;
+    BLUETOOTH_DEVICE_INFO info;
+    int tclResult;
 
-    /*
-     * Addresses are little endian. Hence order of storage. This matches
-     * what's displayed via Device Manager in Windows.
-     */
-    _snprintf_s(bytes, 18, _TRUNCATE, "%2.2x:%2.2x:%2.2x:%2.2x:%2.2x:%2.2x",
-               p[5], p[4], p[3], p[2], p[1], p[0]);
+    if (objc != 3) {
+        Tcl_WrongNumArgs(interp, 1, objv, "HRADIO BTADDR");
+        return TCL_ERROR;
+    }
+    tclResult = PointerObjVerify(interp, objv[1], &radioHandle, "HRADIO");
+    if (tclResult != TCL_OK)
+        return tclResult;
 
-    objP = Tcl_NewObj();
-    Tcl_InvalidateStringRep(objP);
-    objP->bytes = bytes;
-    objP->length = 17;          /* Not counting terminating \0 */
+    tclResult = ObjToBLUETOOTH_ADDRESS(interp, objv[2], &info.Address);
+    if (tclResult != TCL_OK)
+        return tclResult;
 
-    return objP;
+    info.dwSize = sizeof(info);
+    if (BluetoothGetDeviceInfo(radioHandle,&info) != ERROR_SUCCESS)
+        return Iocp_ReportLastWindowsError(interp, "Could not get Bluetooth radio information: ");
+
+    Tcl_SetObjResult(interp, ObjFromBLUETOOTH_DEVICE_INFO(&info));
+    return TCL_OK;
 }
 
 static Tcl_Obj *ObjFromBLUETOOTH_RADIO_INFO (const BLUETOOTH_RADIO_INFO *infoPtr)
@@ -412,3 +425,73 @@ static Tcl_Obj *ObjFromSYSTEMTIME(const SYSTEMTIME *timeP)
 
     return Tcl_NewListObj(8, objv);
 }
+
+static Tcl_Obj *ObjFromBLUETOOTH_ADDRESS (const BLUETOOTH_ADDRESS *addrPtr)
+{
+    Tcl_Obj *objP;
+    char *bytes = ckalloc(18);
+    /* NOTE: *p must be unsigned for the snprintf to format correctly */
+    const unsigned char *p = addrPtr->rgBytes;
+
+    /*
+     * Addresses are little endian. Hence order of storage. This matches
+     * what's displayed via Device Manager in Windows.
+     */
+    _snprintf_s(bytes, 18, _TRUNCATE, "%2.2x:%2.2x:%2.2x:%2.2x:%2.2x:%2.2x",
+                p[5], p[4], p[3], p[2], p[1], p[0]);
+
+    objP = Tcl_NewObj();
+    Tcl_InvalidateStringRep(objP);
+    objP->bytes = bytes;
+    objP->length = 17;          /* Not counting terminating \0 */
+
+    return objP;
+}
+
+static IocpTclCode ObjToBLUETOOTH_ADDRESS(
+    Tcl_Interp *interp,
+    Tcl_Obj *objP,
+    BLUETOOTH_ADDRESS *btAddrPtr)
+{
+    /*
+     * Use temp storage for two reasons:
+     *  - so as to not modify btAddrPtr[] on error
+     */
+    unsigned char bytes[6];
+    unsigned char trailer; /* Used to ensure no trailing characters */
+    if (sscanf_s(Tcl_GetString(objP),
+               "%2hhx:%2hhx:%2hhx:%2hhx:%2hhx:%2hhx%c",
+                 &bytes[5], &bytes[4], &bytes[3], &bytes[2], &bytes[1], &bytes[0], &trailer, 1) == 6) {
+        int i;
+        for (i = 0; i < 6; ++i)
+            btAddrPtr->rgBytes[i] = bytes[i];
+        return TCL_OK;
+    } else {
+        Tcl_AppendResult(interp, "Invalid Bluetooth address ", Tcl_GetString(objP), ".", NULL);
+        return TCL_ERROR;
+    }
+}
+
+#ifdef IOCP_DEBUG
+IocpTclCode
+BT_FormatAddressObjCmd (
+    ClientData notUsed,			/* Not used. */
+    Tcl_Interp *interp,			/* Current interpreter. */
+    int objc,				/* Number of arguments. */
+    Tcl_Obj *CONST objv[])		/* Argument objects. */
+{
+    int tclResult;
+    BLUETOOTH_ADDRESS address;
+    if (objc != 2) {
+        Tcl_WrongNumArgs(interp, 1, objv, "ADDRESS");
+        return TCL_ERROR;
+    }
+    tclResult = ObjToBLUETOOTH_ADDRESS(interp, objv[1], &address);
+    if (tclResult != TCL_OK)
+        return tclResult;
+    Tcl_SetObjResult(interp, ObjFromBLUETOOTH_ADDRESS(&address));
+    return TCL_OK;
+
+}
+
+#endif

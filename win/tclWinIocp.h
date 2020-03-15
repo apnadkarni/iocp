@@ -669,7 +669,11 @@ Tcl_ObjCmdProc	BT_GetRadioInfoObjCmd;
 Tcl_ObjCmdProc	BT_FindFirstDeviceObjCmd;
 Tcl_ObjCmdProc	BT_FindNextDeviceObjCmd;
 Tcl_ObjCmdProc	BT_FindFirstDeviceCloseObjCmd;
+Tcl_ObjCmdProc	BT_GetDeviceInfoObjCmd;
 Tcl_ObjCmdProc	BT_CloseHandleObjCmd;
+#ifdef IOCP_DEBUG
+Tcl_ObjCmdProc	BT_FormatAddressObjCmd;
+#endif
 Tcl_ObjCmdProc	Iocp_DebugOutObjCmd;
 Tcl_ObjCmdProc	Iocp_StatsObjCmd;
 

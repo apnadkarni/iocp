@@ -1894,6 +1894,10 @@ Iocp_Init (Tcl_Interp *interp)
     Tcl_CreateObjCommand(interp, "iocp::bt::FindFirstDevice", BT_FindFirstDeviceObjCmd, 0L, 0L);
     Tcl_CreateObjCommand(interp, "iocp::bt::FindFirstDeviceClose", BT_FindFirstDeviceCloseObjCmd, 0L, 0L);
     Tcl_CreateObjCommand(interp, "iocp::bt::FindNextDevice", BT_FindNextDeviceObjCmd, 0L, 0L);
+    Tcl_CreateObjCommand(interp, "iocp::bt::GetDeviceInfo", BT_GetDeviceInfoObjCmd, 0L, 0L);
+#ifdef IOCP_DEBUG
+    Tcl_CreateObjCommand(interp, "iocp::bt::FormatAddress", BT_FormatAddressObjCmd, 0L, 0L);
+#endif
 
     Tcl_CreateObjCommand(interp, "iocp::debugout", Iocp_DebugOutObjCmd, 0L, 0L);
     Tcl_CreateObjCommand(interp, "iocp::stats", Iocp_StatsObjCmd, 0L, 0L);
