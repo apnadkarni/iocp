@@ -7,6 +7,19 @@
 
 #define STRING_LITERAL_OBJ(s) Tcl_NewStringObj(s, sizeof(s)-1)
 
+/* 
+ * BT_COMMAND enums are used as ClientData passed to commands
+ * and distinguish which particular subcommand to execute.
+ */
+enum BT_COMMAND
+{
+    BT_ENABLE_DISCOVERY,
+    BT_ENABLE_INCOMING,
+    BT_STATUS_DISCOVERY,
+    BT_STATUS_INCOMING,
+};
+
+
 static Tcl_Obj *ObjFromSYSTEMTIME(const SYSTEMTIME *timeP);
 static Tcl_Obj *ObjFromBLUETOOTH_ADDRESS (const BLUETOOTH_ADDRESS *addrPtr);
 static IocpTclCode ObjToBLUETOOTH_ADDRESS(
@@ -378,9 +391,9 @@ BT_ConfigureRadioObjCmd (
 {
     HANDLE radioHandle;
     int tclResult;
-    char *what = (char *) clientData;
     int enable;
     int changed;
+    enum BT_COMMAND command = (enum BT_COMMAND)clientData;
 
     if (objc < 2 || objc > 3) {
         Tcl_WrongNumArgs(interp, 1, objv, "BOOLEAN ?HRADIO?");
@@ -398,18 +411,56 @@ BT_ConfigureRadioObjCmd (
             return tclResult;
     }
 
-    if (!strcmp(what, "discovery")) {
+    if (command == BT_ENABLE_DISCOVERY) {
         changed = BluetoothEnableDiscovery(radioHandle, enable);
-    } else if (!strcmp(what, "incoming")) {
+    } else if (command == BT_ENABLE_INCOMING) {
         changed = BluetoothEnableIncomingConnections(radioHandle, enable);
     } else {
-        Tcl_Panic("Unexpected clientData parameter value %s", what);
+        Tcl_Panic("Unexpected clientData parameter value %d", command);
         changed = 0;            /* NOTREACHED - Keep compiler happy */
     }
     Tcl_SetObjResult(interp, Tcl_NewBooleanObj(changed));
     return TCL_OK;
 
 }
+
+static IocpTclCode
+BT_RadioStatusObjCmd (
+    ClientData clientData,      /* BT_STATUS_DISCOVERY/BT_STATUS_INCOMING*/
+    Tcl_Interp *interp,         /* Current interpreter. */
+    int objc,                   /* number of arguments. */
+    Tcl_Obj *CONST objv[])      /* argument objects. */
+{
+    HANDLE radioHandle;
+    int status;
+    int tclResult;
+    enum BT_COMMAND command = (enum BT_COMMAND)clientData;
+
+    if (objc > 2) {
+        Tcl_WrongNumArgs(interp, 1, objv, "?HRADIO?");
+        return TCL_ERROR;
+    }
+
+    radioHandle = NULL;
+    if (objc > 1) {
+        tclResult = PointerObjVerify(interp, objv[2], &radioHandle, "HRADIO");
+        if (tclResult != TCL_OK)
+            return tclResult;
+    }
+
+    if (command == BT_STATUS_DISCOVERY) {
+        status = BluetoothIsDiscoverable(radioHandle);
+    } else if (command == BT_STATUS_INCOMING) {
+        status = BluetoothIsConnectable(radioHandle);
+    } else {
+        Tcl_Panic("Unexpected clientData parameter value %d", command);
+        status = 0;            /* NOTREACHED - Keep compiler happy */
+    }
+    Tcl_SetObjResult(interp, Tcl_NewBooleanObj(status));
+    return TCL_OK;
+
+}
+
 
 static Tcl_Obj *ObjFromBLUETOOTH_RADIO_INFO (const BLUETOOTH_RADIO_INFO *infoPtr)
 {
@@ -565,8 +616,10 @@ IocpTclCode BT_ModuleInitialize (Tcl_Interp *interp)
     Tcl_CreateObjCommand(interp, "iocp::bt::FindFirstDeviceClose", BT_FindFirstDeviceCloseObjCmd, 0L, 0L);
     Tcl_CreateObjCommand(interp, "iocp::bt::FindNextDevice", BT_FindNextDeviceObjCmd, 0L, 0L);
     Tcl_CreateObjCommand(interp, "iocp::bt::GetDeviceInfo", BT_GetDeviceInfoObjCmd, 0L, 0L);
-    Tcl_CreateObjCommand(interp, "iocp::bt::discovery", BT_ConfigureRadioObjCmd, "discovery", 0L);
-    Tcl_CreateObjCommand(interp, "iocp::bt::incoming", BT_ConfigureRadioObjCmd, "incoming", 0L);
+    Tcl_CreateObjCommand(interp, "iocp::bt::discoverability", BT_ConfigureRadioObjCmd, (ClientData) BT_ENABLE_DISCOVERY, 0L);
+    Tcl_CreateObjCommand(interp, "iocp::bt::connectability", BT_ConfigureRadioObjCmd, (ClientData) BT_ENABLE_INCOMING, 0L);
+    Tcl_CreateObjCommand(interp, "iocp::bt::discoverable", BT_RadioStatusObjCmd, (ClientData) BT_STATUS_DISCOVERY, 0L);
+    Tcl_CreateObjCommand(interp, "iocp::bt::connectable", BT_RadioStatusObjCmd, (ClientData) BT_STATUS_INCOMING, 0L);
 #ifdef IOCP_DEBUG
     Tcl_CreateObjCommand(interp, "iocp::bt::FormatAddress", BT_FormatAddressObjCmd, 0L, 0L);
 #endif
