@@ -666,6 +666,7 @@ Tcl_ObjCmdProc	BT_FindFirstRadioObjCmd;
 Tcl_ObjCmdProc	BT_FindNextRadioObjCmd;
 Tcl_ObjCmdProc	BT_FindFirstRadioCloseObjCmd;
 Tcl_ObjCmdProc	BT_GetRadioInfoObjCmd;
+Tcl_ObjCmdProc	BT_ConfigureRadioObjCmd;
 Tcl_ObjCmdProc	BT_FindFirstDeviceObjCmd;
 Tcl_ObjCmdProc	BT_FindNextDeviceObjCmd;
 Tcl_ObjCmdProc	BT_FindFirstDeviceCloseObjCmd;

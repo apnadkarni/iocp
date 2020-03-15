@@ -367,6 +367,48 @@ BT_GetDeviceInfoObjCmd (
     return TCL_OK;
 }
 
+IocpTclCode
+BT_ConfigureRadioObjCmd (
+    ClientData clientData,      /* discovery or incoming */
+    Tcl_Interp *interp,         /* Current interpreter. */
+    int objc,                   /* number of arguments. */
+    Tcl_Obj *CONST objv[])      /* argument objects. */
+{
+    HANDLE radioHandle;
+    int tclResult;
+    char *what = (char *) clientData;
+    int enable;
+    int changed;
+
+    if (objc < 2 || objc > 3) {
+        Tcl_WrongNumArgs(interp, 1, objv, "BOOLEAN ?HRADIO?");
+        return TCL_ERROR;
+    }
+
+    tclResult = Tcl_GetBooleanFromObj(interp, objv[1], &enable);
+    if (tclResult != TCL_OK)
+        return tclResult;
+
+    radioHandle = NULL;
+    if (objc > 2) {
+        tclResult = PointerObjVerify(interp, objv[2], &radioHandle, "HRADIO");
+        if (tclResult != TCL_OK)
+            return tclResult;
+    }
+
+    if (!strcmp(what, "discovery")) {
+        changed = BluetoothEnableDiscovery(radioHandle, enable);
+    } else if (!strcmp(what, "incoming")) {
+        changed = BluetoothEnableIncomingConnections(radioHandle, enable);
+    } else {
+        Tcl_Panic("Unexpected clientData parameter value %s", what);
+        changed = 0;            /* NOTREACHED - Keep compiler happy */
+    }
+    Tcl_SetObjResult(interp, Tcl_NewBooleanObj(changed));
+    return TCL_OK;
+
+}
+
 static Tcl_Obj *ObjFromBLUETOOTH_RADIO_INFO (const BLUETOOTH_RADIO_INFO *infoPtr)
 {
     Tcl_Obj *objs[10];
