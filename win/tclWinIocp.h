@@ -661,22 +661,12 @@ void AcceptCallbackProc(ClientData callbackData, Tcl_Channel chan,
 #endif
 
 /* Tcl commands */
-Tcl_ObjCmdProc	Iocp_SocketObjCmd;
-Tcl_ObjCmdProc	BT_FindFirstRadioObjCmd;
-Tcl_ObjCmdProc	BT_FindNextRadioObjCmd;
-Tcl_ObjCmdProc	BT_FindFirstRadioCloseObjCmd;
-Tcl_ObjCmdProc	BT_GetRadioInfoObjCmd;
-Tcl_ObjCmdProc	BT_ConfigureRadioObjCmd;
-Tcl_ObjCmdProc	BT_FindFirstDeviceObjCmd;
-Tcl_ObjCmdProc	BT_FindNextDeviceObjCmd;
-Tcl_ObjCmdProc	BT_FindFirstDeviceCloseObjCmd;
-Tcl_ObjCmdProc	BT_GetDeviceInfoObjCmd;
-Tcl_ObjCmdProc	BT_CloseHandleObjCmd;
-#ifdef IOCP_DEBUG
-Tcl_ObjCmdProc	BT_FormatAddressObjCmd;
-#endif
 Tcl_ObjCmdProc	Iocp_DebugOutObjCmd;
 Tcl_ObjCmdProc	Iocp_StatsObjCmd;
+
+/* Module initilizations */
+IocpTclCode Winsock_ModuleInitialize(Tcl_Interp *interp);
+IocpTclCode BT_ModuleInitialize(Tcl_Interp *interp);
 
 /*
  * Prototypes for IOCP exported functions.

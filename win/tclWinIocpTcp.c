@@ -2294,7 +2294,7 @@ fail: /* tcpPtr must NOT be locked, interp must contain error message already */
  *
  *------------------------------------------------------------------------
  */
-IocpTclCode
+static IocpTclCode
 Iocp_SocketObjCmd (
     ClientData notUsed,			/* Not used. */
     Tcl_Interp *interp,			/* Current interpreter. */
@@ -2463,5 +2463,26 @@ Iocp_SocketObjCmd (
 
     Tcl_RegisterChannel(interp, chan);
     Tcl_SetObjResult(interp, Tcl_NewStringObj(Tcl_GetChannelName(chan), -1));
+    return TCL_OK;
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * Winsock_ModuleInitialize --
+ *
+ *    Initializes the Winsock module.
+ *
+ * Results:
+ *    TCL_OK on success, TCL_ERROR on failure.
+ *
+ * Side effects:
+ *    Creates the Winsock related Tcl commands.
+ *
+ *------------------------------------------------------------------------
+ */
+IocpTclCode Winsock_ModuleInitialize (Tcl_Interp *interp)
+{
+    Tcl_CreateObjCommand(interp, "iocp::socket", Iocp_SocketObjCmd, 0L, 0L);
     return TCL_OK;
 }

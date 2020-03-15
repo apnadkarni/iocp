@@ -16,12 +16,13 @@ static IocpTclCode ObjToBLUETOOTH_ADDRESS(
 static Tcl_Obj *ObjFromBLUETOOTH_RADIO_INFO (const BLUETOOTH_RADIO_INFO *infoPtr);
 static Tcl_Obj *ObjFromBLUETOOTH_DEVICE_INFO (const BLUETOOTH_DEVICE_INFO *infoPtr);
 
-IocpTclCode
+
+static IocpTclCode
 BT_CloseHandleObjCmd (
     ClientData notUsed,			/* Not used. */
     Tcl_Interp *interp,			/* Current interpreter. */
     int objc,				/* Number of arguments. */
-    Tcl_Obj *CONST objv[])		/* Argument objects. */
+    Tcl_Obj *const objv[])		/* Argument objects. */
 {
     HANDLE handle;
     int tclResult;
@@ -42,7 +43,7 @@ BT_CloseHandleObjCmd (
 }
 
 /* Outputs a string using Windows OutputDebugString */
-IocpTclCode
+static IocpTclCode
 BT_SelectObjCmd (
     ClientData notUsed,			/* Not used. */
     Tcl_Interp *interp,			/* Current interpreter. */
@@ -63,7 +64,7 @@ BT_SelectObjCmd (
     }
 }
 
-IocpTclCode
+static IocpTclCode
 BT_FindFirstRadioObjCmd (
     ClientData notUsed,			/* Not used. */
     Tcl_Interp *interp,			/* Current interpreter. */
@@ -103,7 +104,7 @@ BT_FindFirstRadioObjCmd (
     return TCL_ERROR;
 }
 
-IocpTclCode
+static IocpTclCode
 BT_FindFirstRadioCloseObjCmd (
     ClientData notUsed,			/* Not used. */
     Tcl_Interp *interp,			/* Current interpreter. */
@@ -128,7 +129,7 @@ BT_FindFirstRadioCloseObjCmd (
     return TCL_OK;
 }
 
-IocpTclCode
+static IocpTclCode
 BT_FindNextRadioObjCmd (
     ClientData notUsed,			/* Not used. */
     Tcl_Interp *interp,			/* Current interpreter. */
@@ -164,7 +165,7 @@ BT_FindNextRadioObjCmd (
     return TCL_OK;
 }
 
-IocpTclCode
+static IocpTclCode
 BT_GetRadioInfoObjCmd (
     ClientData notUsed,			/* Not used. */
     Tcl_Interp *interp,			/* Current interpreter. */
@@ -207,7 +208,8 @@ BT_GetRadioInfoObjCmd (
  *
  *------------------------------------------------------------------------
  */
-int BT_FindFirstDeviceObjCmd(
+static IocpTclCode
+BT_FindFirstDeviceObjCmd(
     ClientData notUsed,			/* Not used. */
     Tcl_Interp *interp,			/* Current interpreter. */
     int objc,				/* Number of arguments. */
@@ -282,7 +284,7 @@ int BT_FindFirstDeviceObjCmd(
     return tclResult;
 }
 
-IocpTclCode
+static IocpTclCode
 BT_FindFirstDeviceCloseObjCmd (
     ClientData notUsed,			/* Not used. */
     Tcl_Interp *interp,			/* Current interpreter. */
@@ -304,7 +306,7 @@ BT_FindFirstDeviceCloseObjCmd (
     return tclResult;
 }
 
-IocpTclCode
+static IocpTclCode
 BT_FindNextDeviceObjCmd (
     ClientData notUsed,			/* Not used. */
     Tcl_Interp *interp,			/* Current interpreter. */
@@ -336,7 +338,7 @@ BT_FindNextDeviceObjCmd (
     return TCL_OK;
 }
 
-IocpTclCode
+static IocpTclCode
 BT_GetDeviceInfoObjCmd (
     ClientData notUsed,			/* Not used. */
     Tcl_Interp *interp,			/* Current interpreter. */
@@ -367,7 +369,7 @@ BT_GetDeviceInfoObjCmd (
     return TCL_OK;
 }
 
-IocpTclCode
+static IocpTclCode
 BT_ConfigureRadioObjCmd (
     ClientData clientData,      /* discovery or incoming */
     Tcl_Interp *interp,         /* Current interpreter. */
@@ -515,7 +517,7 @@ static IocpTclCode ObjToBLUETOOTH_ADDRESS(
 }
 
 #ifdef IOCP_DEBUG
-IocpTclCode
+static IocpTclCode
 BT_FormatAddressObjCmd (
     ClientData notUsed,			/* Not used. */
     Tcl_Interp *interp,			/* Current interpreter. */
@@ -535,5 +537,39 @@ BT_FormatAddressObjCmd (
     return TCL_OK;
 
 }
-
 #endif
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * BT_ModuleInitialize --
+ *
+ *    Initializes the Bluetooth module.
+ *
+ * Results:
+ *    TCL_OK on success, TCL_ERROR on failure.
+ *
+ * Side effects:
+ *    Creates the Bluetooth related Tcl commands.
+ *
+ *------------------------------------------------------------------------
+ */
+IocpTclCode BT_ModuleInitialize (Tcl_Interp *interp)
+{
+    Tcl_CreateObjCommand(interp, "iocp::bt::CloseHandle", BT_CloseHandleObjCmd, 0L, 0L);
+    Tcl_CreateObjCommand(interp, "iocp::bt::FindFirstRadio", BT_FindFirstRadioObjCmd, 0L, 0L);
+    Tcl_CreateObjCommand(interp, "iocp::bt::FindNextRadio", BT_FindNextRadioObjCmd, 0L, 0L);
+    Tcl_CreateObjCommand(interp, "iocp::bt::FindFirstRadioClose", BT_FindFirstRadioCloseObjCmd, 0L, 0L);
+    Tcl_CreateObjCommand(interp, "iocp::bt::GetRadioInfo", BT_GetRadioInfoObjCmd, 0L, 0L);
+    Tcl_CreateObjCommand(interp, "iocp::bt::FindFirstDevice", BT_FindFirstDeviceObjCmd, 0L, 0L);
+    Tcl_CreateObjCommand(interp, "iocp::bt::FindFirstDeviceClose", BT_FindFirstDeviceCloseObjCmd, 0L, 0L);
+    Tcl_CreateObjCommand(interp, "iocp::bt::FindNextDevice", BT_FindNextDeviceObjCmd, 0L, 0L);
+    Tcl_CreateObjCommand(interp, "iocp::bt::GetDeviceInfo", BT_GetDeviceInfoObjCmd, 0L, 0L);
+    Tcl_CreateObjCommand(interp, "iocp::bt::discovery", BT_ConfigureRadioObjCmd, "discovery", 0L);
+    Tcl_CreateObjCommand(interp, "iocp::bt::incoming", BT_ConfigureRadioObjCmd, "incoming", 0L);
+#ifdef IOCP_DEBUG
+    Tcl_CreateObjCommand(interp, "iocp::bt::FormatAddress", BT_FormatAddressObjCmd, 0L, 0L);
+#endif
+    return TCL_OK;
+}
+

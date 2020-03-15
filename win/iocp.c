@@ -1884,22 +1884,10 @@ Iocp_Init (Tcl_Interp *interp)
         return TCL_ERROR;
     }
 
-    Tcl_CreateObjCommand(interp, "iocp::socket", Iocp_SocketObjCmd, 0L, 0L);
-    Tcl_CreateObjCommand(interp, "iocp::bt::CloseHandle", BT_CloseHandleObjCmd, 0L, 0L);
-    Tcl_CreateObjCommand(interp, "iocp::bt::FindFirstRadio", BT_FindFirstRadioObjCmd, 0L, 0L);
-    Tcl_CreateObjCommand(interp, "iocp::bt::FindNextRadio", BT_FindNextRadioObjCmd, 0L, 0L);
-    Tcl_CreateObjCommand(interp, "iocp::bt::FindFirstRadioClose", BT_FindFirstRadioCloseObjCmd, 0L, 0L);
-    Tcl_CreateObjCommand(interp, "iocp::bt::GetRadioInfo", BT_GetRadioInfoObjCmd, 0L, 0L);
-
-    Tcl_CreateObjCommand(interp, "iocp::bt::FindFirstDevice", BT_FindFirstDeviceObjCmd, 0L, 0L);
-    Tcl_CreateObjCommand(interp, "iocp::bt::FindFirstDeviceClose", BT_FindFirstDeviceCloseObjCmd, 0L, 0L);
-    Tcl_CreateObjCommand(interp, "iocp::bt::FindNextDevice", BT_FindNextDeviceObjCmd, 0L, 0L);
-    Tcl_CreateObjCommand(interp, "iocp::bt::GetDeviceInfo", BT_GetDeviceInfoObjCmd, 0L, 0L);
-    Tcl_CreateObjCommand(interp, "iocp::bt::discovery", BT_ConfigureRadioObjCmd, "discovery", 0L);
-    Tcl_CreateObjCommand(interp, "iocp::bt::incoming", BT_ConfigureRadioObjCmd, "incoming", 0L);
-#ifdef IOCP_DEBUG
-    Tcl_CreateObjCommand(interp, "iocp::bt::FormatAddress", BT_FormatAddressObjCmd, 0L, 0L);
-#endif
+    if (Winsock_ModuleInitialize(interp) != TCL_OK)
+        return TCL_ERROR;
+    if (BT_ModuleInitialize(interp) != TCL_OK)
+        return TCL_ERROR;
 
     Tcl_CreateObjCommand(interp, "iocp::debugout", Iocp_DebugOutObjCmd, 0L, 0L);
     Tcl_CreateObjCommand(interp, "iocp::stats", Iocp_StatsObjCmd, 0L, 0L);
