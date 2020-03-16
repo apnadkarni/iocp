@@ -11,6 +11,15 @@
   typedef uuid_t Tclh_UUID;
 #endif
 
+/* Function: Tclh_NewUuidObj
+ * Generate a new UUID. The UUID is not guaranteed to be cryptographically
+ * secure.
+ *
+ * Returns:
+ * Pointer to a Tcl_Obj wrapping a generated UUID.
+ */
+Tcl_Obj *Tclh_NewUuidObj ();
+
 /* Function: Tclh_WrapUuid
  * Wraps a Tclh_UUID as a Tcl_Obj.
  *
@@ -149,10 +158,30 @@ int Tclh_UnwrapUuid (Tcl_Interp *interp, Tcl_Obj *objP, Tclh_UUID *uuidP)
         return TCL_ERROR;
     }
 
-    memcpy(uuidP, IntrepUuidGet(objP), 16);
+    memcpy(uuidP, IntrepUuidGet(objP), sizeof(*uuidP));
     return TCL_OK;
 }
 
+Tcl_Obj *Tclh_NewUuidObj (Tcl_Interp *ip)
+{
+    Tcl_Obj *objP;
+    Tclh_UUID *uuidP = ckalloc(sizeof(*uuidP));
+#ifdef _WIN32
+    if (UuidCreate(uuidP) != RPC_S_OK) {
+        if (UuidCreateSequential(uuidP) != RPC_S_OK) {
+            TCLH_PANIC("Unable to create UUID.");
+        }
+    }
+#else
+    uuid_generate(uuidP);
+#endif /* _WIN32 */
+
+    objP = Tcl_NewObj();
+    Tcl_InvalidateStringRep(objP);
+    IntrepUuidSet(objP, uuidP);
+    objP->typePtr = &gUuidVtbl;
+    return objP;
+}
 
 #endif /* TCLH_UUID_IMPL */
 
