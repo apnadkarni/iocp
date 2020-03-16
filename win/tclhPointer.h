@@ -1,16 +1,10 @@
-#ifndef TCLHELPERS_H
-#define TCLHELPERS_H
+#ifndef TCLHPOINTER_H
+#define TCLHPOINTER_H
 
 #include "tcl.h"
 #include <string.h>
 
 typedef const char *Tclh_TypeTag;
-
-/* TBD - move to common header */
-static int Tclh_strlen(const char *s)
-{
-    return (int) strlen(s);
-}
 
 /* Section: Registered Pointers
  *
@@ -47,7 +41,7 @@ static int Tclh_strlen(const char *s)
  * Must be called to initialize the Tcl Helper library before any of
  * the other functions in the library.
  *
- * Params:
+ * Parameters:
  * interp - Tcl interpreter in which to initialize.
  *
  * Returns:
@@ -64,7 +58,7 @@ int Tclh_PointerLibInit(Tcl_Interp *interp);
  * The validity of a pointer can then be tested by with
  * <Tclh_PointerVerify> and reversed by calling <Tclh_PointerUnregister>.
  *
- * Params:
+ * Parameters:
  * interp  - Tcl interpreter in which the pointer is to be registered.
  * pointer - Pointer value to be registered.
  * tag     - Type tag for the pointer. Pass NULL or 0 for typeless pointers.
@@ -81,7 +75,7 @@ int Tclh_PointerRegister(Tcl_Interp *interp, void *pointer,
 /* Function: Tclh_PointerUnregister
  * Unregisters a previously registered pointer.
  *
- * Params:
+ * Parameters:
  * interp   - Tcl interpreter in which the pointer is to be unregistered.
  * pointer  - Pointer value to be unregistered.
  * tag      - Type tag for the pointer. May be 0 or NULL if pointer
@@ -114,7 +108,7 @@ int Tclh_PointerVerify(Tcl_Interp *interp, const void *voidP, Tclh_TypeTag tag);
 /* Function: Tclh_UnwrapPointerTag
  * Returns the pointer type tag for a Tcl_Obj pointer wrapper.
  *
- * Params:
+ * Parameters:
  * interp - Interpreter to store errors if any. May be NULL.
  * objP   - Tcl_Obj holding the wrapped pointer.
  * tagPtr - Location to store the type tag.
@@ -129,7 +123,7 @@ int Tclh_UnwrapPointerTag(Tcl_Interp *interp, Tcl_Obj *objP, Tclh_TypeTag *tagPt
 /* Function: Tclh_PointerObjUnregister
  * Unregisters a previously registered pointer passed in as a Tcl_Obj.
  *
- * Params:
+ * Parameters:
  * interp   - Tcl interpreter in which the pointer is to be unregistered.
  * objP     - Tcl_Obj containing a pointer value to be unregistered.
  * pointerP - If not NULL, the pointer value from objP is stored here
@@ -149,7 +143,7 @@ int Tclh_PointerObjUnregister(Tcl_Interp *interp, Tcl_Obj *objP,
  * Unregisters a previously registered pointer passed in as a Tcl_Obj
  * after checking it is one of the specified types.
  *
- * Params:
+ * Parameters:
  * interp   - Tcl interpreter in which the pointer is to be unregistered.
  * objP     - Tcl_Obj containing a pointer value to be unregistered.
  * pointerP - If not NULL, the pointer value from objP is stored here
@@ -169,7 +163,7 @@ int Tclh_PointerObjUnregisterAnyOf(Tcl_Interp *interp, Tcl_Obj *objP,
  * Verifies a Tcl_Obj contains a wrapped pointer that is registered
  * and, optionally, of a specified type.
  *
- * Params:
+ * Parameters:
  * interp   - Tcl interpreter in which the pointer is to be verified.
  * objP     - Tcl_Obj containing a pointer value to be verified.
  * pointerP - If not NULL, the pointer value from objP is stored here
@@ -189,7 +183,7 @@ int Tclh_PointerObjVerify(Tcl_Interp *interp, Tcl_Obj *objP,
  * Verifies a Tcl_Obj contains a wrapped pointer that is registered
  * and one of several allowed types.
  *
- * Params:
+ * Parameters:
  * interp   - Tcl interpreter in which the pointer is to be verified.
  * objP     - Tcl_Obj containing a pointer value to be verified.
  * pointerP - If not NULL, the pointer value from objP is stored here
@@ -211,7 +205,7 @@ int Tclh_PointerObjVerifyAnyOf(Tcl_Interp *interp, Tcl_Obj *objP,
  * The passed pointer is not registered as a valid pointer, nor is
  * any check made that it was previously registered.
  *
- * Params:
+ * Parameters:
  * pointer  - Pointer value to be wrapped.
  * tag      - Type tag for the pointer. May be 0 or NULL if pointer
  *            is typeless.
@@ -225,7 +219,7 @@ Tcl_Obj *Tclh_WrapPointer(void *pointer, Tclh_TypeTag tag);
  * Unwraps a Tcl_Obj representing a pointer checking it is of the
  * expected type. No checks are made with respect to its registration.
  *
- * Params:
+ * Parameters:
  * interp - Interpreter in which to store error messages. May be NULL.
  * objP   - Tcl_Obj holding the wrapped pointer value.
  * pointerP - if not NULL, location to store unwrapped pointer.
@@ -233,7 +227,8 @@ Tcl_Obj *Tclh_WrapPointer(void *pointer, Tclh_TypeTag tag);
  *          is typeless.
  *
  * Returns:
- * Pointer to a Tcl_Obj with reference count 0.
+ * TCL_OK    - Success, with the unwrapped pointer stored in *pointerP.
+ * TCL_ERROR - Failure, with interp containing error message.
  */
 int Tclh_UnwrapPointer(Tcl_Interp *interp, Tcl_Obj *objP,
                         void **pointerP, Tclh_TypeTag tag);
@@ -242,7 +237,7 @@ int Tclh_UnwrapPointer(Tcl_Interp *interp, Tcl_Obj *objP,
  * Unwraps a Tcl_Obj representing a pointer checking it is of several
  * possible types. No checks are made with respect to its registration.
  *
- * Params:
+ * Parameters:
  * interp   - Interpreter in which to store error messages. May be NULL.
  * objP     - Tcl_Obj holding the wrapped pointer value.
  * pointerP - if not NULL, location to store unwrapped pointer.
@@ -277,29 +272,10 @@ int Tclh_UnwrapPointerAnyOf(Tcl_Interp *interp, Tcl_Obj *objP,
  */
 
 #ifdef TCLH_IMPL
-
-#ifndef TCLH_EMBEDDER
-#error TCLH_EMBEDDER not defined. Please #define this to name of your package.
+# define TCLH_POINTER_IMPL
 #endif
-
-#undef TCLH_INLINE
-#ifdef _MSC_VER
-# define TCLH_INLINE __inline
-#else
-# define TCLH_INLINE static inline
-#endif
-
-#ifndef TCLH_PANIC
-#define TCLH_PANIC Tcl_Panic
-#endif
-
-#ifndef TCLH_ASSERT
-# ifdef NDEBUG
-#  define TCLH_ASSERT(bool_) (void) 0
-# else
-#  define TCLH_ASSERT(bool_) (void)( (bool_) || (TCLH_PANIC("Assertion (%s) failed at line %d in file %s.", #bool_, __LINE__, __FILE__), 0) )
-# endif
-#endif
+#ifdef TCLH_POINTER_IMPL
+#include "tclhBase.h"
 
 /*
  * Pointer is a Tcl "type" whose internal representation is stored
@@ -307,7 +283,7 @@ int Tclh_UnwrapPointerAnyOf(Tcl_Interp *interp, Tcl_Obj *objP,
  * The Tcl_Obj.internalRep.twoPtrValue.ptr1 holds the C pointer value
  * and Tcl_Obj.internalRep.twoPtrValue.ptr2 holds a Tcl_Obj describing
  * the type. This may be NULL if no type info needs to be associated
- * with the value
+ * with the value.
  */
 static void DupPointerType(Tcl_Obj *srcP, Tcl_Obj *dstP);
 static void FreePointerType(Tcl_Obj *objP);
@@ -742,4 +718,4 @@ int Tclh_PointerObjVerifyAnyOf(Tcl_Interp *interp, Tcl_Obj *objP,
 
 #endif /* TCLH_IMPL */
 
-#endif /* TCLHELPERS_H */
+#endif /* TCLHPOINTER_H */
