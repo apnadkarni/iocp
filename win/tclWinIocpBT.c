@@ -223,10 +223,10 @@ BT_GetRadioInfoObjCmd (
  */
 static IocpTclCode
 BT_FindFirstDeviceObjCmd(
-    ClientData notUsed,			/* Not used. */
-    Tcl_Interp *interp,			/* Current interpreter. */
-    int objc,				/* Number of arguments. */
-    Tcl_Obj *CONST objv[])		/* Argument objects. */
+    ClientData notUsed,    /* Not used. */
+    Tcl_Interp *interp,    /* Current interpreter. */
+    int objc,              /* Number of arguments. */
+    Tcl_Obj *CONST objv[]) /* Argument objects. */
 {
     static const char *const opts[] = {
         "-authenticated", "-remembered", "-unknown", "-connected", "-inquire",
@@ -245,21 +245,21 @@ BT_FindFirstDeviceObjCmd(
     params.dwSize = sizeof(params);
     for (i = 1; i < objc; ++i) {
         const char *optname = Tcl_GetString(objv[i]);
-	if (Tcl_GetIndexFromObj(interp, objv[i], opts, "option",
+        if (Tcl_GetIndexFromObj(interp, objv[i], opts, "option",
                                 TCL_EXACT, &opt) != TCL_OK) {
-	    return TCL_ERROR;
-	}
+            return TCL_ERROR;
+        }
         switch ((enum Opts) opt) {
         case AUTHENTICATED: params.fReturnAuthenticated = 1; break;
-        case REMEMBERED: params.fReturnRemembered = 1; break;
-        case UNKNOWN: params.fReturnUnknown = 1; break;
-        case CONNECTED: params.fReturnConnected = 1; break;
-        case INQUIRE: params.fIssueInquiry = 1; break;
-        case TIMEOUT:
+        case REMEMBERED   : params.fReturnRemembered = 1; break;
+        case UNKNOWN      : params.fReturnUnknown = 1; break;
+        case CONNECTED    : params.fReturnConnected = 1; break;
+        case INQUIRE      : params.fIssueInquiry = 1; break;
+        case TIMEOUT      : 
             if (++i >= objc) {
-		Tcl_SetObjResult(interp,
+                Tcl_SetObjResult(interp,
                                  STRING_LITERAL_OBJ("no argument given for -timeout option"));
-		return TCL_ERROR;
+                return TCL_ERROR;
             }
             if (Tcl_GetIntFromObj(interp, objv[i], &timeout) != TCL_OK)
                 return TCL_ERROR;
@@ -273,11 +273,11 @@ BT_FindFirstDeviceObjCmd(
             break;
         case RADIO:
             if (++i >= objc) {
-		Tcl_SetObjResult(interp,
+                Tcl_SetObjResult(interp,
                                  STRING_LITERAL_OBJ("no argument given for -radio option"));
-		return TCL_ERROR;
+                return TCL_ERROR;
             }
-            if (PointerUnwrap(interp, objv[i], &params.hRadio, "HRADIO") != TCL_OK)
+            if (PointerObjVerify(interp, objv[i], &params.hRadio, "HRADIO") != TCL_OK)
                 return TCL_ERROR;
         }
     }
