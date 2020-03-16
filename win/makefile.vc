@@ -25,8 +25,8 @@ DOTVERSION = 0.1
 PRJ_DEFINES = /D_WIN32_WINNT=_WIN32_WINNT_WIN7 /DTCLH_SHORTNAMES
 PRJ_OBJS = \
 	$(TMP_DIR)\iocp.obj \
-        $(TMP_DIR)\tclPolyfill.obj \
-        $(TMP_DIR)\tclWinIocpTcp.obj \
+    $(TMP_DIR)\tclPolyfill.obj \
+    $(TMP_DIR)\tclWinIocpTcp.obj \
 	$(TMP_DIR)\tclWinIocpBT.obj \
 	$(TMP_DIR)\tclWinIocpBTNames.obj \
 	$(TMP_DIR)\tclWinIocpUtil.obj
@@ -34,7 +34,7 @@ PRJ_OBJS = \
 PRJ_LIBS  = ws2_32.lib Bthprops.lib
 
 "$(WIN_DIR)\tclWinIocp.h" : "$(WIN_DIR)\tclhPointer.h"
-$(PRJ_OBJS) : "$(WIN_DIR)\tclWinIocp.h"
+$(PRJ_OBJS) : "$(WIN_DIR)\tclWinIocp.h" "$(WIN_DIR)\makefile.vc"
 
 !include "$(_RULESDIR)\targets.vc"
 

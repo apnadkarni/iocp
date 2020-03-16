@@ -461,6 +461,76 @@ BT_RadioStatusObjCmd (
 
 }
 
+Tcl_Obj *WrapUuid(UUID *guid) {
+  char guid_string[37];
+  snprintf(
+      guid_string, sizeof(guid_string) / sizeof(guid_string[0]),
+      "%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+      guid->Data1, guid->Data2, guid->Data3,
+      guid->Data4[0], guid->Data4[1], guid->Data4[2],
+      guid->Data4[3], guid->Data4[4], guid->Data4[5],
+      guid->Data4[6], guid->Data4[7]);
+  // remove when VC++7.1 is no longer supported
+  guid_string[sizeof(guid_string) / sizeof(guid_string[0]) - 1] = L'\0';
+  return Tcl_NewStringObj(guid_string, -1);
+}
+
+int BT_EnumerateInstalledServicesObjCmd (
+    ClientData notUsed,
+    Tcl_Interp *interp,    /* Current interpreter. */
+    int objc,              /* Number of arguments. */
+    Tcl_Obj *const objv[]) /* Argument objects. */
+{
+    HANDLE radioH;
+    DWORD  count;
+    GUID   services[20];
+    GUID  *serviceP;
+    DWORD  winError;
+    int    tclResult;
+    BLUETOOTH_DEVICE_INFO info;
+
+    if (objc < 2 || objc > 3) {
+        Tcl_WrongNumArgs(interp, 1, objv, "BTADDR ?HRADIO?");
+        return TCL_ERROR;
+    }
+
+    info.dwSize = sizeof(info);
+    tclResult = ObjToBLUETOOTH_ADDRESS(interp, objv[1], &info.Address);
+    if (tclResult != TCL_OK)
+        return tclResult;
+
+    if (objc > 2) {
+        tclResult = PointerObjVerify(interp, objv[2], &radioH, "HRADIO");
+        if (tclResult != TCL_OK)
+            return tclResult;
+    }
+
+    serviceP = services;
+    count    = sizeof(services)/sizeof(services[0]);
+    /* Loop while error is lack of buffer space */
+    while ((winError = BluetoothEnumerateInstalledServices(
+                radioH, &info, &count, serviceP)) == ERROR_MORE_DATA) {
+        /* Free previous allocation if not the static space and allocate new */
+        if (serviceP != services)
+            ckfree(serviceP);
+        serviceP = ckalloc(sizeof(*serviceP) * count);
+    }
+    if (winError == ERROR_SUCCESS) {
+        Tcl_Obj *resultObj = Tcl_NewListObj(count, NULL);
+        unsigned int i;
+        for (i = 0; i < count; ++i) {
+            Tcl_ListObjAppendElement(interp, resultObj, WrapUuid(&serviceP[i]));
+        }
+        Tcl_SetObjResult(interp, resultObj);
+    } else {
+        tclResult = Iocp_ReportWindowsError(
+            interp, winError, "Could not retrieve Bluetooth services: ");
+    }
+    if (serviceP != services)
+        ckfree(serviceP);
+
+    return tclResult;
+}
 
 static Tcl_Obj *ObjFromBLUETOOTH_RADIO_INFO (const BLUETOOTH_RADIO_INFO *infoPtr)
 {
@@ -616,10 +686,11 @@ IocpTclCode BT_ModuleInitialize (Tcl_Interp *interp)
     Tcl_CreateObjCommand(interp, "iocp::bt::FindFirstDeviceClose", BT_FindFirstDeviceCloseObjCmd, 0L, 0L);
     Tcl_CreateObjCommand(interp, "iocp::bt::FindNextDevice", BT_FindNextDeviceObjCmd, 0L, 0L);
     Tcl_CreateObjCommand(interp, "iocp::bt::GetDeviceInfo", BT_GetDeviceInfoObjCmd, 0L, 0L);
-    Tcl_CreateObjCommand(interp, "iocp::bt::discoverability", BT_ConfigureRadioObjCmd, (ClientData) BT_ENABLE_DISCOVERY, 0L);
+    Tcl_CreateObjCommand(interp, "iocp::bt::visibility", BT_ConfigureRadioObjCmd, (ClientData) BT_ENABLE_DISCOVERY, 0L);
     Tcl_CreateObjCommand(interp, "iocp::bt::connectability", BT_ConfigureRadioObjCmd, (ClientData) BT_ENABLE_INCOMING, 0L);
-    Tcl_CreateObjCommand(interp, "iocp::bt::discoverable", BT_RadioStatusObjCmd, (ClientData) BT_STATUS_DISCOVERY, 0L);
+    Tcl_CreateObjCommand(interp, "iocp::bt::visible", BT_RadioStatusObjCmd, (ClientData) BT_STATUS_DISCOVERY, 0L);
     Tcl_CreateObjCommand(interp, "iocp::bt::connectable", BT_RadioStatusObjCmd, (ClientData) BT_STATUS_INCOMING, 0L);
+    Tcl_CreateObjCommand(interp, "iocp::bt::device_services", BT_EnumerateInstalledServicesObjCmd, NULL, NULL);
 #ifdef IOCP_DEBUG
     Tcl_CreateObjCommand(interp, "iocp::bt::FormatAddress", BT_FormatAddressObjCmd, 0L, 0L);
 #endif
