@@ -49,6 +49,13 @@ int Tclh_UnwrapUuid (Tcl_Interp *interp, Tcl_Obj *objP, Tclh_UUID *uuidP);
 # define TCLH_UUID_IMPL
 #endif
 
+#ifdef TCLH_SHORTNAMES
+#define NewUuidObj Tclh_NewUuidObj
+#define WrapUuid   Tclh_WrapUuid
+#define UnwrapUuid Tclh_UnwrapUuid
+#endif
+
+
 #ifdef TCLH_UUID_IMPL
 
 #include "tclhBase.h"
@@ -80,21 +87,21 @@ TCLH_INLINE void IntrepSetUuid(Tcl_Obj *objP, Tclh_UUID *value) {
 static void DupUuidObj(Tcl_Obj *srcObj, Tcl_Obj *dstObj)
 {
     Tclh_UUID *uuidP = (Tclh_UUID *) ckalloc(16);
-    memcpy(uuidP, IntrepUuidGet(srcObj), 16);
-    IntrepUuidSet(dstObj, uuidP);
+    memcpy(uuidP, IntrepGetUuid(srcObj), 16);
+    IntrepSetUuid(dstObj, uuidP);
     dstObj->typePtr = &gUuidVtbl;
 }
 
 static void FreeUuidObj(Tcl_Obj *objP)
 {
-    ckfree(IntrepUuidGet(objP));
-    IntrepUuidSet(objP, NULL);
+    ckfree(IntrepGetUuid(objP));
+    IntrepSetUuid(objP, NULL);
 }
 
 static void StringFromUuidObj(Tcl_Obj *objP)
 {
 #ifdef _WIN32
-    UUID *uuidP = IntrepUuidGet(objP);
+    UUID *uuidP = IntrepGetUuid(objP);
     char *uuidStr;
     int  len;
     if (UuidToStringA(uuidP, &uuidStr) != RPC_S_OK) {
@@ -107,7 +114,7 @@ static void StringFromUuidObj(Tcl_Obj *objP)
 #else
     objP->bytes = ckalloc(37); /* Number of bytes for string rep */
     objP->length = 36;         /* Not counting terminating \0 */
-    uuid_unparse_lower(IntrepUuidGet(objP), objP->bytes);
+    uuid_unparse_lower(IntrepGetUuid(objP), objP->bytes);
 #endif
 }
 
@@ -132,7 +139,7 @@ static int  SetUuidObjFromAny(Tcl_Obj *objP)
     }
 #endif /* _WIN32 */
 
-    IntrepUuidSet(objP, uuidP);
+    IntrepSetUuid(objP, uuidP);
     objP->typePtr = &gUuidVtbl;
     return TCL_OK; 
 }
@@ -146,7 +153,7 @@ Tcl_Obj *Tclh_WrapUuid (Tclh_UUID *from)
     Tcl_InvalidateStringRep(objP);
     uuidP = ckalloc(sizeof(*uuidP));
     memcpy(uuidP, from, sizeof(*uuidP));
-    IntrepUuidSet(objP, uuidP);
+    IntrepSetUuid(objP, uuidP);
     objP->typePtr = &gUuidVtbl;
     return objP;
 }
@@ -158,7 +165,7 @@ int Tclh_UnwrapUuid (Tcl_Interp *interp, Tcl_Obj *objP, Tclh_UUID *uuidP)
         return TCL_ERROR;
     }
 
-    memcpy(uuidP, IntrepUuidGet(objP), sizeof(*uuidP));
+    memcpy(uuidP, IntrepGetUuid(objP), sizeof(*uuidP));
     return TCL_OK;
 }
 
@@ -178,7 +185,7 @@ Tcl_Obj *Tclh_NewUuidObj (Tcl_Interp *ip)
 
     objP = Tcl_NewObj();
     Tcl_InvalidateStringRep(objP);
-    IntrepUuidSet(objP, uuidP);
+    IntrepSetUuid(objP, uuidP);
     objP->typePtr = &gUuidVtbl;
     return objP;
 }

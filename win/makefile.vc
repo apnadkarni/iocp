@@ -31,7 +31,7 @@ PRJ_OBJS = \
 	$(TMP_DIR)\tclWinIocpBTNames.obj \
 	$(TMP_DIR)\tclWinIocpUtil.obj
 
-PRJ_LIBS  = ws2_32.lib Bthprops.lib
+PRJ_LIBS  = ws2_32.lib Bthprops.lib rpcrt4.lib
 
 "$(WIN_DIR)\tclWinIocp.h" : "$(WIN_DIR)\tclhPointer.h"
 $(PRJ_OBJS) : "$(WIN_DIR)\tclWinIocp.h" "$(WIN_DIR)\makefile.vc"

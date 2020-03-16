@@ -19,6 +19,7 @@
 #include "tcl.h"
 
 #include "tclhPointer.h"
+#include "tclhUuid.h"
 
 #ifdef BUILD_iocp
 # undef TCL_STORAGE_CLASS

@@ -461,6 +461,7 @@ BT_RadioStatusObjCmd (
 
 }
 
+#ifdef OBSOLETE
 Tcl_Obj *WrapUuid(UUID *guid) {
   char guid_string[37];
   snprintf(
@@ -474,6 +475,7 @@ Tcl_Obj *WrapUuid(UUID *guid) {
   guid_string[sizeof(guid_string) / sizeof(guid_string[0]) - 1] = L'\0';
   return Tcl_NewStringObj(guid_string, -1);
 }
+#endif
 
 int BT_EnumerateInstalledServicesObjCmd (
     ClientData notUsed,
