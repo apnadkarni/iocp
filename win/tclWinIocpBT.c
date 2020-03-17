@@ -382,6 +382,31 @@ BT_GetDeviceInfoObjCmd (
     return TCL_OK;
 }
 
+int BT_RemoveDeviceObjCmd (
+    ClientData notUsed,
+    Tcl_Interp *interp,    /* Current interpreter. */
+    int objc,              /* Number of arguments. */
+    Tcl_Obj *const objv[]) /* Argument objects. */
+{
+    BLUETOOTH_ADDRESS btAddress;
+    int tclResult;
+    DWORD winError;
+
+    if (objc != 2) {
+        Tcl_WrongNumArgs(interp, 1, objv, "BTADDR");
+        return TCL_ERROR;
+    }
+    tclResult = ObjToBLUETOOTH_ADDRESS(interp, objv[1], &btAddress);
+    if (tclResult != TCL_OK)
+        return tclResult;
+     
+    winError = BluetoothRemoveDevice(&btAddress);
+    if (winError != ERROR_SUCCESS) {
+        return Iocp_ReportWindowsError(interp, winError, "Could not remove device: ");
+    }
+    return TCL_OK;
+}
+
 static IocpTclCode
 BT_ConfigureRadioObjCmd (
     ClientData clientData,      /* discovery or incoming */
@@ -688,11 +713,13 @@ IocpTclCode BT_ModuleInitialize (Tcl_Interp *interp)
     Tcl_CreateObjCommand(interp, "iocp::bt::FindFirstDeviceClose", BT_FindFirstDeviceCloseObjCmd, 0L, 0L);
     Tcl_CreateObjCommand(interp, "iocp::bt::FindNextDevice", BT_FindNextDeviceObjCmd, 0L, 0L);
     Tcl_CreateObjCommand(interp, "iocp::bt::GetDeviceInfo", BT_GetDeviceInfoObjCmd, 0L, 0L);
-    Tcl_CreateObjCommand(interp, "iocp::bt::visibility", BT_ConfigureRadioObjCmd, (ClientData) BT_ENABLE_DISCOVERY, 0L);
-    Tcl_CreateObjCommand(interp, "iocp::bt::connectability", BT_ConfigureRadioObjCmd, (ClientData) BT_ENABLE_INCOMING, 0L);
-    Tcl_CreateObjCommand(interp, "iocp::bt::visible", BT_RadioStatusObjCmd, (ClientData) BT_STATUS_DISCOVERY, 0L);
-    Tcl_CreateObjCommand(interp, "iocp::bt::connectable", BT_RadioStatusObjCmd, (ClientData) BT_STATUS_INCOMING, 0L);
-    Tcl_CreateObjCommand(interp, "iocp::bt::device_services", BT_EnumerateInstalledServicesObjCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "iocp::bt::EnableDiscovery", BT_ConfigureRadioObjCmd, (ClientData) BT_ENABLE_DISCOVERY, 0L);
+    Tcl_CreateObjCommand(interp, "iocp::bt::EnableIncomingConnections", BT_ConfigureRadioObjCmd, (ClientData) BT_ENABLE_INCOMING, 0L);
+    Tcl_CreateObjCommand(interp, "iocp::bt::IsDiscoverable", BT_RadioStatusObjCmd, (ClientData) BT_STATUS_DISCOVERY, 0L);
+    Tcl_CreateObjCommand(interp, "iocp::bt::IsConnectable", BT_RadioStatusObjCmd, (ClientData) BT_STATUS_INCOMING, 0L);
+    Tcl_CreateObjCommand(interp, "iocp::bt::EnumerateInstalledServices", BT_EnumerateInstalledServicesObjCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "iocp::bt::RemoveDevice", BT_RemoveDeviceObjCmd, NULL, NULL);
+
 #ifdef IOCP_DEBUG
     Tcl_CreateObjCommand(interp, "iocp::bt::FormatAddress", BT_FormatAddressObjCmd, 0L, 0L);
 #endif
