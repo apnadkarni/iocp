@@ -208,13 +208,13 @@ BT_GetRadioInfoObjCmd (
 /*
  *------------------------------------------------------------------------
  *
- * BT_EnumerateDevicesObjCmd --
+ * BT_FindFirstDeviceObj --
  *
- *    Enumerates Bluetooth devices matching specified criteria.
+ *    Initiates a search for a Bluetooth device matching specified options.
  *
  * Results:
- *    TCL_OK - List of devices is stored as interp result.
- *    TCL_ERROR - Error message is stored in interp
+ *    List of two elements consisting of the search handle and first device
+ *    handle. These handles must be closed appropriately.
  *
  * Side effects:
  *    None.
@@ -222,7 +222,7 @@ BT_GetRadioInfoObjCmd (
  *------------------------------------------------------------------------
  */
 static IocpTclCode
-BT_EnumerateDevicesObjCmd(
+BT_FindFirstDeviceObjCmd(
     ClientData notUsed,    /* Not used. */
     Tcl_Interp *interp,    /* Current interpreter. */
     int objc,              /* Number of arguments. */
@@ -235,11 +235,11 @@ BT_EnumerateDevicesObjCmd(
     enum Opts {
         AUTHENTICATED, REMEMBERED, UNKNOWN, CONNECTED, INQUIRE, TIMEOUT, RADIO
     };
-    int i, opt, timeout, tclResult, winError;
+    int i, opt, timeout, tclResult;
     BLUETOOTH_DEVICE_SEARCH_PARAMS params;
     BLUETOOTH_DEVICE_INFO          info;
     HBLUETOOTH_DEVICE_FIND         findHandle;
-    Tcl_Obj *resultObj = NULL;
+    Tcl_Obj *objs[2];
 
     memset(&params, 0, sizeof(params));
     params.dwSize = sizeof(params);
@@ -284,39 +284,79 @@ BT_EnumerateDevicesObjCmd(
 
     info.dwSize = sizeof(info);
     findHandle = BluetoothFindFirstDevice(&params, &info);
-    if (findHandle == NULL) {
-        winError = GetLastError();
-        if (winError == ERROR_NO_MORE_ITEMS) {
-            return TCL_OK;
-        } else {
-            return Iocp_ReportWindowsError(interp, winError, NULL);
-        }
-    }
+    /* TBD - what is returned if there are no bluetooth devices */
+    if (findHandle == NULL)
+        return Iocp_ReportLastWindowsError(interp, "Bluetooth device search failed: ");
 
-    resultObj = Tcl_NewListObj(0, NULL);
-    do {
-        Tcl_ListObjAppendElement(interp, resultObj, ObjFromBLUETOOTH_DEVICE_INFO(&info));
-    } while (BluetoothFindNextDevice(findHandle, &info) == TRUE);
-
-    winError = GetLastError();
-    if (winError != ERROR_NO_MORE_ITEMS) {
-        Tcl_DecrRefCount(resultObj);
-        tclResult = Iocp_ReportWindowsError(interp, winError, NULL);
-    } else {
-        Tcl_SetObjResult(interp, resultObj);
-        tclResult = TCL_OK;
+    tclResult = PointerRegister(interp, findHandle,
+                                "HBLUETOOTH_DEVICE_FIND", &objs[0]);
+    if (tclResult == TCL_OK) {
+        objs[1] = ObjFromBLUETOOTH_DEVICE_INFO(&info);
+        Tcl_SetObjResult(interp, Tcl_NewListObj(2, objs));
     }
-    BluetoothFindDeviceClose(findHandle);
     return tclResult;
 }
 
+static IocpTclCode
+BT_FindFirstDeviceCloseObjCmd (
+    ClientData notUsed,			/* Not used. */
+    Tcl_Interp *interp,			/* Current interpreter. */
+    int objc,				/* Number of arguments. */
+    Tcl_Obj *CONST objv[])		/* Argument objects. */
+{
+    HBLUETOOTH_DEVICE_FIND findHandle;
+    int tclResult;
+
+    if (objc != 2) {
+        Tcl_WrongNumArgs(interp, 1, objv, "HBLUETOOTH_DEVICE_FIND");
+        return TCL_ERROR;
+    }
+    tclResult = PointerObjUnregister(interp, objv[1], &findHandle, "HBLUETOOTH_DEVICE_FIND");
+    if (tclResult == TCL_OK) {
+        if (BluetoothFindDeviceClose(findHandle) != TRUE)
+            tclResult = Iocp_ReportLastWindowsError(interp, "Could not close Bluetooth device search handle: ");
+    }
+    return tclResult;
+}
+
+static IocpTclCode
+BT_FindNextDeviceObjCmd (
+    ClientData notUsed,			/* Not used. */
+    Tcl_Interp *interp,			/* Current interpreter. */
+    int objc,				/* Number of arguments. */
+    Tcl_Obj *CONST objv[])		/* Argument objects. */
+{
+    HBLUETOOTH_DEVICE_FIND findHandle;
+    BLUETOOTH_DEVICE_INFO info;
+    int tclResult;
+
+    if (objc != 2) {
+        Tcl_WrongNumArgs(interp, 1, objv, "HBLUETOOTH_DEVICE_FIND");
+        return TCL_ERROR;
+    }
+    tclResult = PointerObjVerify(interp, objv[1], &findHandle, "HBLUETOOTH_DEVICE_FIND");
+    if (tclResult != TCL_OK)
+        return tclResult;
+
+    info.dwSize = sizeof(info);
+    if (BluetoothFindNextDevice(findHandle, &info) != TRUE) {
+        DWORD winError = GetLastError();
+        if (winError == ERROR_NO_MORE_ITEMS)
+            return TCL_BREAK;
+        else
+            return Iocp_ReportWindowsError(interp, winError, "Error fetching next device: ");
+    }
+
+    Tcl_SetObjResult(interp, ObjFromBLUETOOTH_DEVICE_INFO(&info));
+    return TCL_OK;
+}
 
 static IocpTclCode
 BT_GetDeviceInfoObjCmd (
-    ClientData notUsed,     /* Not used. */
-    Tcl_Interp *interp,     /* Current interpreter. */
-    int objc,               /* Number of arguments. */
-    Tcl_Obj *CONST objv[])  /* Argument objects. */
+    ClientData notUsed,			/* Not used. */
+    Tcl_Interp *interp,			/* Current interpreter. */
+    int objc,				/* Number of arguments. */
+    Tcl_Obj *CONST objv[])		/* Argument objects. */
 {
     HANDLE radioHandle;
     BLUETOOTH_DEVICE_INFO info;
@@ -644,13 +684,15 @@ IocpTclCode BT_ModuleInitialize (Tcl_Interp *interp)
     Tcl_CreateObjCommand(interp, "iocp::bt::FindNextRadio", BT_FindNextRadioObjCmd, 0L, 0L);
     Tcl_CreateObjCommand(interp, "iocp::bt::FindFirstRadioClose", BT_FindFirstRadioCloseObjCmd, 0L, 0L);
     Tcl_CreateObjCommand(interp, "iocp::bt::GetRadioInfo", BT_GetRadioInfoObjCmd, 0L, 0L);
+    Tcl_CreateObjCommand(interp, "iocp::bt::FindFirstDevice", BT_FindFirstDeviceObjCmd, 0L, 0L);
+    Tcl_CreateObjCommand(interp, "iocp::bt::FindFirstDeviceClose", BT_FindFirstDeviceCloseObjCmd, 0L, 0L);
+    Tcl_CreateObjCommand(interp, "iocp::bt::FindNextDevice", BT_FindNextDeviceObjCmd, 0L, 0L);
     Tcl_CreateObjCommand(interp, "iocp::bt::GetDeviceInfo", BT_GetDeviceInfoObjCmd, 0L, 0L);
     Tcl_CreateObjCommand(interp, "iocp::bt::visibility", BT_ConfigureRadioObjCmd, (ClientData) BT_ENABLE_DISCOVERY, 0L);
     Tcl_CreateObjCommand(interp, "iocp::bt::connectability", BT_ConfigureRadioObjCmd, (ClientData) BT_ENABLE_INCOMING, 0L);
     Tcl_CreateObjCommand(interp, "iocp::bt::visible", BT_RadioStatusObjCmd, (ClientData) BT_STATUS_DISCOVERY, 0L);
     Tcl_CreateObjCommand(interp, "iocp::bt::connectable", BT_RadioStatusObjCmd, (ClientData) BT_STATUS_INCOMING, 0L);
     Tcl_CreateObjCommand(interp, "iocp::bt::device_services", BT_EnumerateInstalledServicesObjCmd, NULL, NULL);
-    Tcl_CreateObjCommand(interp, "iocp::bt::devices_enumerate", BT_EnumerateDevicesObjCmd, NULL, NULL);
 #ifdef IOCP_DEBUG
     Tcl_CreateObjCommand(interp, "iocp::bt::FormatAddress", BT_FormatAddressObjCmd, 0L, 0L);
 #endif
