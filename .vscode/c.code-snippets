@@ -234,4 +234,17 @@
 		]
 	},
 
+	"C comment": {
+		"scope": "c,c++",
+		"prefix": "/*",
+		"body": "/* $1 */"
+	}
+
+	"C block comment": {
+		"scope": "c,c++",
+		"prefix": "/**",
+		"body": "/*\n * $1\n */"
+	}
+
+
 }
