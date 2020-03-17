@@ -2,6 +2,7 @@
 #define TCLHWRAP_H
 
 #include "tcl.h"
+#include "tclhBase.h"
 
 #ifdef _WIN32
 # include <rpc.h>
@@ -45,6 +46,30 @@ Tcl_Obj *Tclh_WrapUuid (Tclh_UUID *uuidP);
  */
 int Tclh_UnwrapUuid (Tcl_Interp *interp, Tcl_Obj *objP, Tclh_UUID *uuidP);
 
+/* Function: Tclh_ObjIntrepIsUuid
+ * Checks if the passed Tcl_Obj currently holds an internal representation
+ * of a UUID. This function's purpose is primarily as an optimization to
+ * avoid unnecessary string generation and shimmering when a Tcl_Obj could
+ * be one of several types.
+ * For example, suppose an argument could be either a integer or a Uuid.
+ * Checking for an integer via Tcl_GetIntFromObj would cause generation"
+ * of a string from the Uuid unnecesarily. Instead the caller can call
+ * Tclh_ObjIntrepIsUuid and if it returns 1, not even bother to check
+ * integer value. Obviously this only works if the string representation
+ * of Uuid cannot be interpreter as the other type.
+ * 
+ * Parameters:
+ * objP - the Tcl_Obj to be checked.
+ *
+ * Returns:
+ * 1 - Current internal representation holds a Uuid.
+ * 0 - otherwise.
+ */
+ TCLH_INLINE int Tclh_ObjIntrepIsUuid (Tcl_Obj *objP) {
+     extern struct Tcl_ObjType gUuidVtbl;
+     return objP->typePtr == &gUuidVtbl;
+ }
+
 #ifdef TCLH_IMPL
 # define TCLH_UUID_IMPL
 #endif
@@ -57,8 +82,6 @@ int Tclh_UnwrapUuid (Tcl_Interp *interp, Tcl_Obj *objP, Tclh_UUID *uuidP);
 
 
 #ifdef TCLH_UUID_IMPL
-
-#include "tclhBase.h"
 
 
 /*

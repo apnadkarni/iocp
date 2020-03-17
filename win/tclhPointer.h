@@ -2,6 +2,7 @@
 #define TCLHPOINTER_H
 
 #include "tcl.h"
+#include "tclhBase.h"
 #include <string.h>
 
 typedef const char *Tclh_TypeTag;
@@ -275,7 +276,6 @@ int Tclh_UnwrapPointerAnyOf(Tcl_Interp *interp, Tcl_Obj *objP,
 # define TCLH_POINTER_IMPL
 #endif
 #ifdef TCLH_POINTER_IMPL
-#include "tclhBase.h"
 
 /*
  * Pointer is a Tcl "type" whose internal representation is stored

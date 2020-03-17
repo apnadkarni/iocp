@@ -2,15 +2,13 @@
 #define TCLHBASE_H
 
 /* Common definitions included by all Tcl helper *implemenations* */
-#ifndef TCLH_EMBEDDER
-#error TCLH_EMBEDDER not defined. Please #define this to name of your package.
-#endif
 
-#undef TCLH_INLINE
+#ifndef TCLH_INLINE
 #ifdef _MSC_VER
 # define TCLH_INLINE __inline
 #else
 # define TCLH_INLINE static inline
+#endif
 #endif
 
 #ifndef TCLH_PANIC
@@ -23,6 +21,12 @@
 # else
 #  define TCLH_ASSERT(bool_) (void)( (bool_) || (TCLH_PANIC("Assertion (%s) failed at line %d in file %s.", #bool_, __LINE__, __FILE__), 0) )
 # endif
+#endif
+
+#ifdef TCLH_IMPL
+#ifndef TCLH_EMBEDDER
+#error TCLH_EMBEDDER not defined. Please #define this to name of your package.
+#endif
 #endif
 
 TCLH_INLINE char *Tclh_memdup(void *from, int len) {

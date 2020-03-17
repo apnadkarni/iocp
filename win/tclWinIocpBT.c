@@ -407,6 +407,115 @@ int BT_RemoveDeviceObjCmd (
     return TCL_OK;
 }
 
+#ifdef NOTUSED /* Same functionality implemented at script level albeit slower */
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * BT_EnumerateDevicesObjCmd --
+ *
+ *    Returns a list of devices.
+ *    
+ *
+ * Results:
+ *    TCL_OK - List of devices is stored as interp result.
+ *    TCL_ERROR - Error message is stored in interp
+ *
+ * Side effects:
+ *    None.
+ *
+ *------------------------------------------------------------------------
+ */
+static IocpTclCode
+BT_EnumerateDevicesObjCmd(
+    ClientData  notUsed,
+    Tcl_Interp *interp,    /* Current interpreter. */
+    int objc,              /* Number of arguments. */
+    Tcl_Obj *CONST objv[]) /* Argument objects. */
+{
+    static const char *const opts[] = {
+        "-authenticated", "-remembered", "-unknown", "-connected", "-inquire",
+        "-timeout", "-radio", NULL
+    };
+    enum Opts {
+        AUTHENTICATED, REMEMBERED, UNKNOWN, CONNECTED, INQUIRE, TIMEOUT, RADIO
+    };
+    int i, opt, timeout, tclResult, winError;
+    BLUETOOTH_DEVICE_SEARCH_PARAMS params;
+    BLUETOOTH_DEVICE_INFO          info;
+    HBLUETOOTH_DEVICE_FIND         findHandle;
+    Tcl_Obj *resultObj = NULL;
+
+    memset(&params, 0, sizeof(params));
+    params.dwSize = sizeof(params);
+    for (i = 1; i < objc; ++i) {
+        const char *optname = Tcl_GetString(objv[i]);
+        if (Tcl_GetIndexFromObj(interp, objv[i], opts, "option",
+                                TCL_EXACT, &opt) != TCL_OK) {
+            return TCL_ERROR;
+        }
+        switch ((enum Opts) opt) {
+        case AUTHENTICATED: params.fReturnAuthenticated = 1; break;
+        case REMEMBERED   : params.fReturnRemembered = 1; break;
+        case UNKNOWN      : params.fReturnUnknown = 1; break;
+        case CONNECTED    : params.fReturnConnected = 1; break;
+        case INQUIRE      : params.fIssueInquiry = 1; break;
+        case TIMEOUT      : 
+            if (++i >= objc) {
+                Tcl_SetObjResult(interp,
+                                 STRING_LITERAL_OBJ("no argument given for -timeout option"));
+                return TCL_ERROR;
+            }
+            if (Tcl_GetIntFromObj(interp, objv[i], &timeout) != TCL_OK)
+                return TCL_ERROR;
+            /* timeout is in milliseconds. The cTimeoutMultiplier is units of 1280ms */
+            if (timeout <= 0)
+                params.cTimeoutMultiplier = 0;
+            else if (timeout >= (48*1280))
+                params.cTimeoutMultiplier = 48; /* Max permitted value */
+            else
+                params.cTimeoutMultiplier = (timeout + 1279)/1280;
+            break;
+        case RADIO:
+            if (++i >= objc) {
+                Tcl_SetObjResult(interp,
+                                 STRING_LITERAL_OBJ("no argument given for -radio option"));
+                return TCL_ERROR;
+            }
+            if (PointerObjVerify(interp, objv[i], &params.hRadio, "HRADIO") != TCL_OK)
+                return TCL_ERROR;
+        }
+    }
+
+    info.dwSize = sizeof(info);
+    findHandle = BluetoothFindFirstDevice(&params, &info);
+    if (findHandle == NULL) {
+        winError = GetLastError();
+        if (winError == ERROR_NO_MORE_ITEMS) {
+            return TCL_OK;
+        } else {
+            return Iocp_ReportWindowsError(interp, winError, NULL);
+        }
+    }
+
+    resultObj = Tcl_NewListObj(0, NULL);
+    do {
+        Tcl_ListObjAppendElement(interp, resultObj, ObjFromBLUETOOTH_DEVICE_INFO(&info));
+    } while (BluetoothFindNextDevice(findHandle, &info) == TRUE);
+
+    winError = GetLastError();
+    if (winError != ERROR_NO_MORE_ITEMS) {
+        Tcl_DecrRefCount(resultObj);
+        tclResult = Iocp_ReportWindowsError(interp, winError, NULL);
+    } else {
+        Tcl_SetObjResult(interp, resultObj);
+        tclResult = TCL_OK;
+    }
+    BluetoothFindDeviceClose(findHandle);
+    return tclResult;
+}
+#endif /* NOTUSED */
+
 static IocpTclCode
 BT_ConfigureRadioObjCmd (
     ClientData clientData,      /* discovery or incoming */
