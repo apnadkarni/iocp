@@ -282,6 +282,17 @@ BT_FindFirstDeviceObjCmd(
         }
     }
 
+    /*
+     * If no filters specified, return all.
+     */
+    if (! (params.fReturnAuthenticated || params.fReturnRemembered 
+            || params.fReturnUnknown || params.fReturnConnected) ) {
+        params.fReturnAuthenticated = 1;
+        params.fReturnRemembered    = 1;
+        params.fReturnUnknown       = 1;
+        params.fReturnConnected     = 1;
+    }
+
     info.dwSize = sizeof(info);
     findHandle = BluetoothFindFirstDevice(&params, &info);
     /* TBD - what is returned if there are no bluetooth devices */
