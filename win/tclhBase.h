@@ -29,13 +29,24 @@
 #endif
 #endif
 
+/*
+ * Typedef: Tclh_SSizeT
+ * This typedef is used to store max lengths of Tcl strings.
+ * Its use is primarily to avoid compiler warnings with downcasting from size_t.
+ */
+#if TCL_MAJOR_VERSION <= 8
+typedef int Tclh_SSizeT;
+#else
+#error Define Tclh_SSizeT for Tcl 9
+#endif
+
 TCLH_INLINE char *Tclh_memdup(void *from, int len) {
     void *to = ckalloc(len);
     memcpy(to, from, len);
     return to;
 }
 
-TCLH_INLINE int Tclh_strlen(const char *s) {
+TCLH_INLINE Tclh_SSizeT Tclh_strlen(const char *s) {
     return (int) strlen(s);
 }
 

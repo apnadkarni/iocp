@@ -639,7 +639,11 @@ void         IocpChannelDrop(IocpChannel *lockedChanPtr);
 DWORD        IocpChannelPostReads(IocpChannel *lockedChanPtr);
 void         IocpChannelNudgeThread(IocpChannel *lockedChanPtr, int blockMask, int force);
 
-const char *Iocp_BTMapToName(
+
+
+
+/* TBD */
+const char *BT_MapToName(
     unsigned int companyId
     );
 
@@ -660,10 +664,6 @@ int TclSockGetPort(Tcl_Interp *interp,
 void AcceptCallbackProc(ClientData callbackData, Tcl_Channel chan,
                         char *address, int port);
 #endif
-
-/* Tcl commands */
-Tcl_ObjCmdProc	Iocp_DebugOutObjCmd;
-Tcl_ObjCmdProc	Iocp_StatsObjCmd;
 
 /* Module initilizations */
 IocpTclCode Winsock_ModuleInitialize(Tcl_Interp *interp);

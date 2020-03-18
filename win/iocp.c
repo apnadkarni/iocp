@@ -18,6 +18,9 @@ static void IocpChannelConnectionStep(IocpChannel *lockedChanPtr, int blockable)
 static void IocpChannelExitConnectedState(IocpChannel *lockedChanPtr);
 static void IocpChannelAwaitConnectCompletion(IocpChannel *lockedChanPtr);
 
+Tcl_ObjCmdProc	Iocp_DebugOutObjCmd;
+Tcl_ObjCmdProc	Iocp_StatsObjCmd;
+
 /*
  * Static data
  */

@@ -7,7 +7,7 @@
 
 #define STRING_LITERAL_OBJ(s) Tcl_NewStringObj(s, sizeof(s)-1)
 
-/* 
+/*
  * BT_COMMAND enums are used as ClientData passed to commands
  * and distinguish which particular subcommand to execute.
  */
@@ -260,7 +260,7 @@ BT_FindFirstDeviceObjCmd(
         case UNKNOWN      : params.fReturnUnknown = 1; break;
         case CONNECTED    : params.fReturnConnected = 1; break;
         case INQUIRE      : params.fIssueInquiry = 1; break;
-        case TIMEOUT      : 
+        case TIMEOUT      :
             if (++i >= objc) {
                 Tcl_SetObjResult(interp,
                                  STRING_LITERAL_OBJ("no argument given for -timeout option"));
@@ -290,7 +290,7 @@ BT_FindFirstDeviceObjCmd(
     /*
      * If no filters specified, return all.
      */
-    if (! (params.fReturnAuthenticated || params.fReturnRemembered 
+    if (! (params.fReturnAuthenticated || params.fReturnRemembered
             || params.fReturnUnknown || params.fReturnConnected) ) {
         params.fReturnAuthenticated = 1;
         params.fReturnRemembered    = 1;
@@ -415,7 +415,7 @@ int BT_RemoveDeviceObjCmd (
     tclResult = ObjToBLUETOOTH_ADDRESS(interp, objv[1], &btAddress);
     if (tclResult != TCL_OK)
         return tclResult;
-     
+
     winError = BluetoothRemoveDevice(&btAddress);
     if (winError != ERROR_SUCCESS) {
         return Iocp_ReportWindowsError(interp, winError, "Could not remove device: ");
@@ -431,7 +431,7 @@ int BT_RemoveDeviceObjCmd (
  * BT_EnumerateDevicesObjCmd --
  *
  *    Returns a list of devices.
- *    
+ *
  *
  * Results:
  *    TCL_OK - List of devices is stored as interp result.
@@ -476,7 +476,7 @@ BT_EnumerateDevicesObjCmd(
         case UNKNOWN      : params.fReturnUnknown = 1; break;
         case CONNECTED    : params.fReturnConnected = 1; break;
         case INQUIRE      : params.fIssueInquiry = 1; break;
-        case TIMEOUT      : 
+        case TIMEOUT      :
             if (++i >= objc) {
                 Tcl_SetObjResult(interp,
                                  STRING_LITERAL_OBJ("no argument given for -timeout option"));
@@ -812,6 +812,226 @@ BT_FormatAddressObjCmd (
 }
 #endif
 
+#ifdef NOTYET
+
+static IocpChannelVtbl btClientVtbl =  {
+    /* "Virtual" functions */
+    WinsockClientInit,
+    BTClientFinit,
+    WinsockClientShutdown,
+    NULL,                       /* Accept */
+    BTClientBlockingConnect,
+    WinsockClientAsyncConnected,
+    WinsockClientAsyncConnectFailed,
+    WinsockClientDisconnected,
+    WinsockClientPostRead,
+    WinsockClientPostWrite,
+    WinsockClientGetHandle,
+    WinsockClientGetOption,
+    WinsockClientSetOption,
+    WinsockClientTranslateError,
+    /* Data members */
+    iocpBTOptionNames,
+    sizeof(WinsockClient)
+};
+int IocpIsBtClient(IocpChannel *chanPtr) {
+    return (chanPtr->vtblPtr == &btClientVtbl &&
+            ((WinsockClient *)chanPtr)->aiFamily == AF_BTH);
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * Iocp_OpenBTClient --
+ *
+ *	Opens a Bluetooth client socket and creates a channel around it.
+ *
+ * Results:
+ *	The channel or NULL if failed. An error message is returned in the
+ *	interpreter on failure.
+ *
+ * Side effects:
+ *	Opens a client socket and creates a new channel.
+ *
+ *----------------------------------------------------------------------
+ */
+
+Tcl_Channel
+Iocp_OpenBTClient(
+    Tcl_Interp *interp, /* Interpreter */
+    GUID *serviceGuidP, /* BT service guid */
+    BLUETOOTH_ADDRESS *btAddress, /* Address of device */
+    int async) /* Async connect or not */
+{
+    WinsockClient *btPtr;
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * BT_SocketObjCmd --
+ *
+ *    Implements the socket command for Bluetooth. See 'socket' documentation as
+ *    to description and options.
+ *
+ * Results:
+ *    A standard Tcl result with the channel handle stored in interp result.
+ *
+ * Side effects:
+ *    A new server or client socket is created.
+ *
+ *------------------------------------------------------------------------
+ */
+static IocpTclCode
+BT_SocketObjCmd(ClientData  notUsed,   /* Not used. */
+                Tcl_Interp *interp,    /* Current interpreter. */
+                int         objc,      /* Number of arguments. */
+                Tcl_Obj *CONST objv[]) /* Argument objects. */
+{
+    static const char *const socketOptions[]
+        = {"-async", "-server", "-authenticate", NULL};
+    enum socketOptions { SKT_ASYNC, SKT_SERVER, SKT_AUTHENTICATE };
+    int               optionIndex, a, server = 0, async = 0, authenticate = 0;
+    const char *      script = NULL;
+    GUID              service;
+    Tcl_Channel       chan = NULL;
+
+#ifdef TBD
+    if (TclpHasSockets(interp) != TCL_OK) {
+        return TCL_ERROR;
+    }
+#endif
+
+    for (a = 1; a < objc; a++) {
+        const char *arg = TclGetString(objv[a]);
+
+        if (arg[0] != '-') {
+            break;
+        }
+        if (Tcl_GetIndexFromObj(interp, objv[a],
+                                socketOptions,
+                                "option",
+                                TCL_EXACT,
+                                &optionIndex)
+            != TCL_OK) {
+            return TCL_ERROR;
+        }
+        switch ((enum socketOptions)optionIndex) {
+        case SKT_ASYNC:
+            if (server == 1) {
+                Tcl_SetObjResult(
+                    interp,
+                    Tcl_NewStringObj(
+                        "cannot set -async option for server sockets", -1));
+                return TCL_ERROR;
+            }
+            async = 1;
+            break;
+        case SKT_SERVER:
+            if (async == 1) {
+                Tcl_SetObjResult(
+                    interp,
+                    Tcl_NewStringObj(
+                        "cannot set -async option for server sockets", -1));
+                return TCL_ERROR;
+            }
+            server = 1;
+            a++;
+            if (a >= objc) {
+                Tcl_SetObjResult(
+                    interp,
+                    Tcl_NewStringObj("no argument given for -server option",
+                                     -1));
+                return TCL_ERROR;
+            }
+            script = TclGetString(objv[a]);
+            break;
+        case SKT_AUTHENTICATE:
+            authenticate = 1;
+            break;
+        default:
+            Iocp_Panic("BT_SocketObjCmd: bad option index to SocketOptions");
+        }
+    }
+
+    /* There should 1 (server) or 2 (client) arguments left over */
+    if ((objc-a) != (server ? 1 : 2)) {
+        /*
+         * Hard code to match Tcl socket error. Can't use code below because
+         * it uses internal Tcl structures.
+         */
+        Tcl_SetResult(interp,
+                      "wrong # args: should be \"bt::socket ?-async? device service\""
+                      "or "
+                      "bt::socket -server command service\"",
+                      TCL_STATIC);
+        return TCL_ERROR;
+    }
+
+    /* Last arg is always service for both */
+    if (UnwrapUuid(interp, objv[objc-1], &service) != TCL_OK) 
+        return TCL_ERROR;
+
+    if (server) {
+        char *              copyScript;
+        IocpAcceptCallback *acceptCallbackPtr;
+        Tclh_SSizeT         len;
+
+        copyScript = ckalloc(len);
+        memcpy(copyScript, script, len);
+        acceptCallbackPtr         = ckalloc(sizeof(*acceptCallbackPtr));
+        acceptCallbackPtr->script = copyScript;
+        acceptCallbackPtr->interp = interp;
+
+#if 0
+        chan = Iocp_OpenBTServer(
+            interp, service, AcceptCallbackProc, acceptCallbackPtr);
+#endif
+        if (chan == NULL) {
+            ckfree(copyScript);
+            ckfree(acceptCallbackPtr);
+            return TCL_ERROR;
+        }
+
+        /* 
+         * Register with the interpreter to let us know when the interpreter is
+         * deleted (by having the callback set the interp field of the
+         * acceptCallbackPtr's structure to NULL). This is to avoid trying to
+         * eval the script in a deleted interpreter.
+         */
+
+        IocpRegisterAcceptCallbackCleanup(interp, acceptCallbackPtr);
+
+        /* 
+         * Register a close callback. This callback will inform the interpreter
+         * (if it still exists) that this channel does not need to be informed
+         * when the interpreter is deleted.
+         */
+
+        Tcl_CreateCloseHandler(chan,
+                               IocpUnregisterAcceptCallbackCleanupOnClose,
+                               acceptCallbackPtr);
+
+    } else {
+        BLUETOOTH_ADDRESS btAddress;
+        IOCP_ASSERT(a < (objc-1));
+        if (ObjToBLUETOOTH_ADDRESS(interp, objv[a], &btAddress) != TCL_OK) {
+            return TCL_ERROR;
+        }
+
+        chan = Iocp_OpenBTClient(interp, &service, &btAddress, async);
+        if (chan == NULL) {
+            return TCL_ERROR;
+        }
+    }
+
+    Tcl_RegisterChannel(interp, chan);
+    Tcl_SetObjResult(interp, Tcl_NewStringObj(Tcl_GetChannelName(chan), -1));
+
+    return TCL_OK;
+}
+#endif /* NOTYET */
+
 /*
  *------------------------------------------------------------------------
  *
@@ -827,23 +1047,60 @@ BT_FormatAddressObjCmd (
  *
  *------------------------------------------------------------------------
  */
-IocpTclCode BT_ModuleInitialize (Tcl_Interp *interp)
+IocpTclCode
+BT_ModuleInitialize(Tcl_Interp *interp)
 {
-    Tcl_CreateObjCommand(interp, "iocp::bt::CloseHandle", BT_CloseHandleObjCmd, 0L, 0L);
-    Tcl_CreateObjCommand(interp, "iocp::bt::FindFirstRadio", BT_FindFirstRadioObjCmd, 0L, 0L);
-    Tcl_CreateObjCommand(interp, "iocp::bt::FindNextRadio", BT_FindNextRadioObjCmd, 0L, 0L);
-    Tcl_CreateObjCommand(interp, "iocp::bt::FindFirstRadioClose", BT_FindFirstRadioCloseObjCmd, 0L, 0L);
-    Tcl_CreateObjCommand(interp, "iocp::bt::GetRadioInfo", BT_GetRadioInfoObjCmd, 0L, 0L);
-    Tcl_CreateObjCommand(interp, "iocp::bt::FindFirstDevice", BT_FindFirstDeviceObjCmd, 0L, 0L);
-    Tcl_CreateObjCommand(interp, "iocp::bt::FindFirstDeviceClose", BT_FindFirstDeviceCloseObjCmd, 0L, 0L);
-    Tcl_CreateObjCommand(interp, "iocp::bt::FindNextDevice", BT_FindNextDeviceObjCmd, 0L, 0L);
-    Tcl_CreateObjCommand(interp, "iocp::bt::GetDeviceInfo", BT_GetDeviceInfoObjCmd, 0L, 0L);
-    Tcl_CreateObjCommand(interp, "iocp::bt::EnableDiscovery", BT_ConfigureRadioObjCmd, (ClientData) BT_ENABLE_DISCOVERY, 0L);
-    Tcl_CreateObjCommand(interp, "iocp::bt::EnableIncomingConnections", BT_ConfigureRadioObjCmd, (ClientData) BT_ENABLE_INCOMING, 0L);
-    Tcl_CreateObjCommand(interp, "iocp::bt::IsDiscoverable", BT_RadioStatusObjCmd, (ClientData) BT_STATUS_DISCOVERY, 0L);
-    Tcl_CreateObjCommand(interp, "iocp::bt::IsConnectable", BT_RadioStatusObjCmd, (ClientData) BT_STATUS_INCOMING, 0L);
-    Tcl_CreateObjCommand(interp, "iocp::bt::EnumerateInstalledServices", BT_EnumerateInstalledServicesObjCmd, NULL, NULL);
-    Tcl_CreateObjCommand(interp, "iocp::bt::RemoveDevice", BT_RemoveDeviceObjCmd, NULL, NULL);
+    Tcl_CreateObjCommand(
+        interp, "iocp::bt::CloseHandle", BT_CloseHandleObjCmd, 0L, 0L);
+    Tcl_CreateObjCommand(
+        interp, "iocp::bt::FindFirstRadio", BT_FindFirstRadioObjCmd, 0L, 0L);
+    Tcl_CreateObjCommand(
+        interp, "iocp::bt::FindNextRadio", BT_FindNextRadioObjCmd, 0L, 0L);
+    Tcl_CreateObjCommand(interp,
+                         "iocp::bt::FindFirstRadioClose",
+                         BT_FindFirstRadioCloseObjCmd,
+                         0L,
+                         0L);
+    Tcl_CreateObjCommand(
+        interp, "iocp::bt::GetRadioInfo", BT_GetRadioInfoObjCmd, 0L, 0L);
+    Tcl_CreateObjCommand(
+        interp, "iocp::bt::FindFirstDevice", BT_FindFirstDeviceObjCmd, 0L, 0L);
+    Tcl_CreateObjCommand(interp,
+                         "iocp::bt::FindFirstDeviceClose",
+                         BT_FindFirstDeviceCloseObjCmd,
+                         0L,
+                         0L);
+    Tcl_CreateObjCommand(
+        interp, "iocp::bt::FindNextDevice", BT_FindNextDeviceObjCmd, 0L, 0L);
+    Tcl_CreateObjCommand(
+        interp, "iocp::bt::GetDeviceInfo", BT_GetDeviceInfoObjCmd, 0L, 0L);
+    Tcl_CreateObjCommand(interp,
+                         "iocp::bt::EnableDiscovery",
+                         BT_ConfigureRadioObjCmd,
+                         (ClientData)BT_ENABLE_DISCOVERY,
+                         0L);
+    Tcl_CreateObjCommand(interp,
+                         "iocp::bt::EnableIncomingConnections",
+                         BT_ConfigureRadioObjCmd,
+                         (ClientData)BT_ENABLE_INCOMING,
+                         0L);
+    Tcl_CreateObjCommand(interp,
+                         "iocp::bt::IsDiscoverable",
+                         BT_RadioStatusObjCmd,
+                         (ClientData)BT_STATUS_DISCOVERY,
+                         0L);
+    Tcl_CreateObjCommand(interp,
+                         "iocp::bt::IsConnectable",
+                         BT_RadioStatusObjCmd,
+                         (ClientData)BT_STATUS_INCOMING,
+                         0L);
+    Tcl_CreateObjCommand(interp,
+                         "iocp::bt::EnumerateInstalledServices",
+                         BT_EnumerateInstalledServicesObjCmd,
+                         NULL,
+                         NULL);
+    Tcl_CreateObjCommand(
+        interp, "iocp::bt::RemoveDevice", BT_RemoveDeviceObjCmd, NULL, NULL);
 
 #ifdef IOCP_DEBUG
     Tcl_CreateObjCommand(interp, "iocp::bt::FormatAddress", BT_FormatAddressObjCmd, 0L, 0L);

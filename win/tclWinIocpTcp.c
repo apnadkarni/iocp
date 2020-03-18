@@ -109,8 +109,8 @@ typedef struct WinsockClient {
     int flags;                        /* Miscellaneous flags */
 #define IOCP_TCP_CONNECT_ASYNC 0x1
 
-#define IOCP_TCP_MAX_RECEIVES 3
-#define IOCP_TCP_MAX_SENDS    3
+#define IOCP_WINSOCK_MAX_RECEIVES 3
+#define IOCP_WINSOCK_MAX_SENDS    3
 
 } WinsockClient;
 
@@ -125,7 +125,7 @@ IOCP_INLINE WinsockClient *IocpChannelToWinsockClient(IocpChannel *chanPtr) {
     return (WinsockClient *) chanPtr;
 }
 
-static void         TcpClientInit(IocpChannel *basePtr);
+static void         WinsockClientInit(IocpChannel *basePtr);
 static void         TcpClientFinit(IocpChannel *chanPtr);
 static int          WinsockClientShutdown(Tcl_Interp *,
                                       IocpChannel *chanPtr, int flags);
@@ -155,7 +155,7 @@ static void         WinsockClientFreeAddresses(WinsockClient *tcpPtr);
 
 static IocpChannelVtbl tcpClientVtbl =  {
     /* "Virtual" functions */
-    TcpClientInit,
+    WinsockClientInit,
     TcpClientFinit,
     WinsockClientShutdown,
     NULL,                       /* Accept */
@@ -176,12 +176,6 @@ static IocpChannelVtbl tcpClientVtbl =  {
 int IocpIsInetClient(IocpChannel *chanPtr) {
     return (chanPtr->vtblPtr == &tcpClientVtbl);
 }
-#ifdef TBD
-int IocpIsBtClient(IocpChannel *chanPtr) {
-    return (chanPtr->vtblPtr == &btClientVtbl &&
-            ((WinsockClient *)chanPtr)->aiFamily == AF_BTH);
-}
-#endif
 
 /****************************************************************
  * TCP listener structures
@@ -200,7 +194,7 @@ typedef struct TcpListeningSocket {
     int                       aiProtocol; /* ... passed to _AcceptEx */
     int                       pendingAcceptPosts; /* #queued accepts posts */
     int                       maxPendingAcceptPosts; /* Loose max of above */
-#define IOCP_TCP_MAX_ACCEPTS 3  /* TBD */
+#define IOCP_WINSOCK_MAX_ACCEPTS 3  /* TBD */
 } TcpListeningSocket;
 
 typedef struct TcpAcceptBuffer {
@@ -291,7 +285,8 @@ static IocpChannelVtbl tcpListenerVtbl = {
  *
  *------------------------------------------------------------------------
  */
-IocpTclCode IocpTcpSetChannelDefaults(
+static IocpTclCode
+IocpTcpSetChannelDefaults(
     Tcl_Channel channel
     )
 {
@@ -324,7 +319,8 @@ IocpTclCode IocpTcpSetChannelDefaults(
  *
  *------------------------------------------------------------------------
  */
-IocpWinError IocpTcpListifyAddress(
+static IocpWinError
+IocpTcpListifyAddress(
     const IocpSockaddr *addrPtr,    /* Address to listify */
     int                    addrSize,   /* Size of address structure */
     int                    noRDNS,     /* If true, no name lookup is done */
@@ -363,7 +359,7 @@ IocpWinError IocpTcpListifyAddress(
         else {
             IOCP_ASSERT(addrPtr->sa.sa_family == AF_INET6);
             if ((IN6_ARE_ADDR_EQUAL(&addrPtr->sa6.sin6_addr,
-				    &in6addr_any)) ||
+                    &in6addr_any)) ||
                 (IN6_IS_ADDR_V4MAPPED(&addrPtr->sa6.sin6_addr)
                  && addrPtr->sa6.sin6_addr.s6_addr[12] == 0
                  && addrPtr->sa6.sin6_addr.s6_addr[13] == 0
@@ -389,7 +385,7 @@ IocpWinError IocpTcpListifyAddress(
 /*
  *------------------------------------------------------------------------
  *
- * TcpClientInit --
+ * WinsockClientInit --
  *
  *    Initializes the WinsockClient part of a IocpChannel structure.
  *
@@ -401,7 +397,7 @@ IocpWinError IocpTcpListifyAddress(
  *
  *------------------------------------------------------------------------
  */
-static void TcpClientInit(IocpChannel *chanPtr)
+static void WinsockClientInit(IocpChannel *chanPtr)
 {
     WinsockClient *wsPtr = IocpChannelToWinsockClient(chanPtr);
 
@@ -410,8 +406,8 @@ static void TcpClientInit(IocpChannel *chanPtr)
     memset(&wsPtr->addresses, 0, sizeof(wsPtr->addresses));
     wsPtr->flags          = 0;
 
-    wsPtr->base.maxPendingReads  = IOCP_TCP_MAX_RECEIVES;
-    wsPtr->base.maxPendingWrites = IOCP_TCP_MAX_SENDS;
+    wsPtr->base.maxPendingReads  = IOCP_WINSOCK_MAX_RECEIVES;
+    wsPtr->base.maxPendingWrites = IOCP_WINSOCK_MAX_SENDS;
 }
 
 
@@ -1134,7 +1130,7 @@ static IocpWinError TcpClientBlockingConnect(
 /*
  *------------------------------------------------------------------------
  *
- * TcpClientInitiateConnection --
+ * WinsockClientInitiateConnection --
  *
  *    Initiates an asynchronous TCP connection from the local address
  *    pointed to by tcpPtr->localAddr to the remote address tcpPtr->remoteAddr.
@@ -1150,7 +1146,7 @@ static IocpWinError TcpClientBlockingConnect(
  *
  *------------------------------------------------------------------------
  */
-static IocpWinError TcpClientInitiateConnection(
+static IocpWinError WinsockClientInitiateConnection(
     WinsockClient *tcpPtr)  /* Caller must ensure exclusivity either by locking
                               * or ensuring no other thread can access */
 {
@@ -1277,7 +1273,7 @@ static IocpWinError WinsockClientAsyncConnectFailed(
         tcpPtr->so = INVALID_SOCKET;
     }
     if (IocpIsInetClient(lockedChanPtr))
-        return TcpClientInitiateConnection(tcpPtr);
+        return WinsockClientInitiateConnection(tcpPtr);
     else {
         Iocp_Panic("TBD BT");
         return 0;
@@ -1336,8 +1332,8 @@ Iocp_OpenTcpClient(
     const char *myaddr,		/* Client-side address */
     int myport,			/* Client-side port */
     int async)			/* If nonzero, attempt to do an asynchronous
-				 * connect. Otherwise we do a blocking
-				 * connect. */
+                 * connect. Otherwise we do a blocking
+                 * connect. */
 {
     const char *errorMsg = NULL;
     struct addrinfo *remoteAddrs = NULL, *localAddrs = NULL;
@@ -1348,7 +1344,7 @@ Iocp_OpenTcpClient(
 #ifdef TBD
 
     if (TclpHasSockets(interp) != TCL_OK) {
-	return NULL;
+    return NULL;
     }
 
     /*
@@ -1358,7 +1354,7 @@ Iocp_OpenTcpClient(
      */
 
     if (!SocketsEnabled()) {
-	return NULL;
+    return NULL;
     }
 #endif
 
@@ -1390,7 +1386,7 @@ Iocp_OpenTcpClient(
 
     IocpChannelLock(WinsockClientToIocpChannel(tcpPtr));
     if (async) {
-        winError = TcpClientInitiateConnection(tcpPtr);
+        winError = WinsockClientInitiateConnection(tcpPtr);
         if (winError != ERROR_SUCCESS) {
             IocpSetInterpPosixErrorFromWin32(interp, winError, gSocketOpenErrorMessage);
             goto fail;
@@ -1458,8 +1454,8 @@ Iocp_OpenTcpClient(
      */
     tcpPtr = NULL;
     if (IocpTcpSetChannelDefaults(channel) == TCL_ERROR) {
-	Tcl_Close(NULL, channel);
-	return NULL;
+    Tcl_Close(NULL, channel);
+    return NULL;
     }
 
     return channel;
@@ -1995,7 +1991,7 @@ static IocpWinError IocpTcpListen(
     tcpPtr->listeners[listenerIndex].aiSocktype = addrPtr->ai_socktype;
     tcpPtr->listeners[listenerIndex].aiProtocol = addrPtr->ai_protocol;
     tcpPtr->listeners[listenerIndex].pendingAcceptPosts     = 0;
-    tcpPtr->listeners[listenerIndex].maxPendingAcceptPosts  = IOCP_TCP_MAX_ACCEPTS;
+    tcpPtr->listeners[listenerIndex].maxPendingAcceptPosts  = IOCP_WINSOCK_MAX_ACCEPTS;
     tcpPtr->numListeners += 1;
     return 0;
 }
@@ -2037,7 +2033,7 @@ IocpTclCode TcpListenerGetOption(
         return TCL_ERROR;
     }
     if (interp != NULL && Tcl_GetVar(interp, SUPPRESS_RDNS_VAR, 0) != NULL) {
-	noRDNS = NI_NUMERICHOST;
+    noRDNS = NI_NUMERICHOST;
     }
 
     switch (opt) {
@@ -2118,8 +2114,8 @@ Iocp_OpenTcpServer(
     int port,			/* Port number to open. */
     const char *myHost,		/* Name of local host. */
     Tcl_TcpAcceptProc *acceptProc,
-				/* Callback for accepting connections from new
-				 * clients. */
+                /* Callback for accepting connections from new
+                 * clients. */
     ClientData acceptProcData)	/* Data for the callback. */
 {
     const char      *errorMsg   = NULL;
@@ -2135,7 +2131,7 @@ Iocp_OpenTcpServer(
 #ifdef TBD
 
     if (TclpHasSockets(interp) != TCL_OK) {
-	return NULL;
+    return NULL;
     }
 
     /*
@@ -2145,7 +2141,7 @@ Iocp_OpenTcpServer(
      */
 
     if (!SocketsEnabled()) {
-	return NULL;
+    return NULL;
     }
 #endif
 
@@ -2182,19 +2178,19 @@ Iocp_OpenTcpServer(
          * make that the chosen one for further bindings. This is to ensure that
          * IPv6 and IPv4 bind to same OS-specified port
          */
-	if (port == 0 && chosenPort == 0) {
-	    IocpSockaddr sockname;
-	    socklen_t       namelen = sizeof(sockname);
+    if (port == 0 && chosenPort == 0) {
+        IocpSockaddr sockname;
+        socklen_t       namelen = sizeof(sockname);
 
-	    /*
-	     * Synchronize port numbers when binding to port 0 of multiple
-	     * addresses.
-	     */
+        /*
+         * Synchronize port numbers when binding to port 0 of multiple
+         * addresses.
+         */
 
-	    if (getsockname(tcpPtr->listeners[tcpPtr->numListeners-1].so, &sockname.sa, &namelen) == 0) {
-		chosenPort = ntohs(sockname.sa4.sin_port);
-	    }
-	}
+        if (getsockname(tcpPtr->listeners[tcpPtr->numListeners-1].so, &sockname.sa, &namelen) == 0) {
+        chosenPort = ntohs(sockname.sa4.sin_port);
+        }
+    }
     }
     freeaddrinfo(localAddrs);
     localAddrs = NULL;          /* To prevent double frees in case of errors */
@@ -2257,8 +2253,8 @@ Iocp_OpenTcpServer(
     if (TCL_ERROR == Tcl_SetChannelOption(NULL, channel,
                                                  "-eofchar", "")) {
         /* Do NOT goto fail here. The Tcl_Close will drop tcpPtr via CloseProc */
-	Tcl_Close(NULL, channel);
-	return NULL;
+    Tcl_Close(NULL, channel);
+    return NULL;
     }
 
     return channel;
@@ -2281,7 +2277,7 @@ fail: /* tcpPtr must NOT be locked, interp must contain error message already */
 /*
  *------------------------------------------------------------------------
  *
- * Iocp_SocketObjCmd --
+ * Tcp_SocketObjCmd --
  *
  *    Implements the socket command. See 'socket' documentation as to description
  *    and options.
@@ -2295,17 +2291,17 @@ fail: /* tcpPtr must NOT be locked, interp must contain error message already */
  *------------------------------------------------------------------------
  */
 static IocpTclCode
-Iocp_SocketObjCmd (
+Tcp_SocketObjCmd (
     ClientData notUsed,			/* Not used. */
     Tcl_Interp *interp,			/* Current interpreter. */
     int objc,				/* Number of arguments. */
     Tcl_Obj *CONST objv[])		/* Argument objects. */
 {
     static const char *const socketOptions[] = {
-	"-async", "-myaddr", "-myport", "-server", NULL
+    "-async", "-myaddr", "-myport", "-server", NULL
     };
     enum socketOptions {
-	SKT_ASYNC, SKT_MYADDR, SKT_MYPORT, SKT_SERVER
+    SKT_ASYNC, SKT_MYADDR, SKT_MYPORT, SKT_SERVER
     };
     int optionIndex, a, server = 0, port, myport = 0, async = 0;
     const char *host, *script = NULL, *myaddr = NULL;
@@ -2313,82 +2309,82 @@ Iocp_SocketObjCmd (
 
 #ifdef TBD
     if (TclpHasSockets(interp) != TCL_OK) {
-	return TCL_ERROR;
+    return TCL_ERROR;
     }
 #endif
 
     for (a = 1; a < objc; a++) {
-	const char *arg = TclGetString(objv[a]);
+    const char *arg = TclGetString(objv[a]);
 
-	if (arg[0] != '-') {
-	    break;
-	}
-	if (Tcl_GetIndexFromObj(interp, objv[a], socketOptions, "option",
-		TCL_EXACT, &optionIndex) != TCL_OK) {
-	    return TCL_ERROR;
-	}
-	switch ((enum socketOptions) optionIndex) {
-	case SKT_ASYNC:
-	    if (server == 1) {
-		Tcl_SetObjResult(interp, Tcl_NewStringObj(
-			"cannot set -async option for server sockets", -1));
-		return TCL_ERROR;
-	    }
-	    async = 1;
-	    break;
-	case SKT_MYADDR:
-	    a++;
-	    if (a >= objc) {
-		Tcl_SetObjResult(interp, Tcl_NewStringObj(
-			"no argument given for -myaddr option", -1));
-		return TCL_ERROR;
-	    }
-	    myaddr = TclGetString(objv[a]);
-	    break;
-	case SKT_MYPORT: {
-	    const char *myPortName;
+    if (arg[0] != '-') {
+        break;
+    }
+    if (Tcl_GetIndexFromObj(interp, objv[a], socketOptions, "option",
+        TCL_EXACT, &optionIndex) != TCL_OK) {
+        return TCL_ERROR;
+    }
+    switch ((enum socketOptions) optionIndex) {
+    case SKT_ASYNC:
+        if (server == 1) {
+        Tcl_SetObjResult(interp, Tcl_NewStringObj(
+            "cannot set -async option for server sockets", -1));
+        return TCL_ERROR;
+        }
+        async = 1;
+        break;
+    case SKT_MYADDR:
+        a++;
+        if (a >= objc) {
+        Tcl_SetObjResult(interp, Tcl_NewStringObj(
+            "no argument given for -myaddr option", -1));
+        return TCL_ERROR;
+        }
+        myaddr = TclGetString(objv[a]);
+        break;
+    case SKT_MYPORT: {
+        const char *myPortName;
 
-	    a++;
-	    if (a >= objc) {
-		Tcl_SetObjResult(interp, Tcl_NewStringObj(
-			"no argument given for -myport option", -1));
-		return TCL_ERROR;
-	    }
-	    myPortName = TclGetString(objv[a]);
-	    if (TclSockGetPort(interp, myPortName, "tcp", &myport) != TCL_OK) {
-		return TCL_ERROR;
-	    }
-	    break;
-	}
-	case SKT_SERVER:
-	    if (async == 1) {
-		Tcl_SetObjResult(interp, Tcl_NewStringObj(
-			"cannot set -async option for server sockets", -1));
-		return TCL_ERROR;
-	    }
-	    server = 1;
-	    a++;
-	    if (a >= objc) {
-		Tcl_SetObjResult(interp, Tcl_NewStringObj(
-			"no argument given for -server option", -1));
-		return TCL_ERROR;
-	    }
-	    script = TclGetString(objv[a]);
-	    break;
-	default:
-	    Iocp_Panic("Tcl_SocketObjCmd: bad option index to SocketOptions");
-	}
+        a++;
+        if (a >= objc) {
+        Tcl_SetObjResult(interp, Tcl_NewStringObj(
+            "no argument given for -myport option", -1));
+        return TCL_ERROR;
+        }
+        myPortName = TclGetString(objv[a]);
+        if (TclSockGetPort(interp, myPortName, "tcp", &myport) != TCL_OK) {
+        return TCL_ERROR;
+        }
+        break;
+    }
+    case SKT_SERVER:
+        if (async == 1) {
+        Tcl_SetObjResult(interp, Tcl_NewStringObj(
+            "cannot set -async option for server sockets", -1));
+        return TCL_ERROR;
+        }
+        server = 1;
+        a++;
+        if (a >= objc) {
+        Tcl_SetObjResult(interp, Tcl_NewStringObj(
+            "no argument given for -server option", -1));
+        return TCL_ERROR;
+        }
+        script = TclGetString(objv[a]);
+        break;
+    default:
+        Iocp_Panic("Tcp_SocketObjCmd: bad option index to SocketOptions");
+    }
     }
     if (server) {
-	host = myaddr;		/* NULL implies INADDR_ANY */
-	if (myport != 0) {
-	    Tcl_SetObjResult(interp, Tcl_NewStringObj(
-		    "option -myport is not valid for servers", -1));
-	    return TCL_ERROR;
-	}
+    host = myaddr;		/* NULL implies INADDR_ANY */
+    if (myport != 0) {
+        Tcl_SetObjResult(interp, Tcl_NewStringObj(
+            "option -myport is not valid for servers", -1));
+        return TCL_ERROR;
+    }
     } else if (a < objc) {
-	host = TclGetString(objv[a]);
-	a++;
+    host = TclGetString(objv[a]);
+    a++;
     } else {
     wrongNumArgs:
 #ifdef BUILD_iocp
@@ -2398,67 +2394,67 @@ Iocp_SocketObjCmd (
          */
         Tcl_SetResult(interp, "wrong # args: should be \"socket ?-myaddr addr? ?-myport myport? ?-async? host port\" or \"socket -server command ?-myaddr addr? port\"", TCL_STATIC);
 #else
-	Tcl_WrongNumArgs(interp, 1, objv,
-		"?-myaddr addr? ?-myport myport? ?-async? host port");
-	((Interp *)interp)->flags |= INTERP_ALTERNATE_WRONG_ARGS;
-	Tcl_WrongNumArgs(interp, 1, objv,
-		"-server command ?-myaddr addr? port");
+    Tcl_WrongNumArgs(interp, 1, objv,
+        "?-myaddr addr? ?-myport myport? ?-async? host port");
+    ((Interp *)interp)->flags |= INTERP_ALTERNATE_WRONG_ARGS;
+    Tcl_WrongNumArgs(interp, 1, objv,
+        "-server command ?-myaddr addr? port");
 #endif
-	return TCL_ERROR;
+    return TCL_ERROR;
     }
 
     if (a == objc-1) {
-	if (TclSockGetPort(interp, TclGetString(objv[a]), "tcp",
-		&port) != TCL_OK) {
-	    return TCL_ERROR;
-	}
+    if (TclSockGetPort(interp, TclGetString(objv[a]), "tcp",
+        &port) != TCL_OK) {
+        return TCL_ERROR;
+    }
     } else {
-	goto wrongNumArgs;
+    goto wrongNumArgs;
     }
 
     if (server) {
-	IocpAcceptCallback *acceptCallbackPtr;
-	IocpSizeT           len;
-	char               *copyScript;
+    IocpAcceptCallback *acceptCallbackPtr;
+    IocpSizeT           len;
+    char               *copyScript;
 
         len        = (IocpSizeT) strlen(script)+1;
         copyScript = ckalloc(len);
-	memcpy(copyScript, script, len);
+    memcpy(copyScript, script, len);
         acceptCallbackPtr         = ckalloc(sizeof(*acceptCallbackPtr));
-	acceptCallbackPtr->script = copyScript;
-	acceptCallbackPtr->interp = interp;
+    acceptCallbackPtr->script = copyScript;
+    acceptCallbackPtr->interp = interp;
 
-	chan = Iocp_OpenTcpServer(interp, port, host, AcceptCallbackProc,
+    chan = Iocp_OpenTcpServer(interp, port, host, AcceptCallbackProc,
                                  acceptCallbackPtr);
-	if (chan == NULL) {
-	    ckfree(copyScript);
-	    ckfree(acceptCallbackPtr);
-	    return TCL_ERROR;
-	}
+    if (chan == NULL) {
+        ckfree(copyScript);
+        ckfree(acceptCallbackPtr);
+        return TCL_ERROR;
+    }
 
-	/*
-	 * Register with the interpreter to let us know when the interpreter
-	 * is deleted (by having the callback set the interp field of the
-	 * acceptCallbackPtr's structure to NULL). This is to avoid trying to
-	 * eval the script in a deleted interpreter.
-	 */
+    /*
+     * Register with the interpreter to let us know when the interpreter
+     * is deleted (by having the callback set the interp field of the
+     * acceptCallbackPtr's structure to NULL). This is to avoid trying to
+     * eval the script in a deleted interpreter.
+     */
 
-	IocpRegisterAcceptCallbackCleanup(interp, acceptCallbackPtr);
+    IocpRegisterAcceptCallbackCleanup(interp, acceptCallbackPtr);
 
-	/*
-	 * Register a close callback. This callback will inform the
-	 * interpreter (if it still exists) that this channel does not need to
-	 * be informed when the interpreter is deleted.
-	 */
+    /*
+     * Register a close callback. This callback will inform the
+     * interpreter (if it still exists) that this channel does not need to
+     * be informed when the interpreter is deleted.
+     */
 
-	Tcl_CreateCloseHandler(chan, IocpUnregisterAcceptCallbackCleanupOnClose,
+    Tcl_CreateCloseHandler(chan, IocpUnregisterAcceptCallbackCleanupOnClose,
                                acceptCallbackPtr);
 
     } else {
-	chan = Iocp_OpenTcpClient(interp, port, host, myaddr, myport, async);
-	if (chan == NULL) {
-	    return TCL_ERROR;
-	}
+    chan = Iocp_OpenTcpClient(interp, port, host, myaddr, myport, async);
+    if (chan == NULL) {
+        return TCL_ERROR;
+    }
     }
 
     Tcl_RegisterChannel(interp, chan);
@@ -2483,6 +2479,6 @@ Iocp_SocketObjCmd (
  */
 IocpTclCode Winsock_ModuleInitialize (Tcl_Interp *interp)
 {
-    Tcl_CreateObjCommand(interp, "iocp::socket", Iocp_SocketObjCmd, 0L, 0L);
+    Tcl_CreateObjCommand(interp, "iocp::socket", Tcp_SocketObjCmd, 0L, 0L);
     return TCL_OK;
 }
