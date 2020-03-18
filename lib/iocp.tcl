@@ -1,5 +1,35 @@
+proc iocp::bt::radios {} {
+    # Enumerate Bluetooth radios on the local system.
+    #
+    # Each radio element of the returned list contains the following keys:
+    # Address - The Bluetooth address of the radio.
+    # Name - Name assigned to the local system as advertised by the radio.
+    # Class - Device class.
+    # Subversion - Integer value whose interpretation is manufacturer-specific.
+    # Manufacturer - Integer identifier assigned to the manufacturer.
+    #
+    # Returns a list of radio information elements.
+
+    set pair [FindFirstRadio]
+    if {[llength $pair] == 0} {
+        return {}
+    }
+    lassign $pair finder hradio
+    set radios {}
+    try {
+        while {1} {
+            lappend radios [GetRadioInfo $hradio] 
+            CloseHandle $hradio
+            set hradio [FindNextRadio $finder]
+        }
+    } finally {
+        FindFirstRadioClose $finder
+    }
+    return $radios
+}
+
 proc iocp::bt::devices {args} {
-    # Returns a list of known devices.
+    # Enumerate known Bluetooth devices.
     # -authenticated - filter for authenticated devices
     # -remembered    - filter for remembered devices
     # -unknown       - filter for unknown devices
@@ -44,16 +74,24 @@ proc iocp::bt::devices {args} {
     return $devices
 }
 
-proc iocp::bt::resolve_device_name {name args} {
+proc iocp::bt::resolve_device {name args} {
     # Returns a list of Bluetooth addresses for a given name.
     # name - name of device of interest
     # args - Options to control device enquiry. See [devices].
 
-    return [lmap device [devices] {
+    set addresses [lmap device [devices] {
         if {[string compare -nocase $name [dict get $device Name]]} {
             continue
         }
         dict get $device Address
     }]
+    # Also resolve local system radios
+    foreach radio [radios] {
+        if {[string equal -nocase $name [dict get $radio Name]]} {
+            lappend addresses [dict get $radio Address]
+        }
+    }
+    return $addresses
 }
+
 

@@ -96,8 +96,13 @@ BT_FindFirstRadioObjCmd (
     btParams.dwSize = sizeof(btParams);
     findHandle = BluetoothFindFirstRadio(&btParams, &radioHandle);
 
-    if (findHandle == NULL)
-        return Iocp_ReportLastWindowsError(interp, "Could not locate Bluetooth radios: ");
+    if (findHandle == NULL) {
+        IocpWinError winError = GetLastError();
+        if (winError == ERROR_NO_MORE_DEVICES)
+            return TCL_OK;
+        else
+            return Iocp_ReportWindowsError(interp, winError, "Could not locate Bluetooth radios: ");
+    }
 
     if (PointerRegister(interp, findHandle, "HBLUETOOTH_RADIO_FIND", &objs[0])
         == TCL_OK) {
