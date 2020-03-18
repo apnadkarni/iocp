@@ -26,10 +26,11 @@ PRJ_DEFINES = /D_WIN32_WINNT=_WIN32_WINNT_WIN7 /DTCLH_SHORTNAMES
 PRJ_OBJS = \
 	$(TMP_DIR)\iocp.obj \
     $(TMP_DIR)\tclPolyfill.obj \
+    $(TMP_DIR)\tclWinIocpWinsock.obj \
     $(TMP_DIR)\tclWinIocpTcp.obj \
-	$(TMP_DIR)\tclWinIocpBT.obj \
-	$(TMP_DIR)\tclWinIocpBTNames.obj \
-	$(TMP_DIR)\tclWinIocpUtil.obj
+    $(TMP_DIR)\tclWinIocpBT.obj \
+    $(TMP_DIR)\tclWinIocpBTNames.obj \
+    $(TMP_DIR)\tclWinIocpUtil.obj
 
 PRJ_LIBS  = ws2_32.lib Bthprops.lib rpcrt4.lib
 

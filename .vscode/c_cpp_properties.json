@@ -10,6 +10,7 @@
                 "_DEBUG",
                 "UNICODE",
                 "_UNICODE",
+                "BUILD_iocp",
                 "IOCP_ENABLE_TRACE",
                 "IOCP_DEBUG",
                 "IOCP_ENABLE_ASSERT",

@@ -1,11 +1,14 @@
-#include <tclWinIocp.h>
+/*
+ * IOCP Bluetooth module
+ */
 
-#include <Bthsdpdef.h>
-#include <BluetoothAPIs.h>
+#include "tclWinIocp.h"
 
 #include <stdio.h> /* For snprintf_s */
 
 #define STRING_LITERAL_OBJ(s) Tcl_NewStringObj(s, sizeof(s)-1)
+
+#define IOCP_BT_NAME_PREFIX      "bt"
 
 /*
  * BT_COMMAND enums are used as ClientData passed to commands

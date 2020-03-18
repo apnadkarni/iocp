@@ -8,160 +8,44 @@
  * See the file "license.terms" for information on usage and redistribution
  * of this file, and for a DISCLAIMER OF ALL WARRANTIES.
  */
-#include <winsock2.h>
-#include <mswsock.h>
-#include <ws2bth.h>
-#include <windows.h>
-#include "tcl.h"
 #include "tclWinIocp.h"
+#include "tclWinIocpWinsock.h"
 
 #if defined(BUILD_iocp)
 # define IOCP_INET_NAME_PREFIX   "tcp"
 #else
 # define IOCP_INET_NAME_PREFIX   "sock"
 #endif
-#define IOCP_BT_NAME_PREFIX      "bt"
 
-/*
- * Copied from Tcl - 
- * This is needed to comply with the strict aliasing rules of GCC, but it also
- * simplifies casting between the different sockaddr types.
- */
-
-typedef union {
-    struct sockaddr         sa;
-    struct sockaddr_in      sa4;
-    struct sockaddr_in6     sa6;
-    struct sockaddr_storage sas;
-    SOCKADDR_BTH            sabt;
-} IocpSockaddr;
-#ifndef IN6_ARE_ADDR_EQUAL
-#define IN6_ARE_ADDR_EQUAL IN6_ADDR_EQUAL
-#endif
-/*
- * Make sure to remove the redirection defines set in tclWinPort.h that is in
- * use in other sections of the core, except for us.
- * TBD - is this even necessary any more?
- */
-
-#undef getservbyname
-#undef getsockopt
-#undef setsockopt
-/* END Copied from Tcl */
 
 /* Just to ensure consistency */
 const char *gSocketOpenErrorMessage = "couldn't open socket: ";
-
-/*
- * Tcp socket options. Note order must match order of string option names
- * in the iocpTcpOptionNames array.
- */
-enum IocpTcpOption {
-    IOCP_TCP_OPT_PEERNAME,
-    IOCP_TCP_OPT_SOCKNAME,
-    IOCP_TCP_OPT_ERROR,
-    IOCP_TCP_OPT_CONNECTING,
-    IOCP_TCP_OPT_MAXPENDINGREADS,
-    IOCP_TCP_OPT_MAXPENDINGWRITES,
-    IOCP_TCP_OPT_MAXPENDINGACCEPTS,
-    IOCP_TCP_OPT_INVALID        /* Must be last */
-};
-
-/*
- * Options supported by TCP sockets. Note the order MUST match IocpTcpOptions
- */
-static const char *iocpTcpOptionNames[] = {
-    "-peername",
-    "-sockname",
-    "-error",
-    "-connecting",
-    "-maxpendingreads",
-    "-maxpendingwrites",
-    "-maxpendingaccepts",
-    NULL
-};
 
 /****************************************************************
  * TCP client channel structures
  ****************************************************************/
 
-/* TCP client channel state */
-typedef struct WinsockClient {
-    IocpChannel base;           /* Common IOCP channel structure. Must be
-                                 * first because of how structures are
-                                 * allocated and freed */
-    SOCKET      so;             /* Winsock socket handle */
-    /* Union is discriminated based on base.vtblPtr */
-    union {
-        struct {
-            struct addrinfo *remotes; /* List of potential remote addresses */
-            struct addrinfo *remote;  /* Remote address in use.
-                                       * Points into remoteAddrList */
-            struct addrinfo *locals;  /* List of potential local addresses */
-            struct addrinfo *local;   /* Local address in use
-                                       * Points into localAddrList */
-        } inet;                       /* AF_INET or AF_INET6 */
-        struct {
-            SOCKADDR_BTH remote;      /* Remote address */
-            SOCKADDR_BTH local;       /* Local address */
-        } bt;                         /* AF_BTH */
-    } addresses;
-    int flags;                        /* Miscellaneous flags */
-#define IOCP_TCP_CONNECT_ASYNC 0x1
-
-#define IOCP_WINSOCK_MAX_RECEIVES 3
-#define IOCP_WINSOCK_MAX_SENDS    3
-
-} WinsockClient;
 
 /*
  * Prototypes for TCP client implementation
  */
 
-IOCP_INLINE IocpChannel *WinsockClientToIocpChannel(WinsockClient *tcpPtr) {
-    return (IocpChannel *) tcpPtr;
-}
-IOCP_INLINE WinsockClient *IocpChannelToWinsockClient(IocpChannel *chanPtr) {
-    return (WinsockClient *) chanPtr;
-}
-
-static void         WinsockClientInit(IocpChannel *basePtr);
+static void         TcpClientInit(IocpChannel *chanPtr);
 static void         TcpClientFinit(IocpChannel *chanPtr);
-static int          WinsockClientShutdown(Tcl_Interp *,
-                                      IocpChannel *chanPtr, int flags);
-static IocpWinError WinsockClientPostConnect(WinsockClient *chanPtr);
+static IocpWinError TcpClientPostConnect(WinsockClient *chanPtr);
 static IocpWinError TcpClientBlockingConnect(IocpChannel *);
-static IocpWinError WinsockClientPostRead(IocpChannel *);
-static IocpWinError WinsockClientPostWrite(IocpChannel *, const char *data,
-                                         int nbytes, int *countPtr);
-static IocpWinError WinsockClientPostDisconnect(WinsockClient *chanPtr);
-static IocpWinError WinsockClientAsyncConnectFailed(IocpChannel *lockedChanPtr);
-static IocpWinError WinsockClientAsyncConnected(IocpChannel *lockedChanPtr);
-static void         WinsockClientDisconnected(IocpChannel *lockedChanPtr);
-static IocpTclCode  WinsockClientGetHandle(IocpChannel *lockedChanPtr,
-                                       int direction, ClientData *handlePtr);
-static IocpTclCode  WinsockClientGetOption (IocpChannel *lockedChanPtr,
-                                              Tcl_Interp *interp, int optIndex,
-                                              Tcl_DString *dsPtr);
-static IocpTclCode  WinsockClientSetOption (IocpChannel *lockedChanPtr,
-                                        Tcl_Interp *interp, int optIndex,
-                                        const char *valuePtr);
-static IocpWinError WinsockClientTranslateError(IocpChannel *chanPtr,
-                                            IocpBuffer *bufPtr);
-static IocpWinError IocpTcpListifyAddress(const IocpSockaddr *addr,
-                                          int addr_size, int noRDNS,
-                                          Tcl_DString *dsPtr);
-static void         WinsockClientFreeAddresses(WinsockClient *tcpPtr);
+static IocpWinError TcpClientAsyncConnectFailed(IocpChannel *lockedChanPtr);
+static void         TcpClientFreeAddresses(WinsockClient *tcpPtr);
 
 static IocpChannelVtbl tcpClientVtbl =  {
     /* "Virtual" functions */
-    WinsockClientInit,
+    TcpClientInit,
     TcpClientFinit,
     WinsockClientShutdown,
     NULL,                       /* Accept */
     TcpClientBlockingConnect,
     WinsockClientAsyncConnected,
-    WinsockClientAsyncConnectFailed,
+    TcpClientAsyncConnectFailed,
     WinsockClientDisconnected,
     WinsockClientPostRead,
     WinsockClientPostWrite,
@@ -170,7 +54,7 @@ static IocpChannelVtbl tcpClientVtbl =  {
     WinsockClientSetOption,
     WinsockClientTranslateError,
     /* Data members */
-    iocpTcpOptionNames,
+    iocpWinsockOptionNames,
     sizeof(WinsockClient)
 };
 int IocpIsInetClient(IocpChannel *chanPtr) {
@@ -261,7 +145,7 @@ static IocpChannelVtbl tcpListenerVtbl = {
     NULL,                       /* SetOption */
     NULL,                       /* translateerror */
     /* Data members */
-    iocpTcpOptionNames,
+    iocpWinsockOptionNames,
     sizeof(TcpListener)
 };
 
@@ -298,96 +182,12 @@ IocpTcpSetChannelDefaults(
     return TCL_OK;
 }
 
-
 /*
  *------------------------------------------------------------------------
  *
- * IocpTcpListifyAddress --
+ * TcpClientInit --
  *
- *    Converts a IP4/IP6 SOCKADDR to a list consisting of the IP address
- *    the name and the port number. If the address cannot be mapped to a
- *    name name, the numeric address is returned in that field.
- *
- *    Assumes caller will wrap call with a Tcl_DString{Start,End}Sublist pair.
- *
- * Results:
- *    Returns 0 on success with *dsPtr filled in or a Windows error code
- *    on failure.
- *
- * Side effects:
- *    None.
- *
- *------------------------------------------------------------------------
- */
-static IocpWinError
-IocpTcpListifyAddress(
-    const IocpSockaddr *addrPtr,    /* Address to listify */
-    int                    addrSize,   /* Size of address structure */
-    int                    noRDNS,     /* If true, no name lookup is done */
-    Tcl_DString           *dsPtr)      /* Caller-initialized location for output */
-{
-    int  flags;
-    char host[NI_MAXHOST];
-    char service[NI_MAXSERV];
-
-    /* TBD - fix for BT */
-
-    if (getnameinfo(&addrPtr->sa, addrSize, host, sizeof(host)/sizeof(host[0]),
-                    service, sizeof(service)/sizeof(service[0]),
-                    NI_NUMERICHOST|NI_NUMERICSERV) != 0) {
-        return WSAGetLastError();
-    }
-
-    Tcl_DStringAppendElement(dsPtr, host);
-
-    if (noRDNS) {
-        /* No reverse lookup, so just repeat in numeric address form */
-        Tcl_DStringAppendElement(dsPtr, host);
-    }
-    else {
-        flags = noRDNS ? NI_NUMERICHOST|NI_NUMERICSERV : NI_NUMERICSERV;
-
-        /*
-         * Based on comments in 8.6 Tcl winsock, do not try resolving
-         * INADDR_ANY and sin6addr_any as they sometimes cause problems.
-         * (no mention of what problems)
-         */
-        if (addrPtr->sa.sa_family == AF_INET) {
-            if (addrPtr->sa4.sin_addr.s_addr == INADDR_ANY)
-                flags |= NI_NUMERICHOST; /* Turn off lookup */
-        }
-        else {
-            IOCP_ASSERT(addrPtr->sa.sa_family == AF_INET6);
-            if ((IN6_ARE_ADDR_EQUAL(&addrPtr->sa6.sin6_addr,
-                    &in6addr_any)) ||
-                (IN6_IS_ADDR_V4MAPPED(&addrPtr->sa6.sin6_addr)
-                 && addrPtr->sa6.sin6_addr.s6_addr[12] == 0
-                 && addrPtr->sa6.sin6_addr.s6_addr[13] == 0
-                 && addrPtr->sa6.sin6_addr.s6_addr[14] == 0
-                 && addrPtr->sa6.sin6_addr.s6_addr[15] == 0)) {
-                flags |= NI_NUMERICHOST;
-            }
-        }
-        if (getnameinfo(&addrPtr->sa, addrSize, host,
-                        sizeof(host)/sizeof(host[0]),
-                        NULL, 0, flags) != 0) {
-            return WSAGetLastError();
-        }
-
-        Tcl_DStringAppendElement(dsPtr, host);
-    }
-
-    Tcl_DStringAppendElement(dsPtr, service);
-
-    return ERROR_SUCCESS;
-}
-
-/*
- *------------------------------------------------------------------------
- *
- * WinsockClientInit --
- *
- *    Initializes the WinsockClient part of a IocpChannel structure.
+ *    Initializes the TcpClient part of a IocpChannel structure.
  *
  * Results:
  *    None.
@@ -397,19 +197,15 @@ IocpTcpListifyAddress(
  *
  *------------------------------------------------------------------------
  */
-static void WinsockClientInit(IocpChannel *chanPtr)
+static void TcpClientInit(IocpChannel *chanPtr)
 {
     WinsockClient *wsPtr = IocpChannelToWinsockClient(chanPtr);
 
     IOCP_ASSERT(IocpIsInetClient(chanPtr));
-    wsPtr->so             = INVALID_SOCKET;
-    memset(&wsPtr->addresses, 0, sizeof(wsPtr->addresses));
-    wsPtr->flags          = 0;
+    WinsockClientInit(chanPtr);
 
-    wsPtr->base.maxPendingReads  = IOCP_WINSOCK_MAX_RECEIVES;
-    wsPtr->base.maxPendingWrites = IOCP_WINSOCK_MAX_SENDS;
+    wsPtr->flags |= IOCP_WINSOCK_HALF_CLOSABLE;
 }
-
 
 /*
  *------------------------------------------------------------------------
@@ -431,303 +227,18 @@ static void WinsockClientInit(IocpChannel *chanPtr)
  */
 static void TcpClientFinit(IocpChannel *chanPtr)
 {
-    WinsockClient *wsPtr = IocpChannelToWinsockClient(chanPtr);
+    WinsockClient *tcpPtr;
 
     IOCP_ASSERT(IocpIsInetClient(chanPtr));
-    if (wsPtr->addresses.inet.remotes) {
-        freeaddrinfo(wsPtr->addresses.inet.remotes);
-        wsPtr->addresses.inet.remotes = NULL;
-        wsPtr->addresses.inet.remote  = NULL;
-    }
-    if (wsPtr->addresses.inet.locals) {
-        freeaddrinfo(wsPtr->addresses.inet.locals);
-        wsPtr->addresses.inet.locals = NULL;
-        wsPtr->addresses.inet.locals = NULL;
-    }
-
-    if (wsPtr->so != INVALID_SOCKET) {
-        closesocket(wsPtr->so);
-    }
+    tcpPtr = IocpChannelToWinsockClient(chanPtr);
+    TcpClientFreeAddresses(tcpPtr);
+    WinsockClientFinit(chanPtr);
 }
 
 /*
  *------------------------------------------------------------------------
  *
- * WinsockClientShutdown --
- *
- *    Conforms to the IocpChannel shutdown interface.
- *
- * Results:
- *    0 on success, else a POSIX error code.
- *
- * Side effects:
- *    The Windows socket is closed in direction(s) specified by flags.
- *
- *------------------------------------------------------------------------
- */
-static int WinsockClientShutdown(
-    Tcl_Interp   *interp,        /* May be NULL */
-    IocpChannel *lockedChanPtr, /* Locked pointer to the base IocpChannel */
-    int          flags)         /* Combination of TCL_CLOSE_{READ,WRITE} */
-{
-    WinsockClient *lockedWsPtr = IocpChannelToWinsockClient(lockedChanPtr);
-
-    /* TBD - does BT support unidirectional shutdown */
-    if (lockedWsPtr->so != INVALID_SOCKET) {
-        int wsaStatus;
-        switch (flags & (TCL_CLOSE_READ|TCL_CLOSE_WRITE)) {
-        case TCL_CLOSE_READ:
-            wsaStatus = shutdown(lockedWsPtr->so, SD_RECEIVE);
-            break;
-        case TCL_CLOSE_WRITE:
-            wsaStatus = shutdown(lockedWsPtr->so, SD_SEND);
-            break;
-        case TCL_CLOSE_READ|TCL_CLOSE_WRITE:
-            /*
-             * Doing just a closesocket seems to result in a TCP RESET
-             * instead of graceful close. Do use DisconnectEx if
-             * available.
-             */
-            if (WinsockClientPostDisconnect(lockedWsPtr) != ERROR_SUCCESS) {
-                wsaStatus = closesocket(lockedWsPtr->so);
-                lockedWsPtr->so = INVALID_SOCKET;
-            }
-            break;
-        default:                /* Not asked to close either */
-            return 0;
-        }
-        if (wsaStatus == SOCKET_ERROR) {
-            /* TBD - do we need to set a error string in interp? */
-            IocpSetTclErrnoFromWin32(WSAGetLastError());
-            return Tcl_GetErrno();
-        }
-    }
-    return 0;
-}
-
-
-/*
- *------------------------------------------------------------------------
- *
- * WinsockClientGetHandle --
- *
- *    Implements IocpChannel's gethandle(). See comments there.
- *
- * Results:
- *    TCL_OK on success, TCL_ERROR on error.
- *
- * Side effects:
- *    The socket handle is returned in *handlePtr.
- *
- *------------------------------------------------------------------------
- */
-static IocpTclCode WinsockClientGetHandle(
-    IocpChannel *lockedChanPtr,
-    int direction,
-    ClientData *handlePtr)
-{
-    SOCKET so = IocpChannelToWinsockClient(lockedChanPtr)->so;
-    if (so == INVALID_SOCKET)
-        return TCL_ERROR;
-    *handlePtr = (ClientData) so;
-    return TCL_OK;
-}
-
-/*
- *------------------------------------------------------------------------
- *
- * WinsockClientGetOption --
- *
- *    Returns the value of the given option.
- *
- * Results:
- *    Returns TCL_OK on succes and TCL_ERROR on failure.
- *
- * Side effects:
- *    On success the value of the option is stored in *dsPtr.
- *
- *------------------------------------------------------------------------
- */
-IocpTclCode WinsockClientGetOption(
-    IocpChannel *lockedChanPtr, /* Locked on entry, locked on exit */
-    Tcl_Interp  *interp,        /* For error reporting. May be NULL */
-    int          opt,           /* Index into option table for option of interest */
-    Tcl_DString *dsPtr)         /* Where to store the value */
-{
-    WinsockClient *lockedWsPtr  = IocpChannelToWinsockClient(lockedChanPtr);
-    IocpSockaddr addr;
-    IocpWinError    winError;
-    int  addrSize;
-    char integerSpace[TCL_INTEGER_SPACE];
-    int  noRDNS = 0;
-#define SUPPRESS_RDNS_VAR "::tcl::unsupported::noReverseDNS"
-
-    switch (opt) {
-    case IOCP_TCP_OPT_CONNECTING:
-        Tcl_DStringAppend(dsPtr,
-                          lockedWsPtr->base.state == IOCP_STATE_CONNECTING ? "1" : "0",
-                          1);
-        return TCL_OK;
-    case IOCP_TCP_OPT_ERROR:
-        /* As per Tcl winsock, do not report errors in connecting state */
-        if (lockedWsPtr->base.state != IOCP_STATE_CONNECTING &&
-            lockedWsPtr->base.state != IOCP_STATE_CONNECT_RETRY &&
-            lockedWsPtr->base.winError != ERROR_SUCCESS) {
-#if 1
-            IocpSetTclErrnoFromWin32(lockedWsPtr->base.winError);
-            Tcl_DStringAppend(dsPtr, Tcl_ErrnoMsg(Tcl_GetErrno()), -1);
-            lockedWsPtr->base.winError = ERROR_SUCCESS; /* As per socket man page */
-#else
-            /* This would give more detail but Tcl test suite demands Posix error */
-            Tcl_Obj *objPtr = Iocp_MapWindowsError(lockedWsPtr->base.winError,
-                                                   NULL, NULL);
-            int      nbytes;
-            char    *emessage = Tcl_GetStringFromObj(objPtr, &nbytes);
-            Tcl_DStringAppend(dsPtr, emessage, nbytes);
-            Tcl_DecrRefCount(objPtr);
-            lockedWsPtr->base.winError = ERROR_SUCCESS; /* As per socket man page */
-#endif
-        }
-        return TCL_OK;
-    case IOCP_TCP_OPT_PEERNAME:
-    case IOCP_TCP_OPT_SOCKNAME:
-        if (lockedWsPtr->base.state == IOCP_STATE_CONNECTING ||
-            lockedWsPtr->base.state == IOCP_STATE_CONNECT_RETRY) {
-            /* As per TIP 427, empty string to be returned in these states */
-            return TCL_OK;
-        }
-        if (lockedWsPtr->so == INVALID_SOCKET) {
-            if (interp)
-                Tcl_SetResult(interp, "No socket associated with channel.", TCL_STATIC);
-            return TCL_ERROR;
-        }
-        if (interp != NULL && Tcl_GetVar(interp, SUPPRESS_RDNS_VAR, 0) != NULL) {
-            noRDNS = NI_NUMERICHOST;
-        }
-        addrSize = sizeof(addr);
-        if ((opt==IOCP_TCP_OPT_PEERNAME?getpeername:getsockname)(lockedWsPtr->so, &addr.sa, &addrSize) != 0)
-            winError = WSAGetLastError();
-        else {
-            /* Note original length in case we need to revert after modification */
-            int dsLen = Tcl_DStringLength(dsPtr);
-            winError = IocpTcpListifyAddress(&addr, addrSize, noRDNS, dsPtr);
-            if (winError != ERROR_SUCCESS)
-                Tcl_DStringTrunc(dsPtr, dsLen); /* Restore */
-        }
-        if (winError == 0)
-            return TCL_OK;
-        else
-            return Iocp_ReportWindowsError(interp, winError, NULL);
-    case IOCP_TCP_OPT_MAXPENDINGREADS:
-    case IOCP_TCP_OPT_MAXPENDINGWRITES:
-        sprintf_s(integerSpace, sizeof(integerSpace),
-                  "%d",
-                  opt == IOCP_TCP_OPT_MAXPENDINGREADS ?
-                  lockedChanPtr->maxPendingReads : lockedChanPtr->maxPendingWrites);
-        Tcl_DStringAppend(dsPtr, integerSpace, -1);
-        return TCL_OK;
-    case IOCP_TCP_OPT_MAXPENDINGACCEPTS:
-        Tcl_DStringAppend(dsPtr, "0", 1);
-        return TCL_OK;
-    default:
-        Tcl_SetObjResult(interp, Tcl_ObjPrintf("Internal error: invalid socket option index %d", opt));
-        return TCL_ERROR;
-    }
-}
-
-/*
- *------------------------------------------------------------------------
- *
- * WinsockClientSetOption --
- *
- *    Returns the value of the given option.
- *
- * Results:
- *    Returns TCL_OK on succes and TCL_ERROR on failure.
- *
- * Side effects:
- *    On success the value of the option is stored in *dsPtr.
- *
- *------------------------------------------------------------------------
- */
-IocpTclCode WinsockClientSetOption(
-    IocpChannel *lockedChanPtr, /* Locked on entry, locked on exit */
-    Tcl_Interp  *interp,        /* For error reporting. May be NULL */
-    int          opt,           /* Index into option table for option of interest */
-    const char  *valuePtr)      /* Option value */
-{
-    WinsockClient *lockedWsPtr = IocpChannelToWinsockClient(lockedChanPtr);
-    int        intValue;
-
-    if (lockedWsPtr->so == INVALID_SOCKET) {
-        if (interp)
-            Tcl_SetResult(interp, "No socket associated with channel.", TCL_STATIC);
-        return TCL_ERROR;
-    }
-
-    switch (opt) {
-    case IOCP_TCP_OPT_MAXPENDINGREADS:
-    case IOCP_TCP_OPT_MAXPENDINGWRITES:
-        if (Tcl_GetInt(interp, valuePtr, &intValue) != TCL_OK) {
-            Tcl_SetErrno(EINVAL);
-            return TCL_ERROR;
-        }
-        if (intValue <= 0 || intValue > 20) {
-            if (interp)
-                Tcl_SetObjResult(interp, Tcl_ObjPrintf("Integer value %d out of range.", intValue));
-            Tcl_SetErrno(EINVAL);
-            return TCL_ERROR;
-        }
-        if (opt == IOCP_TCP_OPT_MAXPENDINGREADS)
-            lockedChanPtr->maxPendingReads = intValue;
-        else
-            lockedChanPtr->maxPendingWrites = intValue;
-        return TCL_OK;
-    case IOCP_TCP_OPT_CONNECTING:
-    case IOCP_TCP_OPT_ERROR:
-    case IOCP_TCP_OPT_PEERNAME:
-    case IOCP_TCP_OPT_SOCKNAME:
-    case IOCP_TCP_OPT_MAXPENDINGACCEPTS:
-        return Tcl_BadChannelOption(interp, iocpTcpOptionNames[opt], "-maxpendingreads -maxpendingwrites");
-    default:
-        Tcl_SetObjResult(interp, Tcl_ObjPrintf("Internal error: invalid socket option index %d", opt));
-        Tcl_SetErrno(EINVAL);
-        return TCL_ERROR;
-    }
-}
-
-/*
- *------------------------------------------------------------------------
- *
- * WinsockClientTranslateError --
- *
- *    Conforms to the IocpChannel vtbl translateerror API.
- *
- * Results:
- *    A Winsock-specific error code if possible, else bufPtr->winError.
- *
- * Side effects:
- *    None.
- *
- *------------------------------------------------------------------------
- */
-static IocpWinError WinsockClientTranslateError(IocpChannel *chanPtr, IocpBuffer *bufPtr)
-{
-    WinsockClient *tcpPtr = IocpChannelToWinsockClient(chanPtr);
-    if (bufPtr->winError != ERROR_SUCCESS) {
-        DWORD flags = 0 ;
-        DWORD nbytes = 0;
-        if (WSAGetOverlappedResult(tcpPtr->so, &bufPtr->u.wsaOverlap, &nbytes, FALSE, &flags) == 0) {
-            return WSAGetLastError();
-        }
-    }
-    return bufPtr->winError;
-}
-
-/*
- *------------------------------------------------------------------------
- *
- * IocpPostConnect --
+ * TcpClientPostConnect --
  *
  *    Posts a connect request to the IO completion port for a Tcp channel.
  *    The local and remote addresses are those specified in the tcpPtr
@@ -744,7 +255,7 @@ static IocpWinError WinsockClientTranslateError(IocpChannel *chanPtr, IocpBuffer
  *
  *------------------------------------------------------------------------
  */
-static IocpWinError WinsockClientPostConnect(
+static IocpWinError TcpClientPostConnect(
     WinsockClient *tcpPtr  /* Channel pointer, may or may not be locked
                              * but caller has to ensure no interference */
     )
@@ -754,8 +265,6 @@ static IocpWinError WinsockClientPostConnect(
     IocpBuffer     *bufPtr;
     DWORD           nbytes;
     DWORD           winError;
-
-    /* TBD BT */
 
     /* Bind local address. Required for ConnectEx */
     if (bind(tcpPtr->so, tcpPtr->addresses.inet.local->ai_addr,
@@ -807,193 +316,7 @@ static IocpWinError WinsockClientPostConnect(
 /*
  *------------------------------------------------------------------------
  *
- * WinsockClientPostDisconnect --
- *
- *    Initiates a disconnect on a connection.
- *
- * Results:
- *    ERROR_SUCCESS if disconnect request was successfully posted or an
- *    Winsock error code.
- *
- * Side effects:
- *    The Disconnect is queued on the IOCP completion port.
- *
- *------------------------------------------------------------------------
- */
-IocpWinError WinsockClientPostDisconnect(
-    WinsockClient *lockedTcpPtr     /* Must be locked */
-    )
-{
-    static GUID     DisconnectExGuid = WSAID_DISCONNECTEX;
-    LPFN_DISCONNECTEX  fnDisconnectEx;
-    DWORD nbytes;
-
-    if (WSAIoctl(lockedTcpPtr->so, SIO_GET_EXTENSION_FUNCTION_POINTER,
-                 &DisconnectExGuid, sizeof(GUID),
-                 &fnDisconnectEx,
-                 sizeof(fnDisconnectEx),
-                 &nbytes, NULL, NULL) != 0) {
-        return WSAGetLastError();
-    }
-    else {
-        IocpBuffer *bufPtr = IocpBufferNew(0, IOCP_BUFFER_OP_DISCONNECT, IOCP_BUFFER_F_WINSOCK);
-        if (bufPtr == NULL)
-            return WSAENOBUFS;
-        bufPtr->chanPtr    = WinsockClientToIocpChannel(lockedTcpPtr);
-        lockedTcpPtr->base.numRefs += 1; /* Reversed when buffer is unlinked from channel */
-
-        if (fnDisconnectEx(lockedTcpPtr->so, &bufPtr->u.wsaOverlap, 0, 0) == FALSE) {
-            IocpWinError    winError = WSAGetLastError();
-            if (winError != WSA_IO_PENDING) {
-                lockedTcpPtr->base.numRefs -= 1; /* Reverse above increment */
-                bufPtr->chanPtr = NULL;          /* Else IocpBufferFree will assert */
-                IocpBufferFree(bufPtr);
-                return winError;
-            }
-        }
-        return ERROR_SUCCESS;
-    }
-}
-
-/*
- *------------------------------------------------------------------------
- *
- * WinsockClientPostRead --
- *
- *    Allocates a receive buffer and posts it to the socket associated
- *    with lockedTcpPtr. Implements the behavior defined for postread()
- *    in IocpChannel vtbl.
- *
- * Results:
- *    Returns 0 on success or a Windows error code.
- *
- * Side effects:
- *    The receive buffer is queued to the socket from where it will
- *    retrieved by the IO completion thread. The pending reads count
- *    in the IocpChannel is incremented.
- *
- *------------------------------------------------------------------------
- */
-static IocpWinError WinsockClientPostRead(IocpChannel *lockedChanPtr)
-{
-    WinsockClient *lockedTcpPtr = IocpChannelToWinsockClient(lockedChanPtr);
-    IocpBuffer *bufPtr;
-    WSABUF      wsaBuf;
-    DWORD       flags;
-    DWORD       wsaError;
-
-    IOCP_ASSERT(lockedTcpPtr->base.state == IOCP_STATE_OPEN);
-    bufPtr = IocpBufferNew(IOCP_BUFFER_DEFAULT_SIZE, IOCP_BUFFER_OP_READ,
-                           IOCP_BUFFER_F_WINSOCK);
-    if (bufPtr == NULL)
-        return WSAENOBUFS;
-
-    bufPtr->chanPtr    = lockedChanPtr;
-    lockedTcpPtr->base.numRefs += 1; /* Reversed when buffer is unlinked from channel */
-
-    wsaBuf.buf = bufPtr->data.bytes;
-    wsaBuf.len = bufPtr->data.capacity;
-    flags      = 0;
-
-    IOCP_ASSERT(lockedTcpPtr->so != INVALID_SOCKET);
-    if (WSARecv(lockedTcpPtr->so,
-                 &wsaBuf,       /* Buffer array */
-                 1,             /* Number of elements in array */
-                 NULL,          /* Not used */
-                 &flags,
-                 &bufPtr->u.wsaOverlap, /* Overlap structure for return status */
-                 NULL) != 0        /* Not used */
-        && (wsaError = WSAGetLastError()) != WSA_IO_PENDING) {
-        /* Not good. */
-        lockedTcpPtr->base.numRefs -= 1;
-        bufPtr->chanPtr    = NULL;
-        IocpBufferFree(bufPtr);
-        return wsaError;
-    }
-    lockedChanPtr->pendingReads++;
-
-    return 0;
-}
-
-/*
- *------------------------------------------------------------------------
- *
- * WinsockClientPostWrite --
- *
- *    Allocates a receive buffer, copies passed data to it and posts
- *    it to the socket associated with lockedTcpPtr. Implements the behaviour
- *    expected of the postwrite() function in IocpChannel vtbl.
- *
- * Results:
- *    If data is successfully written, return 0 and stores written count
- *    into *countPtr. If no data could be written because device would block
- *    returns 0 and stores 0 in *countPtr. On error, returns a Windows error.
- *
- * Side effects:
- *    The write buffer is queued to the socket from where it will
- *    retrieved by the IO completion thread. The pending writes count
- *    in the IocpChannel is incremented.
- *
- *------------------------------------------------------------------------
- */
-static IocpWinError WinsockClientPostWrite(
-    IocpChannel *lockedChanPtr, /* Must be locked on entry */
-    const char  *bytes,         /* Pointer to data to write */
-    int          nbytes,        /* Number of data bytes to write */
-    int         *countPtr)      /* Output - Number of bytes written */
-{
-    WinsockClient *lockedTcpPtr = IocpChannelToWinsockClient(lockedChanPtr);
-    IocpBuffer *bufPtr;
-    WSABUF      wsaBuf;
-    DWORD       wsaError;
-    DWORD       written;
-
-    IOCP_ASSERT(lockedTcpPtr->base.state == IOCP_STATE_OPEN);
-
-    /* If we have already too many outstanding writes */
-    if (lockedChanPtr->pendingWrites >= lockedChanPtr->maxPendingWrites) {
-        /* Not an error but indicate nothing written */
-        *countPtr = 0;
-        return ERROR_SUCCESS;
-    }
-
-    bufPtr = IocpBufferNew(nbytes, IOCP_BUFFER_OP_WRITE, IOCP_BUFFER_F_WINSOCK);
-    if (bufPtr == NULL)
-        return WSAENOBUFS; /* TBD - should we treat this as above? But this is more serious (and should be rarer) */
-
-    IocpBufferCopyIn(bufPtr, bytes, nbytes);
-
-    bufPtr->chanPtr    = lockedChanPtr;
-    lockedChanPtr->numRefs += 1; /* Reversed when buffer is unlinked from channel */
-    wsaBuf.buf = bufPtr->data.bytes;
-    wsaBuf.len = bufPtr->data.len;
-    if (WSASend(lockedTcpPtr->so,
-                &wsaBuf,       /* Buffer array */
-                1,             /* Number of elements in array */
-                &written,      /* Number of bytes sent - only valid if data sent
-                                *  immediately so not reliable */
-                0,             /*  Flags - not used */
-                &bufPtr->u.wsaOverlap, /* Overlap structure for return status */
-                NULL)                  /* Completion routine - Not used */
-        != 0
-        && (wsaError = WSAGetLastError()) != WSA_IO_PENDING) {
-        /* Not good. */
-        lockedChanPtr->numRefs -= 1;
-        bufPtr->chanPtr    = NULL;
-        IocpBufferFree(bufPtr);
-        *countPtr = -1;
-        return wsaError;
-    }
-    *countPtr = nbytes;
-    lockedChanPtr->pendingWrites++;
-
-    return 0;
-}
-
-/*
- *------------------------------------------------------------------------
- *
- * WinsockClientFreeAddresses --
+ * TcpClientFreeAddresses --
  *
  *    Frees the address lists associated with a channel.
  *
@@ -1007,22 +330,20 @@ static IocpWinError WinsockClientPostWrite(
  *
  *------------------------------------------------------------------------
  */
-static void WinsockClientFreeAddresses(
-    WinsockClient *wsPtr)     /* Pointer to Tcp channel state. Caller should
+static void TcpClientFreeAddresses(
+    WinsockClient *tcpPtr)     /* Pointer to Tcp channel state. Caller should
                                  * ensure no other threads can access. */
 {
     /* Potential addresses to use no longer needed when connection is open. */
-    if (IocpIsInetClient(WinsockClientToIocpChannel(wsPtr))) {
-        if (wsPtr->addresses.inet.remotes) {
-            freeaddrinfo(wsPtr->addresses.inet.remotes);
-            wsPtr->addresses.inet.remotes = NULL;
-            wsPtr->addresses.inet.remote  = NULL;
-        }
-        if (wsPtr->addresses.inet.locals) {
-            freeaddrinfo(wsPtr->addresses.inet.locals);
-            wsPtr->addresses.inet.locals = NULL;
-            wsPtr->addresses.inet.local  = NULL;
-        }
+    if (tcpPtr->addresses.inet.remotes) {
+        freeaddrinfo(tcpPtr->addresses.inet.remotes);
+        tcpPtr->addresses.inet.remotes = NULL;
+        tcpPtr->addresses.inet.remote  = NULL;
+    }
+    if (tcpPtr->addresses.inet.locals) {
+        freeaddrinfo(tcpPtr->addresses.inet.locals);
+        tcpPtr->addresses.inet.locals = NULL;
+        tcpPtr->addresses.inet.local  = NULL;
     }
 }
 
@@ -1130,7 +451,7 @@ static IocpWinError TcpClientBlockingConnect(
 /*
  *------------------------------------------------------------------------
  *
- * WinsockClientInitiateConnection --
+ * TcpClientInitiateConnection --
  *
  *    Initiates an asynchronous TCP connection from the local address
  *    pointed to by tcpPtr->localAddr to the remote address tcpPtr->remoteAddr.
@@ -1146,7 +467,7 @@ static IocpWinError TcpClientBlockingConnect(
  *
  *------------------------------------------------------------------------
  */
-static IocpWinError WinsockClientInitiateConnection(
+static IocpWinError TcpClientInitiateConnection(
     WinsockClient *tcpPtr)  /* Caller must ensure exclusivity either by locking
                               * or ensuring no other thread can access */
 {
@@ -1176,7 +497,7 @@ static IocpWinError WinsockClientInitiateConnection(
                 /* Sockets should not be inherited by children */
                 SetHandleInformation((HANDLE)so, HANDLE_FLAG_INHERIT, 0);
                 tcpPtr->so = so;
-                winError = WinsockClientPostConnect(tcpPtr);
+                winError = TcpClientPostConnect(tcpPtr);
                 if (winError == ERROR_SUCCESS) {
                     /* Update so next attempt will be with next local addr */
                     tcpPtr->addresses.inet.local = tcpPtr->addresses.inet.local->ai_next;
@@ -1209,46 +530,7 @@ static IocpWinError WinsockClientInitiateConnection(
 /*
  *------------------------------------------------------------------------
  *
- * WinsockClientAsyncConnected --
- *
- *    Called to handle connection establishment on an async attempt.
- *    Completes local connection set up.
- *    Follows the API defined by connectfail() in IocpChannel vtbl.
- *
- * Results:
- *    Returns 0 if connection set up is successful or a Windows error code which
- *    is also stored in lockedChanPtr->winError.
- *
- * Side effects:
- *
- *------------------------------------------------------------------------
- */
-static IocpWinError WinsockClientAsyncConnected(
-    IocpChannel *lockedChanPtr) /* Must be locked on entry. */
-{
-    WinsockClient *tcpPtr = IocpChannelToWinsockClient(lockedChanPtr);
-
-    IOCP_ASSERT(lockedChanPtr->state == IOCP_STATE_CONNECTED);
-    /*
-     * As per documentation this is required for complete context for the
-     * socket to be set up. Otherwise certain Winsock calls like getpeername
-     * getsockname shutdown will not work.
-     */
-    if (setsockopt(tcpPtr->so, SOL_SOCKET, SO_UPDATE_CONNECT_CONTEXT, NULL, 0) != 0) {
-        tcpPtr->base.winError = WSAGetLastError();
-        closesocket(tcpPtr->so);
-        tcpPtr->so = INVALID_SOCKET;
-        return tcpPtr->base.winError;
-    }
-    else {
-        return 0;
-    }
-}
-
-/*
- *------------------------------------------------------------------------
- *
- * WinsockClientAsyncConnectFailed --
+ * TcpClientAsyncConnectFailed --
  *
  *    Called to handle connection failure on an async attempt. Attempts
  *    to initiate a connection using another address or reports failure.
@@ -1262,7 +544,7 @@ static IocpWinError WinsockClientAsyncConnected(
  *
  *------------------------------------------------------------------------
  */
-static IocpWinError WinsockClientAsyncConnectFailed(
+static IocpWinError TcpClientAsyncConnectFailed(
     IocpChannel *lockedChanPtr) /* Must be locked on entry. */
 {
     WinsockClient *tcpPtr = IocpChannelToWinsockClient(lockedChanPtr);
@@ -1272,40 +554,8 @@ static IocpWinError WinsockClientAsyncConnectFailed(
         closesocket(tcpPtr->so);
         tcpPtr->so = INVALID_SOCKET;
     }
-    if (IocpIsInetClient(lockedChanPtr))
-        return WinsockClientInitiateConnection(tcpPtr);
-    else {
-        Iocp_Panic("TBD BT");
-        return 0;
-    }
+    return TcpClientInitiateConnection(tcpPtr);
 }
-
-/*
- *------------------------------------------------------------------------
- *
- * WinsockClientDisconnected --
- *
- *    Closes the socket associated with the channel.
- *
- * Results:
- *    None.
- *
- * Side effects:
- *    As above.
- *
- *------------------------------------------------------------------------
- */
-static void WinsockClientDisconnected(
-    IocpChannel *lockedChanPtr) /* Must be locked on entry. */
-{
-    WinsockClient *tcpPtr = IocpChannelToWinsockClient(lockedChanPtr);
-
-    if (tcpPtr->so != INVALID_SOCKET) {
-        closesocket(tcpPtr->so);
-        tcpPtr->so = INVALID_SOCKET;
-    }
-}
-
 
 /*
  *----------------------------------------------------------------------
@@ -1386,7 +636,7 @@ Iocp_OpenTcpClient(
 
     IocpChannelLock(WinsockClientToIocpChannel(tcpPtr));
     if (async) {
-        winError = WinsockClientInitiateConnection(tcpPtr);
+        winError = TcpClientInitiateConnection(tcpPtr);
         if (winError != ERROR_SUCCESS) {
             IocpSetInterpPosixErrorFromWin32(interp, winError, gSocketOpenErrorMessage);
             goto fail;
@@ -1398,7 +648,7 @@ Iocp_OpenTcpClient(
             IocpSetInterpPosixErrorFromWin32(interp, winError, gSocketOpenErrorMessage);
             goto fail;
         }
-        WinsockClientFreeAddresses(tcpPtr); /* Free unneeded memory */
+        TcpClientFreeAddresses(tcpPtr); /* Free unneeded memory */
         winError = IocpChannelPostReads(WinsockClientToIocpChannel(tcpPtr));
         if (winError) {
             Iocp_ReportWindowsError(interp, winError, "couldn't post read on socket: ");
@@ -2037,10 +1287,10 @@ IocpTclCode TcpListenerGetOption(
     }
 
     switch (opt) {
-    case IOCP_TCP_OPT_CONNECTING:
+    case IOCP_WINSOCK_OPT_CONNECTING:
         Tcl_DStringAppend(dsPtr, "0", 1);
         return TCL_OK;
-    case IOCP_TCP_OPT_ERROR:
+    case IOCP_WINSOCK_OPT_ERROR:
         /* As per Tcl winsock, do not report errors in connecting state */
         if (lockedTcpPtr->base.winError != ERROR_SUCCESS) {
             Tcl_Obj *objPtr = Iocp_MapWindowsError(lockedTcpPtr->base.winError,
@@ -2051,12 +1301,12 @@ IocpTclCode TcpListenerGetOption(
             Tcl_DecrRefCount(objPtr);
         }
         return TCL_OK;
-    case IOCP_TCP_OPT_PEERNAME:
+    case IOCP_WINSOCK_OPT_PEERNAME:
         if (interp) {
             Tcl_SetResult(interp, "can't get peername: socket is not connected", TCL_STATIC);
         }
         return TCL_ERROR;
-    case IOCP_TCP_OPT_SOCKNAME:
+    case IOCP_WINSOCK_OPT_SOCKNAME:
         winError = 0;
         dsLen = Tcl_DStringLength(dsPtr);
         for (listenerIndex = 0; listenerIndex < lockedTcpPtr->numListeners; ++listenerIndex) {
@@ -2066,7 +1316,7 @@ IocpTclCode TcpListenerGetOption(
                 winError = WSAGetLastError();
                 break;
             }
-            winError = IocpTcpListifyAddress(&addr, addrSize, noRDNS, dsPtr);
+            winError = WinsockListifyAddress(&addr, addrSize, noRDNS, dsPtr);
             if (winError != ERROR_SUCCESS)
                 break;
         }
@@ -2076,11 +1326,11 @@ IocpTclCode TcpListenerGetOption(
         } else {
             return TCL_OK;
         }
-    case IOCP_TCP_OPT_MAXPENDINGREADS:
-    case IOCP_TCP_OPT_MAXPENDINGWRITES:
+    case IOCP_WINSOCK_OPT_MAXPENDINGREADS:
+    case IOCP_WINSOCK_OPT_MAXPENDINGWRITES:
         Tcl_DStringAppend(dsPtr, "0", 1);
         return TCL_OK;
-    case IOCP_TCP_OPT_MAXPENDINGACCEPTS:
+    case IOCP_WINSOCK_OPT_MAXPENDINGACCEPTS:
         sprintf_s(integerSpace, sizeof(integerSpace),
                   "%d", lockedTcpPtr->maxPendingAcceptPosts);
         Tcl_DStringAppend(dsPtr, integerSpace, -1);

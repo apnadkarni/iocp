@@ -1,3 +1,5 @@
+#ifndef _TCLWINIOCP
+#define _TCLWINIOCP
 /*
  * tclWinIocp.h --
  *
@@ -9,12 +11,15 @@
  * of this file, and for a DISCLAIMER OF ALL WARRANTIES.
  */
 
-#ifndef _TCLWINIOCP
-#define _TCLWINIOCP
 
 #include <winsock2.h>
+#include <mswsock.h>
 #include <ws2tcpip.h>
+#include <ws2bth.h>
 #include <windows.h>
+#include <Bthsdpdef.h>
+#include <BluetoothAPIs.h>
+
 #include <TraceLoggingProvider.h>
 #include "tcl.h"
 
