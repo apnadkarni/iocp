@@ -636,6 +636,7 @@ void IocpUnregisterAcceptCallbackCleanupOnClose(ClientData callbackData);
 
 /* Generic channel functions */
 Tcl_Channel  IocpCreateTclChannel(IocpChannel*, const char*, int);
+Tcl_Channel  IocpMakeTclChannel(Tcl_Interp *,IocpChannel* lockedChanPtr, const char*, int);
 IocpChannel *IocpChannelNew(const IocpChannelVtbl *vtblPtr);
 void         IocpChannelAwaitCompletion(IocpChannel *lockedChanPtr, int flags);
 int          IocpChannelWakeAfterCompletion(IocpChannel *lockedChanPtr, int blockMask);
@@ -644,8 +645,7 @@ void         IocpChannelDrop(IocpChannel *lockedChanPtr);
 DWORD        IocpChannelPostReads(IocpChannel *lockedChanPtr);
 void         IocpChannelNudgeThread(IocpChannel *lockedChanPtr, int blockMask, int force);
 
-
-
+IocpTclCode IocpSetChannelDefaults(Tcl_Channel channel);
 
 /* TBD */
 const char *BT_MapToName(

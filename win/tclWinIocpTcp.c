@@ -17,10 +17,6 @@
 # define IOCP_INET_NAME_PREFIX   "sock"
 #endif
 
-
-/* Just to ensure consistency */
-const char *gSocketOpenErrorMessage = "couldn't open socket: ";
-
 /****************************************************************
  * TCP client channel structures
  ****************************************************************/
@@ -57,7 +53,7 @@ static IocpChannelVtbl tcpClientVtbl =  {
     iocpWinsockOptionNames,
     sizeof(WinsockClient)
 };
-int IocpIsInetClient(IocpChannel *chanPtr) {
+IOCP_INLINE int IocpIsInetClient(IocpChannel *chanPtr) {
     return (chanPtr->vtblPtr == &tcpClientVtbl);
 }
 
@@ -153,34 +149,6 @@ static IocpChannelVtbl tcpListenerVtbl = {
 /*
  * Function implementation
  */
-
-/*
- *------------------------------------------------------------------------
- *
- * IocpTcpSetChannelDefaults --
- *
- *    Sets the default -translation and -eofchar values  for TCP channels.
- *
- * Results:
- *    TCL_OK or TCL_ERROR.
- *
- * Side effects:
- *    As above.
- *
- *------------------------------------------------------------------------
- */
-static IocpTclCode
-IocpTcpSetChannelDefaults(
-    Tcl_Channel channel
-    )
-{
-    if (Tcl_SetChannelOption(NULL, channel,
-                             "-translation", "auto crlf") == TCL_ERROR ||
-        Tcl_SetChannelOption(NULL, channel, "-eofchar", "") == TCL_ERROR) {
-        return TCL_ERROR;
-    }
-    return TCL_OK;
-}
 
 /*
  *------------------------------------------------------------------------
@@ -463,11 +431,14 @@ static IocpWinError TcpClientBlockingConnect(
  *    code which is also stored in tcpPtr->base.winError.
  *
  * Side effects:
- *    A connect request is initiated and a completion buffer posted.
+ *    A connect request is initiated and a completion buffer posted. State
+ *    is changed to CONNECTING on success or CONNECT_FAILED if it could
+ *    even be initiated.
  *
  *------------------------------------------------------------------------
  */
-static IocpWinError TcpClientInitiateConnection(
+static IocpWinError 
+TcpClientInitiateConnection(
     WinsockClient *tcpPtr)  /* Caller must ensure exclusivity either by locking
                               * or ensuring no other thread can access */
 {
@@ -669,13 +640,7 @@ Iocp_OpenTcpClient(
      * STATE OF TCPPTR WITHOUT RELOCKING IT AND CHECKING THE STATE.
      */
 
-    /*
-     * CREATE a Tcl channel that points back to this.
-     * tcpPtr->numRefs++ since Tcl channel points to this
-     * tcpPtr->numRefs-- since this function no longer needs a reference to it.
-     * The two cancel and numRefs stays at 1 as allocated. The corresponding
-     * unref will be via IocpCloseProc when Tcl closes the channel.
-     */
+    /* CREATE a Tcl channel that points back to this. */
     channel = IocpCreateTclChannel(WinsockClientToIocpChannel(tcpPtr),
                                    IOCP_INET_NAME_PREFIX,
                                    (TCL_READABLE | TCL_WRITABLE));
@@ -690,6 +655,12 @@ Iocp_OpenTcpClient(
         goto fail; /* Note tcpPtr locked as desired by fail */
     }
 
+    /*
+     * tcpPtr->numRefs++ since Tcl channel points to this
+     * tcpPtr->numRefs-- since this function no longer needs a reference to it.
+     * The two cancel and numRefs stays at 1 as allocated. The corresponding
+     * unref will be via IocpCloseProc when Tcl closes the channel.
+     */
     tcpPtr->base.channel = channel;
 
     /* Need to unlock again before calling into Tcl */
@@ -703,7 +674,7 @@ Iocp_OpenTcpClient(
      * IocpCloseProc).
      */
     tcpPtr = NULL;
-    if (IocpTcpSetChannelDefaults(channel) == TCL_ERROR) {
+    if (IocpSetChannelDefaults(channel) == TCL_ERROR) {
     Tcl_Close(NULL, channel);
     return NULL;
     }
@@ -994,7 +965,7 @@ IocpWinError TcpListenerAccept(
          */
         dataChanPtr->base.channel = channel;
 
-        if (IocpTcpSetChannelDefaults(channel) != TCL_OK) {
+        if (IocpSetChannelDefaults(channel) != TCL_OK) {
             IocpChannelUnlock(WinsockClientToIocpChannel(dataChanPtr));
             Tcl_Close(NULL, channel); /* Will close socket, free dataChanPtr as well */
             continue;

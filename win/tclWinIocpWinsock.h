@@ -72,10 +72,10 @@ IOCP_INLINE WinsockClient *IocpChannelToWinsockClient(IocpChannel *chanPtr) {
 }
 
 /*
- * Tcp socket options. Note order must match order of string option names
- * in the iocpTcpOptionNames array.
+ * Winsock socket options. Note order must match order of string option names
+ * in the iocpWinsockOptionNames array.
  */
-enum IocpTcpOption {
+enum IocpWinsockOption {
     IOCP_WINSOCK_OPT_PEERNAME,
     IOCP_WINSOCK_OPT_SOCKNAME,
     IOCP_WINSOCK_OPT_ERROR,
@@ -86,6 +86,8 @@ enum IocpTcpOption {
     IOCP_WINSOCK_OPT_INVALID        /* Must be last */
 };
 extern const char*iocpWinsockOptionNames[];
+
+extern const char *gSocketOpenErrorMessage;
 
 /*
  * Shared Winsock functions

@@ -542,6 +542,7 @@ Tcl_Channel IocpCreateTclChannel(
                                  * passsed to Tcl_CreateChannel */
     )
 {
+    /* TBD - replace this use with IocpMakeTclChannel instead */
     char channelName[100];
     sprintf_s(channelName,
               sizeof(channelName)/sizeof(channelName[0]),
@@ -550,6 +551,93 @@ Tcl_Channel IocpCreateTclChannel(
                              chanPtr, flags);
 
 }
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpMakeTclChannel --
+ *
+ *    Creates a Tcl Channel for the passed IocpChannel and links to it.
+ * 
+ * Results:
+ *    Returns the created Tcl_Channel on success, NULL on failure with
+ *    an error message in interp if not NULL.
+ *
+ * Side effects:
+ *    The reference count on the IocpChannel is incremented corresponding
+ *    to its reference from Tcl channel subsystem (only on success).
+ *
+ *------------------------------------------------------------------------
+ */
+Tcl_Channel
+IocpMakeTclChannel(
+    Tcl_Interp  *interp,        /* For error messages. May be NULL */
+    IocpChannel *lockedChanPtr, /* Must be locked on entry and is locked
+                                 * on return but state may change in the
+                                 * meanwhile as unlocked when calling Tcl */
+    const char  *namePrefix,    /* Prefix to use for channel name.
+                                 * Should be less than 70 chars */
+    int         flags           /* More flags TCL_READABLE | TCL_WRITABLE
+                                 * passsed to Tcl_CreateChannel */
+)
+{
+    char channelName[100];
+    Tcl_Channel chan;
+    sprintf_s(channelName,
+              sizeof(channelName)/sizeof(channelName[0]),
+              "%s%p", namePrefix, lockedChanPtr);
+    /*
+     * Unlock since Tcl_CreateChannel can recurse back into us. However,
+     * since caller will be holding a reference, lockedChanPtr itself
+     * will not be invalidated. The state may change but that's ok,
+     * Handled by upper layers once the channel is created.
+     */
+    IocpChannelUnlock(lockedChanPtr);
+    chan = Tcl_CreateChannel(&IocpChannelDispatch, channelName,
+                             lockedChanPtr, flags);
+    IocpChannelLock(lockedChanPtr);
+    if (chan) {
+        /* Link the two. */
+        lockedChanPtr->channel = chan;
+        lockedChanPtr->numRefs += 1; /* Reversed through Tcl_Close */
+    } else {
+        if (interp) {
+            Tcl_AppendResult(
+                interp, "Could not create channel ", channelName, ".", NULL);
+        }
+    }
+    return chan;
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpSetChannelDefaults --
+ *
+ *    Sets the default -translation and -eofchar values  for channels
+ *    as "auto crlf" and "" to match Tcl sockets.
+ *
+ * Results:
+ *    TCL_OK or TCL_ERROR.
+ *
+ * Side effects:
+ *    As above.
+ *
+ *------------------------------------------------------------------------
+ */
+IocpTclCode
+IocpSetChannelDefaults(
+    Tcl_Channel channel
+    )
+{
+    if (Tcl_SetChannelOption(NULL, channel,
+                             "-translation", "auto crlf") == TCL_ERROR ||
+        Tcl_SetChannelOption(NULL, channel, "-eofchar", "") == TCL_ERROR) {
+        return TCL_ERROR;
+    }
+    return TCL_OK;
+}
+
 
 #ifdef IOCP_ENABLE_TRACE
 /*

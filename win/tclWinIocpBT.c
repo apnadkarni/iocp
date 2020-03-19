@@ -3,6 +3,7 @@
  */
 
 #include "tclWinIocp.h"
+#include "tclWinIocpWinsock.h"
 
 #include <stdio.h> /* For snprintf_s */
 
@@ -824,15 +825,18 @@ BT_FormatAddressObjCmd (
 }
 #endif
 
-#ifdef NOTYET
+/* 
+ * Implementation of Bluetooth channels.
+ */
+static IocpWinError BtClientBlockingConnect(IocpChannel *);
 
 static IocpChannelVtbl btClientVtbl =  {
     /* "Virtual" functions */
     WinsockClientInit,
-    BTClientFinit,
+    WinsockClientFinit,
     WinsockClientShutdown,
     NULL,                       /* Accept */
-    BTClientBlockingConnect,
+    BtClientBlockingConnect,
     WinsockClientAsyncConnected,
     WinsockClientAsyncConnectFailed,
     WinsockClientDisconnected,
@@ -843,13 +847,139 @@ static IocpChannelVtbl btClientVtbl =  {
     WinsockClientSetOption,
     WinsockClientTranslateError,
     /* Data members */
-    iocpBTOptionNames,
+    iocpWinsockOptionNames,
     sizeof(WinsockClient)
 };
-int IocpIsBtClient(IocpChannel *chanPtr) {
-    return (chanPtr->vtblPtr == &btClientVtbl &&
-            ((WinsockClient *)chanPtr)->aiFamily == AF_BTH);
+IOCP_INLINE int IocpIsBtClient(IocpChannel *chanPtr) {
+    return (chanPtr->vtblPtr == &btClientVtbl);
 }
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * BTClientBlockingConnect --
+ *
+ *    Attempt to connect to the specified server. Will block until
+ *    the connection succeeds or fails.
+ *
+ * Results:
+ *    0 on success, other Windows error code.
+ *
+ * Side effects:
+ *    On success, a BT connection is establised. The btPtr state is changed
+ *    to OPEN and an initialized socket is stored in it. The IOCP completion
+ *    port is associated with it.
+ *
+ *    On failure, btPtr state is changed to CONNECT_FAILED and the returned
+ *    error is also stored in btPtr->base.winError.
+ *
+ *------------------------------------------------------------------------
+ */
+static IocpWinError
+BtClientBlockingConnect(
+    IocpChannel *chanPtr) /* May or may not be locked but caller must ensure
+                           * exclusivity */
+{
+    WinsockClient *btPtr = IocpChannelToWinsockClient(chanPtr);
+    DWORD          winError;
+    SOCKET         so = INVALID_SOCKET;
+
+    IOCP_ASSERT(IocpIsBtClient(chanPtr));
+
+    /* Note socket call, unlike WSASocket is overlapped by default */
+    so = socket(AF_BTH, SOCK_STREAM, BTHPROTO_RFCOMM);
+    if (so != INVALID_SOCKET) {
+        if (connect(so, (SOCKADDR *)&btPtr->addresses.bt.local, sizeof(SOCKADDR_BTH)) == 0) {
+            /* Sockets should not be inherited by children */
+            SetHandleInformation((HANDLE)so, HANDLE_FLAG_INHERIT, 0);
+
+            if (CreateIoCompletionPort((HANDLE)so,
+                                       iocpModuleState.completion_port,
+                                       0, /* Completion key - unused */
+                                       0)
+                != NULL) {
+                btPtr->base.state = IOCP_STATE_OPEN;
+                btPtr->so         = so;
+                /*
+                 * Clear any error stored during -async operation prior to
+                 * blocking connect
+                 */
+                btPtr->base.winError = ERROR_SUCCESS;
+                return ERROR_SUCCESS;
+            } else
+                winError = GetLastError(); /* Not WSAGetLastError() */
+        }
+    }
+
+    if (winError == 0)
+        winError = WSAGetLastError(); /* Before calling closesocket */
+
+    if (so != INVALID_SOCKET)
+        closesocket(so);
+
+    btPtr->base.state    = IOCP_STATE_CONNECT_FAILED;
+    btPtr->base.winError = winError;
+    return winError;
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * BtClientInitiateConnection --
+ *
+ *    Initiates an asynchronous Bluetooth connection.
+ *
+ * Results:
+ *    0 if the connection was initiated successfully, otherwise Windows error
+ *    code which is also stored in tcpPtr->base.winError.
+ *
+ * Side effects:
+ *    A connect request is initiated and a completion buffer posted. State
+ *    is changed to CONNECTING on success or CONNECT_FAILED if it could
+ *    even be initiated.
+ *
+ *------------------------------------------------------------------------
+ */
+static IocpWinError 
+BtClientInitiateConnection(
+    WinsockClient *btPtr)  /* Caller must ensure exclusivity either by locking
+                            * or ensuring no other thread can access */
+{
+    DWORD  winError = 0; /* In case address lists are empty */
+    SOCKET so = INVALID_SOCKET;
+
+    IOCP_ASSERT(IocpIsBtClient(WinsockClientToIocpChannel(btPtr)));
+    IOCP_ASSERT(btPtr->base.state == IOCP_STATE_INIT || btPtr->base.state == IOCP_STATE_CONNECT_RETRY);
+    IOCP_ASSERT(btPtr->so == INVALID_SOCKET);
+
+    btPtr->base.state = IOCP_STATE_CONNECTING;
+
+    so = socket(AF_BTH, SOCK_STREAM, BTHPROTO_RFCOMM);
+    if (so != INVALID_SOCKET) {
+        /* Sockets should not be inherited by children */
+        SetHandleInformation((HANDLE)so, HANDLE_FLAG_INHERIT, 0);
+        btPtr->so = so;
+        winError  = BtClientPostConnect(btPtr);
+        if (winError == ERROR_SUCCESS)
+            return ERROR_SUCCESS;
+
+        /* Oomph, failed. */
+        closesocket(so);
+        btPtr->so = INVALID_SOCKET;
+    } else {
+        winError = WSAGetLastError();
+        /* No joy. Keep trying. */
+    }
+
+    /*
+     * Failed. We report the stored error in preference to error in current call.
+     */
+    btPtr->base.state = IOCP_STATE_CONNECT_FAILED;
+    if (btPtr->base.winError == 0)
+        btPtr->base.winError = winError;
+    return btPtr->base.winError;
+}
+
 
 /*
  *----------------------------------------------------------------------
@@ -876,6 +1006,86 @@ Iocp_OpenBTClient(
     int async) /* Async connect or not */
 {
     WinsockClient *btPtr;
+    IocpWinError   winError;
+    Tcl_Channel    channel;
+
+    btPtr = (WinsockClient *)IocpChannelNew(&btClientVtbl);
+    if (btPtr == NULL) {
+        if (interp != NULL) {
+            Tcl_SetResult(interp, "couldn't allocate WinsockClient", TCL_STATIC);
+        }
+        goto fail;
+    }
+    btPtr->addresses.bt.remote.addressFamily = AF_BTH;
+    btPtr->addresses.bt.remote.btAddr    = btAddress->ullLong;
+    btPtr->addresses.bt.remote.port      = 0;
+    btPtr->addresses.bt.remote.serviceClassId = *serviceGuidP;
+
+    IocpChannelLock(WinsockClientToIocpChannel(btPtr));
+    if (async) {
+        winError = BtClientInitiateConnection(btPtr);
+        if (winError != ERROR_SUCCESS) {
+            IocpSetInterpPosixErrorFromWin32(
+                interp, winError, gSocketOpenErrorMessage);
+            goto fail;
+        }
+    }
+    else {
+        winError = BtClientBlockingConnect( WinsockClientToIocpChannel(btPtr) );
+        if (winError != ERROR_SUCCESS) {
+            IocpSetInterpPosixErrorFromWin32(interp, winError, gSocketOpenErrorMessage);
+            goto fail;
+        }
+        winError = IocpChannelPostReads(WinsockClientToIocpChannel(btPtr));
+        if (winError) {
+            Iocp_ReportWindowsError(
+                interp, winError, "couldn't post read on socket: ");
+            goto fail;
+        }
+    }
+
+    /*
+     * At this point, the completion thread may have modified tcpPtr and
+     * even changed its state from CONNECTING (in case of async connects)
+     * or OPEN to something else. That's ok, we return a channel, the
+     * state change will be handled appropriately in the next I/O call
+     * or notifier callback which handles notifications from the completion
+     * thread.
+     */
+
+    /* CREATE a Tcl channel that points back to this. */
+    channel = IocpMakeTclChannel(interp,
+                                 WinsockClientToIocpChannel(btPtr),
+                                 IOCP_BT_NAME_PREFIX,
+                                 (TCL_READABLE | TCL_WRITABLE));
+    if (channel == NULL)
+        goto fail;
+    
+    /*
+     * At this point IocpMakeTclChannel has incremented the references
+     * on btPtr, so we can drop the one this function is holding from
+     * the allocation.
+     */
+
+    IocpChannelDrop(WinsockClientToIocpChannel(btPtr));
+    btPtr = NULL; /* Ensure not accessed beyond here */
+
+    if (IocpSetChannelDefaults(channel) == TCL_ERROR) {
+        Tcl_Close(NULL, channel);
+        return NULL;
+    }
+
+    return channel;
+
+fail:
+    /*
+     * Failure exit. If btPtr is allocated, it must be locked when
+     * jumping here.
+     */
+    if (btPtr)
+        IocpChannelDrop(WinsockClientToIocpChannel(btPtr));
+
+    return NULL;
 }
 
 /*
@@ -1042,7 +1252,6 @@ BT_SocketObjCmd(ClientData  notUsed,   /* Not used. */
 
     return TCL_OK;
 }
-#endif /* NOTYET */
 
 /*
  *------------------------------------------------------------------------

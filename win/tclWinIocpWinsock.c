@@ -6,7 +6,8 @@
 #include "tclWinIocpWinsock.h"
 
 /*
- * Options supported by TCP sockets. Note the order MUST match IocpTcpOptions
+ * Options supported by TCP sockets. Note the order MUST match 
+ * the IocpWinsockOptions enum definition.
  */
 const char *iocpWinsockOptionNames[] = {
     "-peername",
@@ -19,6 +20,8 @@ const char *iocpWinsockOptionNames[] = {
     NULL
 };
 
+/* Just to ensure consistency */
+const char *gSocketOpenErrorMessage = "couldn't open socket: ";
 
 static IocpWinError WinsockClientPostDisconnect(WinsockClient *chanPtr);
 
