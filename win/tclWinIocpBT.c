@@ -746,19 +746,28 @@ static Tcl_Obj *ObjFromSYSTEMTIME(const SYSTEMTIME *timeP)
     return Tcl_NewListObj(8, objv);
 }
 
-static Tcl_Obj *ObjFromBLUETOOTH_ADDRESS (const BLUETOOTH_ADDRESS *addrPtr)
+char *StringFromBLUETOOTH_ADDRESS(
+    const BLUETOOTH_ADDRESS *addrPtr,
+    char  *bufPtr,
+    int    bufSize) /* Should be at least 18 bytes, else truncated */
 {
-    Tcl_Obj *objP;
-    char *bytes = ckalloc(18);
     /* NOTE: *p must be unsigned for the snprintf to format correctly */
     const unsigned char *p = addrPtr->rgBytes;
-
     /*
      * Addresses are little endian. Hence order of storage. This matches
      * what's displayed via Device Manager in Windows.
      */
-    _snprintf_s(bytes, 18, _TRUNCATE, "%2.2x:%2.2x:%2.2x:%2.2x:%2.2x:%2.2x",
+    _snprintf_s(bufPtr, bufSize, _TRUNCATE, "%2.2x:%2.2x:%2.2x:%2.2x:%2.2x:%2.2x",
                 p[5], p[4], p[3], p[2], p[1], p[0]);
+    return bufPtr;
+}
+
+static Tcl_Obj *ObjFromBLUETOOTH_ADDRESS (const BLUETOOTH_ADDRESS *addrPtr)
+{
+    Tcl_Obj *objP;
+    char *bytes = ckalloc(18);
+
+    StringFromBLUETOOTH_ADDRESS(addrPtr, bytes, 18);
 
     objP = Tcl_NewObj();
     Tcl_InvalidateStringRep(objP);

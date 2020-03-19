@@ -510,61 +510,79 @@ WinsockListifyAddress(
     int                 noRDNS,   /* If true, no name lookup is done */
     Tcl_DString        *dsPtr)    /* Caller-initialized location for output */
 {
-    int  flags;
-    char host[NI_MAXHOST];
-    char service[NI_MAXSERV];
 
-    if (addrPtr->sa.sa_family != AF_INET && addrPtr->sa.sa_family != AF_INET6)
-        return WSAEAFNOSUPPORT; /* TBD */
-
-    if (getnameinfo(&addrPtr->sa, addrSize, host, sizeof(host)/sizeof(host[0]),
-                    service, sizeof(service)/sizeof(service[0]),
-                    NI_NUMERICHOST|NI_NUMERICSERV) != 0) {
-        return WSAGetLastError();
-    }
-
-    Tcl_DStringAppendElement(dsPtr, host);
-
-    if (noRDNS) {
-        /* No reverse lookup, so just repeat in numeric address form */
-        Tcl_DStringAppendElement(dsPtr, host);
-    }
-    else {
-        flags = noRDNS ? NI_NUMERICHOST|NI_NUMERICSERV : NI_NUMERICSERV;
-
-        /*
-         * Based on comments in 8.6 Tcl winsock, do not try resolving
-         * INADDR_ANY and sin6addr_any as they sometimes cause problems.
-         * (no mention of what problems)
-         */
-        if (addrPtr->sa.sa_family == AF_INET) {
-            if (addrPtr->sa4.sin_addr.s_addr == INADDR_ANY)
-                flags |= NI_NUMERICHOST; /* Turn off lookup */
-        }
-        else {
-            IOCP_ASSERT(addrPtr->sa.sa_family == AF_INET6);
-            if ((IN6_ARE_ADDR_EQUAL(&addrPtr->sa6.sin6_addr,
-                    &in6addr_any)) ||
-                (IN6_IS_ADDR_V4MAPPED(&addrPtr->sa6.sin6_addr)
-                 && addrPtr->sa6.sin6_addr.s6_addr[12] == 0
-                 && addrPtr->sa6.sin6_addr.s6_addr[13] == 0
-                 && addrPtr->sa6.sin6_addr.s6_addr[14] == 0
-                 && addrPtr->sa6.sin6_addr.s6_addr[15] == 0)) {
-                flags |= NI_NUMERICHOST;
-            }
-        }
-        if (getnameinfo(&addrPtr->sa, addrSize, host,
-                        sizeof(host)/sizeof(host[0]),
-                        NULL, 0, flags) != 0) {
+    if (addrPtr->sa.sa_family == AF_INET && addrPtr->sa.sa_family == AF_INET6) {
+        int  flags;
+        char host[NI_MAXHOST];
+        char service[NI_MAXSERV];
+        if (getnameinfo(&addrPtr->sa, addrSize, host, sizeof(host)/sizeof(host[0]),
+                        service, sizeof(service)/sizeof(service[0]),
+                        NI_NUMERICHOST|NI_NUMERICSERV) != 0) {
             return WSAGetLastError();
         }
 
         Tcl_DStringAppendElement(dsPtr, host);
+
+        if (noRDNS) {
+            /* No reverse lookup, so just repeat in numeric address form */
+            Tcl_DStringAppendElement(dsPtr, host);
+        }
+        else {
+            flags = noRDNS ? NI_NUMERICHOST|NI_NUMERICSERV : NI_NUMERICSERV;
+
+            /*
+             * Based on comments in 8.6 Tcl winsock, do not try resolving
+             * INADDR_ANY and sin6addr_any as they sometimes cause problems.
+             * (no mention of what problems)
+             */
+            if (addrPtr->sa.sa_family == AF_INET) {
+                if (addrPtr->sa4.sin_addr.s_addr == INADDR_ANY)
+                    flags |= NI_NUMERICHOST; /* Turn off lookup */
+            }
+            else {
+                IOCP_ASSERT(addrPtr->sa.sa_family == AF_INET6);
+                if ((IN6_ARE_ADDR_EQUAL(&addrPtr->sa6.sin6_addr,
+                                        &in6addr_any)) ||
+                    (IN6_IS_ADDR_V4MAPPED(&addrPtr->sa6.sin6_addr)
+                     && addrPtr->sa6.sin6_addr.s6_addr[12] == 0
+                     && addrPtr->sa6.sin6_addr.s6_addr[13] == 0
+                     && addrPtr->sa6.sin6_addr.s6_addr[14] == 0
+                     && addrPtr->sa6.sin6_addr.s6_addr[15] == 0)) {
+                    flags |= NI_NUMERICHOST;
+                }
+            }
+            if (getnameinfo(&addrPtr->sa, addrSize, host,
+                            sizeof(host)/sizeof(host[0]),
+                            NULL, 0, flags) != 0) {
+                return WSAGetLastError();
+            }
+
+            Tcl_DStringAppendElement(dsPtr, host);
+        }
+
+        Tcl_DStringAppendElement(dsPtr, service);
+
+        return ERROR_SUCCESS;
     }
 
-    Tcl_DStringAppendElement(dsPtr, service);
+    if (addrPtr->sa.sa_family == AF_BTH) {
+        char buf[40];
+        /*
+         * Could use WSAAddressToStringA but its deprecated and the WSAAddressToStringW
+         * version is inconvenient (wide char)
+         */
+        StringFromBLUETOOTH_ADDRESS((BLUETOOTH_ADDRESS*) &addrPtr->sabt.btAddr,
+                                    buf, _countof(buf));
 
-    return ERROR_SUCCESS;
+        Tcl_DStringAppendElement(dsPtr, buf);
+        Tcl_DStringAppendElement(dsPtr, buf);
+        _snprintf_s(buf, _countof(buf), _TRUNCATE, "%u", addrPtr->sabt.port);
+        Tcl_DStringAppendElement(dsPtr, buf);
+        return ERROR_SUCCESS;
+    }
+
+    return WSAEAFNOSUPPORT;
+
 }
 
 /*

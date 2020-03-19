@@ -113,4 +113,12 @@ IocpTclCode  WinsockClientSetOption (IocpChannel *lockedChanPtr,
                                      Tcl_Interp *interp, int optIndex,
                                      const char *valuePtr);
 
+/*
+ * Bluetooth exports
+ */
+char *StringFromBLUETOOTH_ADDRESS(
+    const BLUETOOTH_ADDRESS *addrPtr,
+    char  *bufPtr,
+    int    bufSize); /* Should be at least 18 bytes, else truncated */
+
 #endif /* TCLIOCPWINSOCK_H */
