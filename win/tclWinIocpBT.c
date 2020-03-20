@@ -925,6 +925,93 @@ BtClientBlockingConnect(
 /*
  *------------------------------------------------------------------------
  *
+ * BtClientPostConnect --
+ *
+ *    Posts a connect request to the IO completion port for a Bluetooth channel.
+ *    The local and remote addresses are those specified in the btPtr.
+ *
+ *    The function does not check or modify the connection state. That is
+ *    the caller's responsibility.
+ *
+ * Results:
+ *    Returns 0 on success or a Windows error code.
+ *
+ * Side effects:
+ *    A connection request buffer is posted to the completion port.
+ *
+ *------------------------------------------------------------------------
+ */
+static IocpWinError 
+BtClientPostConnect(
+    WinsockClient *btPtr  /* Channel pointer, may or may not be locked
+                           * but caller has to ensure no interference */
+    )
+{
+    static GUID     ConnectExGuid = WSAID_CONNECTEX;
+    LPFN_CONNECTEX  fnConnectEx;
+    IocpBuffer     *bufPtr;
+    DWORD           nbytes;
+    DWORD           winError;
+    SOCKADDR_BTH    btAddress;
+
+    /* Bind local address. Required for ConnectEx */
+    btAddress.addressFamily = AF_BTH;
+    btAddress.btAddr        = 0;
+    btAddress.serviceClassId = GUID_NULL;
+    btAddress.port           = 0;
+
+    if (bind(btPtr->so, (SOCKADDR *) &btAddress, sizeof(btAddress)) != 0)
+        return WSAGetLastError();
+
+    /*
+     * Retrieve the ConnectEx function pointer. We do not cache
+     * because strictly speaking it depends on the socket and
+     * address family that map to a protocol driver.
+     */
+    if (WSAIoctl(btPtr->so, SIO_GET_EXTENSION_FUNCTION_POINTER,
+                 &ConnectExGuid, sizeof(GUID),
+                 &fnConnectEx,
+                 sizeof(fnConnectEx),
+                 &nbytes, NULL, NULL) != 0 ||
+        fnConnectEx == NULL) {
+        return WSAGetLastError();
+    }
+
+    if (CreateIoCompletionPort((HANDLE) btPtr->so,
+                               iocpModuleState.completion_port,
+                               0, /* Completion key - unused */
+                               0) == NULL) {
+        return GetLastError(); /* NOT WSAGetLastError() ! */
+    }
+
+    bufPtr = IocpBufferNew(0, IOCP_BUFFER_OP_CONNECT, IOCP_BUFFER_F_WINSOCK);
+    if (bufPtr == NULL)
+        return WSAENOBUFS;
+
+    bufPtr->chanPtr    = WinsockClientToIocpChannel(btPtr);
+    btPtr->base.numRefs += 1; /* Reversed when buffer is unlinked from channel */
+
+    if (fnConnectEx(btPtr->so, btPtr->addresses.inet.remote->ai_addr,
+                    (int) btPtr->addresses.inet.remote->ai_addrlen,
+                    NULL, 0, &nbytes, &bufPtr->u.wsaOverlap) == FALSE) {
+        winError = WSAGetLastError();
+        bufPtr->chanPtr = NULL;
+        IOCP_ASSERT(btPtr->base.numRefs > 1); /* Since caller also holds ref */
+        btPtr->base.numRefs -= 1;
+        if (winError != WSA_IO_PENDING) {
+            IocpBufferFree(bufPtr);
+            return winError;
+        }
+    }
+
+    return 0;
+}
+
+
+
+/*
+ *------------------------------------------------------------------------
+ *
  * BtClientInitiateConnection --
  *
  *    Initiates an asynchronous Bluetooth connection.
