@@ -106,16 +106,19 @@ int WinsockClientShutdown(
 {
     WinsockClient *lockedWsPtr = IocpChannelToWinsockClient(lockedChanPtr);
 
-    if ((lockedWsPtr->flags & IOCP_WINSOCK_HALF_CLOSABLE) == 0) {
-        return EINVAL; /* TBD */
-    }
     if (lockedWsPtr->so != INVALID_SOCKET) {
         int wsaStatus;
         switch (flags & (TCL_CLOSE_READ|TCL_CLOSE_WRITE)) {
         case TCL_CLOSE_READ:
+            if ((lockedWsPtr->flags & IOCP_WINSOCK_HALF_CLOSABLE) == 0) {
+                return EINVAL; /* TBD */
+            }
             wsaStatus = shutdown(lockedWsPtr->so, SD_RECEIVE);
             break;
         case TCL_CLOSE_WRITE:
+            if ((lockedWsPtr->flags & IOCP_WINSOCK_HALF_CLOSABLE) == 0) {
+                return EINVAL; /* TBD */
+            }
             wsaStatus = shutdown(lockedWsPtr->so, SD_SEND);
             break;
         case TCL_CLOSE_READ|TCL_CLOSE_WRITE:

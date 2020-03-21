@@ -889,7 +889,7 @@ BtClientBlockingConnect(
     /* Note socket call, unlike WSASocket is overlapped by default */
     so = socket(AF_BTH, SOCK_STREAM, BTHPROTO_RFCOMM);
     if (so != INVALID_SOCKET) {
-        if (connect(so, (SOCKADDR *)&btPtr->addresses.bt.local, sizeof(SOCKADDR_BTH)) == 0) {
+        if (connect(so, (SOCKADDR *)&btPtr->addresses.bt.remote, sizeof(SOCKADDR_BTH)) == 0) {
             /* Sockets should not be inherited by children */
             SetHandleInformation((HANDLE)so, HANDLE_FLAG_INHERIT, 0);
 
@@ -1409,6 +1409,8 @@ BT_ModuleInitialize(Tcl_Interp *interp)
                          NULL);
     Tcl_CreateObjCommand(
         interp, "iocp::bt::RemoveDevice", BT_RemoveDeviceObjCmd, NULL, NULL);
+    Tcl_CreateObjCommand(
+        interp, "iocp::bt::socket", BT_SocketObjCmd, NULL, NULL);
 
 #ifdef IOCP_DEBUG
     Tcl_CreateObjCommand(interp, "iocp::bt::FormatAddress", BT_FormatAddressObjCmd, 0L, 0L);
