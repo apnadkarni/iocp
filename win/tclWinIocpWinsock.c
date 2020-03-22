@@ -754,4 +754,3 @@ IocpTclCode WinsockClientSetOption(
         return TCL_ERROR;
     }
 }
-

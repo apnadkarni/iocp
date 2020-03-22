@@ -45,11 +45,11 @@ BT_CloseHandleObjCmd (
     int tclResult;
 
     if (objc != 2) {
-        Tcl_WrongNumArgs(interp, 1, objv, "HRADIO");
+        Tcl_WrongNumArgs(interp, 1, objv, "HANDLE");
         return TCL_ERROR;
     }
 
-    tclResult = PointerObjUnregisterAnyOf(interp, objv[1], &handle, "HRADIO", NULL);
+    tclResult = PointerObjUnregisterAnyOf(interp, objv[1], &handle, "HANDLE", "HRADIO", NULL);
     if (tclResult != TCL_OK)
         return tclResult;
 
@@ -1285,7 +1285,7 @@ BT_SocketObjCmd(ClientData  notUsed,   /* Not used. */
         char *              copyScript;
         IocpAcceptCallback *acceptCallbackPtr;
         Tclh_SSizeT         len;
-
+        len = Tclh_strlen(script)+1;
         copyScript = ckalloc(len);
         memcpy(copyScript, script, len);
         acceptCallbackPtr         = ckalloc(sizeof(*acceptCallbackPtr));
@@ -1336,6 +1336,105 @@ BT_SocketObjCmd(ClientData  notUsed,   /* Not used. */
 
     Tcl_RegisterChannel(interp, chan);
     Tcl_SetObjResult(interp, Tcl_NewStringObj(Tcl_GetChannelName(chan), -1));
+
+    return TCL_OK;
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * BT_LookupServiceBeginObjCmd --
+ *
+ *    Implements the Tcl command BT_LookupServiceBegin.
+ *    TBD - make this a generic Winsock function.
+ * 
+ * Results:
+ *    TCL_OK    - Success. Returns search handle as interpreter result.
+ *    TCL_ERROR - Error.
+ *
+ * Side effects:
+ *    None.
+ *
+ *------------------------------------------------------------------------
+ */
+int BT_LookupServiceBeginObjCmd (
+    ClientData notUsed,
+    Tcl_Interp *interp,    /* Current interpreter. */
+    int objc,              /* Number of arguments. */
+    Tcl_Obj *const objv[]) /* Argument objects. */
+{
+    HANDLE      lookupH;
+    int         flags;
+    int         len;
+    Tclh_UUID   serviceUuid;
+    LPWSTR      serviceName = NULL;
+    Tcl_Obj    *objP;
+    WSAQUERYSETW      qs;
+    BLUETOOTH_ADDRESS btAddr;
+
+    /* LookupServiceBegin device_address service_guid ?service_name? */
+    if (objc < 3 || objc > 4) {
+        Tcl_WrongNumArgs(interp, 1, objv, "DEVICE SERVICEGUID ?SERVICENAME?");
+        return TCL_ERROR;
+    }
+
+    /* Note btAddr only used to verify syntax */
+    if (ObjToBLUETOOTH_ADDRESS(interp, objv[1], &btAddr) != TCL_OK || 
+        UnwrapUuid(interp, objv[2], &serviceUuid) != TCL_OK) {
+        return TCL_ERROR;
+    }
+
+    ZeroMemory(&qs, sizeof(qs));
+
+    /* Note we extract the Unicode string last, so no shimmering issues. */
+    if (objc == 4)
+        qs.lpszQueryString = Tcl_GetUnicodeFromObj(objv[3], &len);
+
+    /*
+     * Only these fields need to be set for Bluetooth.
+     * See https://docs.microsoft.com/en-us/windows/win32/bluetooth/bluetooth-and-wsalookupservicebegin-for-service-discovery
+     */
+    qs.dwSize              = sizeof(qs);
+    qs.lpServiceClassId    = &serviceUuid;
+    qs.dwNameSpace         = NS_BTH;
+    qs.lpszContext         = Tcl_GetUnicodeFromObj(objv[1], &len);
+
+    flags = LUP_FLUSHCACHE | LUP_RETURN_ADDR | LUP_RETURN_NAME | LUP_RETURN_COMMENT;
+    if (WSALookupServiceBeginW(&qs, flags, &lookupH) != 0)
+        return Iocp_ReportWindowsError(
+            interp, WSAGetLastError(), "Bluetooth service search failed.");
+    if (PointerRegister(interp, lookupH, "HWSALOOKUPSERVICE", &objP) != TCL_OK) {
+        CloseHandle(lookupH);
+        return TCL_ERROR;
+    }
+    Tcl_SetObjResult(interp, objP);
+    return TCL_OK;
+}
+
+static IocpTclCode
+BT_LookupServiceEndObjCmd (
+    ClientData notUsed,			/* Not used. */
+    Tcl_Interp *interp,			/* Current interpreter. */
+    int objc,				/* Number of arguments. */
+    Tcl_Obj *CONST objv[])		/* Argument objects. */
+{
+    HANDLE lookupH;
+    int tclResult;
+
+    if (objc != 2) {
+        Tcl_WrongNumArgs(interp, 1, objv, "HWSALOOKUPSERVICE");
+        return TCL_ERROR;
+    }
+    tclResult = PointerObjUnregister(interp, objv[1],
+                                     &lookupH, "HWSALOOKUPSERVICE");
+    if (tclResult != TCL_OK)
+        return tclResult;
+
+    if (WSALookupServiceEnd(lookupH) != 0)
+        return Iocp_ReportWindowsError(
+            interp,
+            WSAGetLastError(),
+            "Could not close Bluetooth service lookup handle: ");
 
     return TCL_OK;
 }
@@ -1411,6 +1510,16 @@ BT_ModuleInitialize(Tcl_Interp *interp)
         interp, "iocp::bt::RemoveDevice", BT_RemoveDeviceObjCmd, NULL, NULL);
     Tcl_CreateObjCommand(
         interp, "iocp::bt::socket", BT_SocketObjCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp,
+                         "iocp::bt::LookupServiceBegin",
+                         BT_LookupServiceBeginObjCmd,
+                         NULL,
+                         NULL);
+    Tcl_CreateObjCommand(interp,
+                         "iocp::bt::LookupServiceEnd",
+                         BT_LookupServiceEndObjCmd,
+                         NULL,
+                         NULL);
 
 #ifdef IOCP_DEBUG
     Tcl_CreateObjCommand(interp, "iocp::bt::FormatAddress", BT_FormatAddressObjCmd, 0L, 0L);

@@ -1641,7 +1641,7 @@ Tcp_SocketObjCmd (
     IocpSizeT           len;
     char               *copyScript;
 
-        len        = (IocpSizeT) strlen(script)+1;
+        len        = Tclh_strlen(script) + 1;
         copyScript = ckalloc(len);
     memcpy(copyScript, script, len);
         acceptCallbackPtr         = ckalloc(sizeof(*acceptCallbackPtr));
