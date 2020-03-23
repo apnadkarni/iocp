@@ -25,7 +25,7 @@
  			" *",
  			" * $1ObjCmd --",
  			" *",
- 			" *    Implements the Tcl command $1.",
+ 			" *    Implements the Tcl command $1",
  			" *",
  			" * Results:",
  			" *    TCL_OK    - Success.",

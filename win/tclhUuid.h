@@ -30,7 +30,7 @@ Tcl_Obj *Tclh_NewUuidObj ();
  * Returns:
  * The Tcl_Obj containing the wrapped pointer.
  */
-Tcl_Obj *Tclh_WrapUuid (Tclh_UUID *uuidP);
+Tcl_Obj *Tclh_WrapUuid (const Tclh_UUID *uuidP);
 
 /* Function: Tclh_UnwrapUuid
  * Unwraps a Tcl_Obj containing a UUID.
@@ -167,7 +167,7 @@ static int  SetUuidObjFromAny(Tcl_Obj *objP)
     return TCL_OK; 
 }
 
-Tcl_Obj *Tclh_WrapUuid (Tclh_UUID *from) 
+Tcl_Obj *Tclh_WrapUuid (const Tclh_UUID *from) 
 {
     Tcl_Obj *objP;
     Tclh_UUID *uuidP;

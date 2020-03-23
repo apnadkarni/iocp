@@ -802,6 +802,24 @@ static IocpTclCode ObjToBLUETOOTH_ADDRESS(
     }
 }
 
+static Tcl_Obj *ObjFromSOCKADDR_BTH(const SOCKADDR_BTH *sockAddr)
+{
+    Tcl_Obj *objs[8];
+    BLUETOOTH_ADDRESS btAddr;
+
+    btAddr.ullLong = sockAddr->btAddr;
+
+    objs[0] = STRING_LITERAL_OBJ("AddressFamily");
+    objs[1] = Tcl_NewIntObj(sockAddr->addressFamily);
+    objs[2] = STRING_LITERAL_OBJ("Address");
+    objs[3] = ObjFromBLUETOOTH_ADDRESS(&btAddr);
+    objs[4] = STRING_LITERAL_OBJ("ServiceClassId");
+    objs[5] = Tclh_WrapUuid(&sockAddr->serviceClassId);
+    objs[6] = STRING_LITERAL_OBJ("Port");
+    objs[7] = Tcl_NewIntObj(sockAddr->port);
+    return Tcl_NewListObj(8, objs);
+}
+
 #ifdef IOCP_DEBUG
 static IocpTclCode
 BT_FormatAddressObjCmd (
@@ -1442,6 +1460,110 @@ BT_LookupServiceEndObjCmd (
 /*
  *------------------------------------------------------------------------
  *
+ * BT_LookupServiceNextObjCmd --
+ *
+ *    Implements the Tcl command BT_LookupServiceNext.
+ *
+ * Results:
+ *    TCL_OK    - Success, returns the next service information element
+ *                in the interp result.
+ *    TCL_ERROR - Error. Interp result contains the error message.
+ *
+ * Side effects:
+ *    None.
+ *
+ *------------------------------------------------------------------------
+ */
+int BT_LookupServiceNextObjCmd (
+    ClientData notUsed,
+    Tcl_Interp *interp,    /* Current interpreter. */
+    int objc,              /* Number of arguments. */
+    Tcl_Obj *const objv[]) /* Argument objects. */
+{
+    HANDLE        lookupH;
+    WSAQUERYSETW *qsP;
+    int           qsLen;
+    IocpWinError  winError;
+    IocpTclCode   tclResult;
+
+    if (objc != 2) {
+        Tcl_WrongNumArgs(interp, 1, objv, "HWSALOOKUPSERVICE");
+        return TCL_ERROR;
+    }
+
+    if (UnwrapPointer(interp, objv[1], &lookupH, "HWSALOOKUPSERVICE") != TCL_OK)
+        return TCL_ERROR;
+
+    /*
+     * WSAQUERYSET is variable size. We will keep looping until
+     * it is big enough.
+     */
+    qsLen = sizeof(*qsP) + 2000;
+    qsP = ckalloc(qsLen);
+    ZeroMemory(qsP, sizeof(*qsP)); /* Do not need to zero whole buffer */
+    qsP->dwSize              = sizeof(*qsP);
+    qsP->dwNameSpace         = NS_BTH;
+    while (1) {
+        /*
+         * As per Bluetooth-specific SDK docs https://docs.microsoft.com/en-us/windows/win32/bluetooth/bluetooth-and-wsalookupservicebegin-for-service-discovery
+         *     LUP_RETURN_TYPE  
+         * is only relevant for WSALookupServiceBegin, not Next.
+         */
+        DWORD flags = 
+            LUP_RETURN_ADDR | /* Address in lpcsaBuffer */
+            LUP_RETURN_NAME ; /* Name in lpszServiceInstanceName */
+        winError = WSALookupServiceNextW(lookupH, flags, &qsLen, qsP);
+        if (winError == 0)
+            break;
+        winError = WSAGetLastError();
+        if (winError != WSAEFAULT)
+            break;
+        ckfree(qsP);
+        qsP = ckalloc(qsLen);
+        ZeroMemory(qsP, sizeof(*qsP)); /* Do not need to zero whole buffer */
+        qsP->dwSize      = sizeof(*qsP);
+        qsP->dwNameSpace = NS_BTH;
+    }
+    if (winError == 0) {
+        Tcl_Obj *objs[4];
+        objs[0] = STRING_LITERAL_OBJ("ServiceInstanceName");
+        if (qsP->lpszServiceInstanceName)
+            objs[1] = Tcl_NewUnicodeObj(qsP->lpszServiceInstanceName, -1);
+        else
+            objs[1] = Tcl_NewObj();
+        objs[2] = STRING_LITERAL_OBJ("Addresses");
+        if (qsP->lpcsaBuffer) {
+            Tcl_Obj *     addrObjs[4];
+            SOCKADDR_BTH *soAddr;
+            addrObjs[0] = STRING_LITERAL_OBJ("Remote");
+            soAddr  = (SOCKADDR_BTH *)qsP->lpcsaBuffer->RemoteAddr.lpSockaddr;
+            addrObjs[1] = ObjFromSOCKADDR_BTH(soAddr);
+            addrObjs[2] = STRING_LITERAL_OBJ("Local");
+            soAddr  = (SOCKADDR_BTH *)qsP->lpcsaBuffer->LocalAddr.lpSockaddr;
+            addrObjs[3] = ObjFromSOCKADDR_BTH(soAddr);
+            objs[3]     = Tcl_NewListObj(4, addrObjs);
+        }
+        else
+            objs[3] = Tcl_NewObj();
+        Tcl_SetObjResult(interp, Tcl_NewListObj(4, objs));
+        tclResult = TCL_OK;
+    } else if (winError == WSA_E_NO_MORE) {
+        /* Not an error, but no more values */
+        tclResult = TCL_BREAK;
+    }
+    else {
+         tclResult = Iocp_ReportWindowsError(
+            interp,
+            winError,
+            "Could not retrieve Bluetooth service information: ");
+    }
+    ckfree(qsP);
+    return tclResult;
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
  * BT_ModuleInitialize --
  *
  *    Initializes the Bluetooth module.
@@ -1518,6 +1640,11 @@ BT_ModuleInitialize(Tcl_Interp *interp)
     Tcl_CreateObjCommand(interp,
                          "iocp::bt::LookupServiceEnd",
                          BT_LookupServiceEndObjCmd,
+                         NULL,
+                         NULL);
+    Tcl_CreateObjCommand(interp,
+                         "iocp::bt::LookupServiceNext",
+                         BT_LookupServiceNextObjCmd,
                          NULL,
                          NULL);
 
