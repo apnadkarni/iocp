@@ -1531,17 +1531,11 @@ int BT_LookupServiceNextObjCmd (
             objs[1] = Tcl_NewUnicodeObj(qsP->lpszServiceInstanceName, -1);
         else
             objs[1] = Tcl_NewObj();
-        objs[2] = STRING_LITERAL_OBJ("Addresses");
+        objs[2] = STRING_LITERAL_OBJ("RemoteAddress");
         if (qsP->lpcsaBuffer) {
-            Tcl_Obj *     addrObjs[4];
             SOCKADDR_BTH *soAddr;
-            addrObjs[0] = STRING_LITERAL_OBJ("Remote");
             soAddr  = (SOCKADDR_BTH *)qsP->lpcsaBuffer->RemoteAddr.lpSockaddr;
-            addrObjs[1] = ObjFromSOCKADDR_BTH(soAddr);
-            addrObjs[2] = STRING_LITERAL_OBJ("Local");
-            soAddr  = (SOCKADDR_BTH *)qsP->lpcsaBuffer->LocalAddr.lpSockaddr;
-            addrObjs[3] = ObjFromSOCKADDR_BTH(soAddr);
-            objs[3]     = Tcl_NewListObj(4, addrObjs);
+            objs[3] = ObjFromSOCKADDR_BTH(soAddr);
         }
         else
             objs[3] = Tcl_NewObj();
