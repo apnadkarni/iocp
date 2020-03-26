@@ -1417,7 +1417,8 @@ int BT_LookupServiceBeginObjCmd (
     qs.dwNameSpace         = NS_BTH;
     qs.lpszContext         = Tcl_GetUnicodeFromObj(objv[1], &len);
 
-    flags = LUP_FLUSHCACHE | LUP_RETURN_ADDR | LUP_RETURN_NAME | LUP_RETURN_COMMENT;
+    flags = LUP_FLUSHCACHE | LUP_RETURN_ADDR | LUP_RETURN_NAME | LUP_RETURN_COMMENT | LUP_RETURN_TYPE;
+    flags |= LUP_RETURN_ALL;/* TBD */
     if (WSALookupServiceBeginW(&qs, flags, &lookupH) != 0)
         return Iocp_ReportWindowsError(
             interp, WSAGetLastError(), "Bluetooth service search failed.");
@@ -1474,7 +1475,8 @@ BT_LookupServiceEndObjCmd (
  *
  *------------------------------------------------------------------------
  */
-int BT_LookupServiceNextObjCmd (
+static IocpTclCode
+BT_LookupServiceNextObjCmd (
     ClientData notUsed,
     Tcl_Interp *interp,    /* Current interpreter. */
     int objc,              /* Number of arguments. */
@@ -1510,8 +1512,11 @@ int BT_LookupServiceNextObjCmd (
          * is only relevant for WSALookupServiceBegin, not Next.
          */
         DWORD flags = 
+            LUP_RETURN_TYPE    | /* UUID as lpServiceClassId */
+            LUP_RETURN_COMMENT | /* Comment in lpszComment */
             LUP_RETURN_ADDR | /* Address in lpcsaBuffer */
             LUP_RETURN_NAME ; /* Name in lpszServiceInstanceName */
+        flags |= LUP_RETURN_ALL; /* TBD */
         winError = WSALookupServiceNextW(lookupH, flags, &qsLen, qsP);
         if (winError == 0)
             break;
@@ -1525,12 +1530,14 @@ int BT_LookupServiceNextObjCmd (
         qsP->dwNameSpace = NS_BTH;
     }
     if (winError == 0) {
-        Tcl_Obj *objs[4];
+        Tcl_Obj *objs[10];
+
         objs[0] = STRING_LITERAL_OBJ("ServiceInstanceName");
         if (qsP->lpszServiceInstanceName)
             objs[1] = Tcl_NewUnicodeObj(qsP->lpszServiceInstanceName, -1);
         else
             objs[1] = Tcl_NewObj();
+
         objs[2] = STRING_LITERAL_OBJ("RemoteAddress");
         if (qsP->lpcsaBuffer) {
             SOCKADDR_BTH *soAddr;
@@ -1539,7 +1546,29 @@ int BT_LookupServiceNextObjCmd (
         }
         else
             objs[3] = Tcl_NewObj();
-        Tcl_SetObjResult(interp, Tcl_NewListObj(4, objs));
+
+        objs[4] = STRING_LITERAL_OBJ("Comment");
+        if (qsP->lpszComment)
+            objs[5] = Tcl_NewUnicodeObj(qsP->lpszComment, -1);
+        else
+            objs[5] = Tcl_NewObj();
+
+        objs[6] = STRING_LITERAL_OBJ("ServiceClassId");
+        if (qsP->lpServiceClassId)
+            objs[7] = Tclh_WrapUuid(qsP->lpServiceClassId);
+        else {
+            Tclh_UUID null_uuid = GUID_NULL;
+            objs[7] = Tclh_WrapUuid(&null_uuid);
+        }
+
+        objs[8] = STRING_LITERAL_OBJ("Blob");
+        if (qsP->lpBlob) {
+            objs[9]
+                = Tcl_NewByteArrayObj(qsP->lpBlob->pBlobData, qsP->lpBlob->cbSize);
+        } else {
+            objs[9] = Tcl_NewObj();
+        }
+        Tcl_SetObjResult(interp, Tcl_NewListObj(10, objs));
         tclResult = TCL_OK;
     } else if (winError == WSA_E_NO_MORE) {
         /* Not an error, but no more values */
