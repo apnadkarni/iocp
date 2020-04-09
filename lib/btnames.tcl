@@ -1,7 +1,11 @@
-namespace eval iocp::btnames {
-   variable uuid16_service_class_map {
+namespace eval iocp::bt::names {
+    namespace path [namespace parent]
+    # Maps 16bit hex UUID to Service class name
+    # https://www.bluetooth.com/specifications/assigned-numbers/service-discovery/
+   variable service_class_names {
         1000 ServiceDiscoveryServerServiceClassID
         1001 BrowseGroupDescriptorServiceClassID
+        1002 PublicBrowseRoot
         1101 SerialPort
         1102 LANAccessUsingPPP
         1103 DialupNetworking
@@ -70,15 +74,202 @@ namespace eval iocp::btnames {
         1401 {HDP Source}
         1402 {HDP Sink}
     }
+
+    # https://www.bluetooth.com/specifications/assigned-numbers/service-discovery/
+    variable protocol_names { 
+        0001 SDP
+        0002 UDP
+        0003 RFCOMM
+        0004 TCP
+        0005 TCS-BIN
+        0006 TCS-AT
+        0007 ATT
+        0008 OBEX
+        0009 IP
+        000A FTP
+        000C HTTP
+        000E WSP
+        000F BNEP
+        0010 UPNP
+        0011 HIDP
+        0012 HardcopyControlChannel
+        0014 HardcopyDataChannel
+        0016 HardcopyNotification
+        0017 AVCTP
+        0019 AVDTP
+        001B CMTP
+        001E MCAPControlChannel
+        001F MCAPDataChannel
+        0100 L2CAP
+    }
+
+    # Universal attribute names
+    variable attribute_names
+    set attribute_names { 
+        ServiceRecordHandle     0
+        ServiceClassIDList      1
+        ServiceRecordState      2
+        ServiceID               3
+        ProtocolDescriptorList  4
+        BrowseGroupList         5 
+        LanguageBaseAttributeIDList  6
+        ServiceInfoTimeToLive   7
+        ServiceAvailability     8
+        BluetoothProfileDescriptorList 9
+        DocumentationURL       10
+        ClientExecutableURL    11
+        IconURL                12 
+        AdditionalProtocolDescriptorLists 13
+        ServiceName           256
+        ServiceDescription    257
+        ProviderName          258
+    }
+
 }
-proc iocp::btnames::uuid_to_service_class {uuid} {
-    variable uuid16_service_class_map
-    if {![regexp {^[[:xdigit:]]{8}-0000-1000-8000-00805f9b34fb$} $uuid]} {
+
+proc iocp::bt::names::name {uuid} {
+    # Map a UUID to a name.
+    #  uuid - Bluetooth UUID
+    # The command attempts to map the UUID as a service name or protocol
+    # name in that order.
+    # 
+    # Returns the mapped name or the uuid if no mapping is possible.
+
+    set name [service_class_name $uuid]
+    if {$name ne $uuid} {
+        return $name
+    }
+    return [protocol_name $uuid]
+}
+
+proc iocp::bt::names::service_class_name {uuid} {
+    variable service_class_names
+    set name [MapUuidToName $uuid service_class_names]
+    if {$name ne $uuid} {
+        return $name
+    }
+    # Well known private uuids
+    if {[string equal -nocase "02030302-1d19-415f-86f2-22a2106a0a77" $uuid]} {
+        return "Wireless iAP v2"; # iPod Accessory Protocol
+    }
+}
+
+proc iocp::bt::names::service_class_uuid {name} {
+    variable service_class_names
+    return [MapNameToUuid $name service_class_names]
+}
+
+proc iocp::bt::names::profile_name {uuid} {
+    return [service_class_name $uuid]
+}
+
+proc iocp::bt::names::protocol_name {uuid} {
+    variable protocol_names
+    return [MapUuidToName $uuid protocol_names]
+}
+
+proc iocp::bt::names::attribute_name {attr_id} {
+    variable attribute_names
+    dict for {name id} $attribute_names {
+        if {$attr_id == $id} {
+            return $name
+        }
+    }
+    return $attr_id
+}
+
+proc iocp::bt::names::attribute_id {name} {
+    variable attribute_names
+    return [dict get $attribute_names $name]
+}
+
+proc iocp::bt::names::MapUuidToName {uuid dictvar} {
+    upvar 1 $dictvar names
+
+    if {![IsUuid $uuid]} {
         error "Invalid Bluetooth UUID \"$uuid\""
     }
+    if {[string range $uuid 0 3] ne "0000"} {
+        # Top bits must be 0's
+        return $uuid
+    }
     set uuid16 [string toupper [string range $uuid 4 7]]
-    if {[dict exists $uuid16_service_class_map $uuid16]} {
-        return [dict get $uuid16_service_class_map $uuid16]
+    if {[dict exists $names $uuid16]} {
+        return [dict get $names $uuid16]
     }
     return $uuid
 }
+
+proc iocp::bt::names::MapNameToUuid {name dictvar} {
+    upvar 1 $dictvar names
+
+    if {[IsUuid $name]} {
+        return $name
+    }
+    dict for {uuid16 mapped_name} $names {
+        if {[string equal -nocase $name $mapped_name]} {
+            return "0000$uuid16-0000-1000-8000-00805f9b34fb"
+        }
+    }
+    error "Name \"$name\" could not be mapped to a UUID"
+}
+
+proc iocp::bt::names::Asciify {svar} {
+    # Replaces non-ascii or non-printable chars with Tcl sequences
+    #
+    # Transformed string is stored back in svar.
+
+    upvar 1 $svar s
+    set ascii ""
+    set was_escaped 0
+    # Split can be expensive for large strings so string index
+    set len [string length $s]
+    for {set i 0} {$i < $len} {incr i} {
+        set char [string index $s $i]
+        scan $char %c codepoint
+        if {$codepoint < 32 || $codepoint >= 126} {
+            append ascii "\\u[format %.4x $codepoint]"
+            set was_escaped 1
+        } else {
+            append ascii $char
+        }
+    }
+    set s $ascii
+    return $was_escaped
+}
+
+proc iocp::bt::names::ClipSpec {{use_list 0}} {
+    package require twapi
+
+    set csv [twapi::read_clipboard_text]
+    if {$use_list} {
+        set tcl "\[list \n"
+    } else {
+        set tcl "\{ \n"
+    }
+    foreach line [split $csv \n] {
+        lassign [split $line \t] name uuid description
+        set name [string trim $name]
+        set uuid [string trim $uuid]
+        if {![regexp {^0x[[:xdigit:]]{4}} $uuid]} continue
+        if {$use_list} {
+            # Unicode chars, needs escaping
+            Asciify name
+            append tcl "        " [list [string range $uuid 2 end]] " "  "\"$name\"" " \\" \n
+        } else {
+            if {[Asciify name]} {
+                # Need to use the list command. Just restart
+                return [ScrapeBTSpec 1]
+            }
+            append tcl "        " [string range $uuid 2 end] " "  "{$name}" \n
+        }
+    }
+    if {$use_list} {
+        append tcl "\]\n"
+    } else {
+        append tcl "\}"
+    }
+
+    twapi::write_clipboard_text $tcl
+}
+
