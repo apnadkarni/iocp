@@ -53,7 +53,6 @@ namespace eval iocp::inet {
 }
 
 namespace eval iocp::bt {
-    # Dummy procs to document C commands
 
     variable _ruff_preamble {
         The `iocp::bt` namespace implements commands for communicating
@@ -64,6 +63,8 @@ namespace eval iocp::bt {
         *Note: currently only client-side communication is implemented.*
     }
 
+    
+    # Dummy procs to document C commands
     proc socket {args} {
         # Returns a client Bluetooth RFCOMM channel.
         #   args - see below.
@@ -85,6 +86,26 @@ namespace eval iocp::bt {
     }
 }
 
+namespace eval iocp::bt::sdr {
+    variable _ruff_preamble {
+        The `iocp::bt::sdr` namespace contains commands for parsing Bluetooth
+        **Service Discovery Records** (SDR) as returned by the
+        [iocp::bt::browse_services] and [iocp::bt::get_service_references]
+        commands. These return a list of binary records which must be
+        first parsed with the [parse] commands. Individual service attributes
+        can then be retrieved from the parsed commands using the other
+        commands in the namespace.
+    }
+}
+
+namespace eval iocp::bt::names {
+    variable _ruff_preamble {
+        Most objects in Bluetooth services are identified using UUIDs or
+        in some cases numeric identifiers. The `iocp::bt::names` namespace
+        contains utility commands to map these to human readable names.
+    }
+
+}
 
 proc iocp::Document {outfile args} {
     # Generates documentation for the actor package
@@ -97,7 +118,7 @@ proc iocp::Document {outfile args} {
     variable _preamble
 
     set ns [namespace current]
-    set namespaces [list $ns ${ns}::inet ${ns}::bt ${ns}::bt::names]
+    set namespaces [list $ns ${ns}::inet ${ns}::bt ${ns}::bt::sdr ${ns}::bt::names]
     ruff::document $namespaces -autopunctuate 1 -excludeprocs {^[_A-Z]} \
         -recurse 0 -preamble $_preamble -pagesplit namespace \
         -output $outfile -includesource 1 \

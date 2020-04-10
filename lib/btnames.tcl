@@ -1,3 +1,9 @@
+#
+# Copyright (c) 2020, Ashok P. Nadkarni
+# All rights reserved.
+#
+# See the file LICENSE for license
+
 namespace eval iocp::bt::names {
     namespace path [namespace parent]
     # Maps 16bit hex UUID to Service class name
@@ -143,6 +149,10 @@ proc iocp::bt::names::name {uuid} {
 }
 
 proc iocp::bt::names::service_class_name {uuid} {
+    # Maps a UUID to a service class name.
+    # uuid - UUID to be mapped
+    # Returns a human-readable name or the UUID itself
+    # if no mapping could be performed.
     variable service_class_names
     set name [MapUuidToName $uuid service_class_names]
     if {$name ne $uuid} {
@@ -152,28 +162,55 @@ proc iocp::bt::names::service_class_name {uuid} {
     if {[string equal -nocase "02030302-1d19-415f-86f2-22a2106a0a77" $uuid]} {
         return "Wireless iAP v2"; # iPod Accessory Protocol
     }
+    return $uuid
 }
 
 proc iocp::bt::names::service_class_uuid {name} {
+    # Maps a service class name to a UUID.
+    #  name - Service class name to be mapped.
+    # The command raises an error if the name could not be mapped to
+    # a UUID.
+    #
+    # Returns the UUID corresponding to the name.
     variable service_class_names
     return [MapNameToUuid $name service_class_names]
 }
 
 proc iocp::bt::names::profile_name {uuid} {
+    # Maps a UUID to a Bluetooth profile name.
+    # uuid - UUID to be mapped
+    # Returns a human-readable name or the UUID itself
+    # if no mapping could be performed.
+
+    # Profiles seem to come from same service class UUID space.
     return [service_class_name $uuid]
 }
 
 proc iocp::bt::names::protocol_name {uuid} {
+    # Maps a UUID to a protocol name.
+    # uuid - UUID to be mapped
+    # Returns a human-readable name or the UUID itself
+    # if no mapping could be performed.
     variable protocol_names
     return [MapUuidToName $uuid protocol_names]
 }
 
 proc iocp::bt::names::protocol_uuid {name} {
+    # Maps a protocol name to a UUID.
+    #  name - Protocol name to be mapped.
+    # The command raises an error if the name could not be mapped to
+    # a UUID.
+    #
+    # Returns the UUID corresponding to the name.
     variable protocol_names
     return [MapNameToUuid $name protocol_names]
 }
 
 proc iocp::bt::names::attribute_name {attr_id} {
+    # Maps a numeric attribute id to a attribute name.
+    #  attr_id - numeric attribute identifier
+    # Returns a human-readable name for the attribute or
+    # the numeric id itself if no mapping could be performed.
     variable attribute_names
     dict for {name id} $attribute_names {
         if {$attr_id == $id} {
@@ -184,6 +221,11 @@ proc iocp::bt::names::attribute_name {attr_id} {
 }
 
 proc iocp::bt::names::attribute_id {name} {
+    # Maps a attribute name to it numeric attribute identifier.
+    #  name - Attribute name to be mapped
+    # The command will raise an error if the name is unknown.
+    # Returns the numeric attribute identifier corresponding to
+    # the passed name.
     variable attribute_names
     return [dict get $attribute_names $name]
 }

@@ -1887,7 +1887,7 @@ Iocp_Init (Tcl_Interp *interp)
         return TCL_ERROR;
     }
 
-    if (Winsock_ModuleInitialize(interp) != TCL_OK)
+    if (Tcp_ModuleInitialize(interp) != TCL_OK)
         return TCL_ERROR;
     if (BT_ModuleInitialize(interp) != TCL_OK)
         return TCL_ERROR;

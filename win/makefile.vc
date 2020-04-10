@@ -39,5 +39,10 @@ $(PRJ_OBJS) : "$(WIN_DIR)\tclWinIocp.h" "$(WIN_DIR)\makefile.vc"
 
 !include "$(_RULESDIR)\targets.vc"
 
-install:    install-docs
-pkgindex:   default-pkgindex
+install:    default-install-docs-html
+pkgindex:
+        @type << >"$(OUT_DIR)\pkgIndex.tcl"
+    package ifneeded $(PROJECT) $(DOTVERSION) "[list load [file join $$dir $(PRJLIBNAME)] iocp]"
+    package ifneeded $(PROJECT)_bt $(DOTVERSION) "[list source [file join $$dir bt.tcl]]"
+<<
+

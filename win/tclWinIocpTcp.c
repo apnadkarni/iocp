@@ -1689,7 +1689,7 @@ Tcp_SocketObjCmd (
 /*
  *------------------------------------------------------------------------
  *
- * Winsock_ModuleInitialize --
+ * Tcp_ModuleInitialize --
  *
  *    Initializes the Winsock module.
  *
@@ -1701,7 +1701,7 @@ Tcp_SocketObjCmd (
  *
  *------------------------------------------------------------------------
  */
-IocpTclCode Winsock_ModuleInitialize (Tcl_Interp *interp)
+IocpTclCode Tcp_ModuleInitialize (Tcl_Interp *interp)
 {
     Tcl_CreateObjCommand(interp, "iocp::inet::socket", Tcp_SocketObjCmd, 0L, 0L);
     return TCL_OK;

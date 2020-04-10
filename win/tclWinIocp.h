@@ -670,8 +670,8 @@ void AcceptCallbackProc(ClientData callbackData, Tcl_Channel chan,
                         char *address, int port);
 #endif
 
-/* Module initilizations */
-IocpTclCode Winsock_ModuleInitialize(Tcl_Interp *interp);
+/* Module initializations */
+IocpTclCode Tcp_ModuleInitialize(Tcl_Interp *interp);
 IocpTclCode BT_ModuleInitialize(Tcl_Interp *interp);
 
 /*
