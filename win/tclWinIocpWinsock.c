@@ -517,7 +517,7 @@ WinsockListifyAddress(
     Tcl_DString        *dsPtr)    /* Caller-initialized location for output */
 {
 
-    if (addrPtr->sa.sa_family == AF_INET && addrPtr->sa.sa_family == AF_INET6) {
+    if (addrPtr->sa.sa_family == AF_INET || addrPtr->sa.sa_family == AF_INET6) {
         int  flags;
         char host[NI_MAXHOST];
         char service[NI_MAXSERV];

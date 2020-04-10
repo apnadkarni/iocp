@@ -82,11 +82,11 @@ proc randport {} {
     # firstly try dynamic port via server-socket(0):
     set port 0x7fffffff
     catch {
-	set port [lindex [fconfigure [set s [iocp::socket -server {} 0]] -sockname] 2]
+	set port [lindex [fconfigure [set s [iocp::inet::socket -server {} 0]] -sockname] 2]
 	close $s
     }
     while {[catch {
-	close [iocp::socket -server {} $port]
+	close [iocp::inet::socket -server {} $port]
     } msg]} {
 	if {[incr i] > 1000} {return -code error "too many iterations to get free random port: $msg"}
 	# try random port:
@@ -100,8 +100,8 @@ proc randport {} {
 # up to 200ms for a packet sent to localhost to arrive. We're measuring this
 # here, so that OSes that don't have this problem can run the tests at full
 # speed.
-set server [iocp::socket -server {apply {{s a p} {set ::s1 $s}}} 0]
-set s2 [iocp::socket localhost [lindex [fconfigure $server -sockname] 2]]
+set server [iocp::inet::socket -server {apply {{s a p} {set ::s1 $s}}} 0]
+set s2 [iocp::inet::socket localhost [lindex [fconfigure $server -sockname] 2]]
 vwait s1; close $server
 fconfigure $s1 -buffering line
 fconfigure $s2 -buffering line
@@ -117,7 +117,7 @@ set lat1 [expr {($t2-$t1)*2}]; # doubled as a safety margin
 # additional [after]s in some tests that are not needed on systems that fail
 # immediately.
 set t1 [clock milliseconds]
-catch {iocp::socket 127.0.0.1 [randport]}
+catch {iocp::inet::socket 127.0.0.1 [randport]}
 set t2 [clock milliseconds]
 set lat2 [expr {($t2-$t1)*3}]
 
@@ -158,11 +158,11 @@ foreach {af localhost} {
     inet6 ::1
 } {
     # Check if the family is supported and set the constraint accordingly
-    testConstraint supported_$af [expr {![catch {iocp::socket -server foo -myaddr $localhost 0} sock]}]
+    testConstraint supported_$af [expr {![catch {iocp::inet::socket -server foo -myaddr $localhost 0} sock]}]
     catch {close $sock}
 }
 
-set sock [iocp::socket -server foo -myaddr localhost 0]
+set sock [iocp::inet::socket -server foo -myaddr localhost 0]
 set sockname [fconfigure $sock -sockname]
 close $sock
 testConstraint localhost_v4 [expr {"127.0.0.1" in $sockname}]
@@ -202,7 +202,7 @@ set commandSocket ""
 if {$doTestsWithRemoteServer} {
     catch {close $commandSocket}
     if {![catch {
-	set commandSocket [iocp::socket $remoteServerIP $remoteServerPort]
+	set commandSocket [iocp::inet::socket $remoteServerIP $remoteServerPort]
     }]} then {
 	fconfigure $commandSocket -translation crlf -buffering line
     } elseif {![testConstraint exec]} {
@@ -221,7 +221,7 @@ if {$doTestsWithRemoteServer} {
 	} msg]} then {
 	    gets $remoteProcChan
 	    if {[catch {
-		set commandSocket [iocp::socket $remoteServerIP $remoteServerPort]
+		set commandSocket [iocp::inet::socket $remoteServerIP $remoteServerPort]
 	    } msg] == 0} then {
 		fconfigure $commandSocket -translation crlf -buffering line
 	    } else {
@@ -287,47 +287,47 @@ testConstraint notOSX [expr {$::tcl_platform(os) ne "Darwin"}]
 
 # ----------------------------------------------------------------------
 
-test socket_$af-1.1 {arg parsing for iocp::socket command} -constraints [list supported_$af] -body {
-    iocp::socket -server
+test socket_$af-1.1 {arg parsing for iocp::inet::socket command} -constraints [list supported_$af] -body {
+    iocp::inet::socket -server
 } -returnCodes error -result {no argument given for -server option}
-test socket_$af-1.2 {arg parsing for iocp::socket command} -constraints [list supported_$af] -body {
-    iocp::socket -server foo
+test socket_$af-1.2 {arg parsing for iocp::inet::socket command} -constraints [list supported_$af] -body {
+    iocp::inet::socket -server foo
 } -returnCodes error -result {wrong # args: should be "socket ?-myaddr addr? ?-myport myport? ?-async? host port" or "socket -server command ?-myaddr addr? port"}
-test socket_$af-1.3 {arg parsing for iocp::socket command} -constraints [list supported_$af] -body {
-    iocp::socket -myaddr
+test socket_$af-1.3 {arg parsing for iocp::inet::socket command} -constraints [list supported_$af] -body {
+    iocp::inet::socket -myaddr
 } -returnCodes error -result {no argument given for -myaddr option}
-test socket_$af-1.4 {arg parsing for iocp::socket command} -constraints [list supported_$af] -body {
-    iocp::socket -myaddr $localhost
+test socket_$af-1.4 {arg parsing for iocp::inet::socket command} -constraints [list supported_$af] -body {
+    iocp::inet::socket -myaddr $localhost
 } -returnCodes error -result {wrong # args: should be "socket ?-myaddr addr? ?-myport myport? ?-async? host port" or "socket -server command ?-myaddr addr? port"}
-test socket_$af-1.5 {arg parsing for iocp::socket command} -constraints [list supported_$af] -body {
-    iocp::socket -myport
+test socket_$af-1.5 {arg parsing for iocp::inet::socket command} -constraints [list supported_$af] -body {
+    iocp::inet::socket -myport
 } -returnCodes error -result {no argument given for -myport option}
-test socket_$af-1.6 {arg parsing for iocp::socket command} -constraints [list supported_$af] -body {
-    iocp::socket -myport xxxx
+test socket_$af-1.6 {arg parsing for iocp::inet::socket command} -constraints [list supported_$af] -body {
+    iocp::inet::socket -myport xxxx
 } -returnCodes error -result {expected integer but got "xxxx"}
-test socket_$af-1.7 {arg parsing for iocp::socket command} -constraints [list supported_$af] -body {
-    iocp::socket -myport 2522
+test socket_$af-1.7 {arg parsing for iocp::inet::socket command} -constraints [list supported_$af] -body {
+    iocp::inet::socket -myport 2522
 } -returnCodes error -result {wrong # args: should be "socket ?-myaddr addr? ?-myport myport? ?-async? host port" or "socket -server command ?-myaddr addr? port"}
-test socket_$af-1.8 {arg parsing for iocp::socket command} -constraints [list supported_$af] -body {
-    iocp::socket -froboz
+test socket_$af-1.8 {arg parsing for iocp::inet::socket command} -constraints [list supported_$af] -body {
+    iocp::inet::socket -froboz
 } -returnCodes error -result {bad option "-froboz": must be -async, -myaddr, -myport, or -server}
-test socket_$af-1.9 {arg parsing for iocp::socket command} -constraints [list supported_$af] -body {
-    iocp::socket -server foo -myport 2521 3333
+test socket_$af-1.9 {arg parsing for iocp::inet::socket command} -constraints [list supported_$af] -body {
+    iocp::inet::socket -server foo -myport 2521 3333
 } -returnCodes error -result {option -myport is not valid for servers}
-test socket_$af-1.10 {arg parsing for iocp::socket command} -constraints [list supported_$af] -body {
-    iocp::socket host 2528 -junk
+test socket_$af-1.10 {arg parsing for iocp::inet::socket command} -constraints [list supported_$af] -body {
+    iocp::inet::socket host 2528 -junk
 } -returnCodes error -result {wrong # args: should be "socket ?-myaddr addr? ?-myport myport? ?-async? host port" or "socket -server command ?-myaddr addr? port"}
-test socket_$af-1.11 {arg parsing for iocp::socket command} -constraints [list supported_$af] -body {
-    iocp::socket -server callback 2520 --
+test socket_$af-1.11 {arg parsing for iocp::inet::socket command} -constraints [list supported_$af] -body {
+    iocp::inet::socket -server callback 2520 --
 } -returnCodes error -result {wrong # args: should be "socket ?-myaddr addr? ?-myport myport? ?-async? host port" or "socket -server command ?-myaddr addr? port"}
-test socket_$af-1.12 {arg parsing for iocp::socket command} -constraints [list supported_$af] -body {
-    iocp::socket foo badport
+test socket_$af-1.12 {arg parsing for iocp::inet::socket command} -constraints [list supported_$af] -body {
+    iocp::inet::socket foo badport
 } -returnCodes error -result {expected integer but got "badport"}
-test socket_$af-1.13 {arg parsing for iocp::socket command} -constraints [list supported_$af] -body {
-    iocp::socket -async -server
+test socket_$af-1.13 {arg parsing for iocp::inet::socket command} -constraints [list supported_$af] -body {
+    iocp::inet::socket -async -server
 } -returnCodes error -result {cannot set -async option for server sockets}
-test socket_$af-1.14 {arg parsing for iocp::socket command} -constraints [list supported_$af] -body {
-    iocp::socket -server foo -async
+test socket_$af-1.14 {arg parsing for iocp::inet::socket command} -constraints [list supported_$af] -body {
+    iocp::inet::socket -server foo -async
 } -returnCodes error -result {cannot set -async option for server sockets}
 
 set path(script) [makeFile {} script]
@@ -338,7 +338,7 @@ test socket_$af-2.1 {tcp connection} -constraints [list supported_$af stdio] -se
     puts $f $iocp_load_command
     puts $f {
 	set timer [after 10000 "set x timed_out"]
-	set f [iocp::socket -server accept 0]
+	set f [iocp::inet::socket -server accept 0]
 	proc accept {file addr port} {
 	    global x
 	    set x done
@@ -357,7 +357,7 @@ test socket_$af-2.1 {tcp connection} -constraints [list supported_$af stdio] -se
     gets $f listen
 } -body {
     # $x == "ready" at this point
-    set sock [iocp::socket $localhost $listen]
+    set sock [iocp::inet::socket $localhost $listen]
     lappend x [gets $f]
     close $sock
     lappend x [gets $f]
@@ -371,7 +371,7 @@ test socket_$af-2.2 {tcp connection with client port specified} -setup {
     puts $f $iocp_load_command
     puts $f {
 	set timer [after 10000 "set x timeout"]
-        set f [iocp::socket -server accept 0]
+        set f [iocp::inet::socket -server accept 0]
 	proc accept {file addr port} {
             global x
             puts "[gets $file] $port"
@@ -390,14 +390,14 @@ test socket_$af-2.2 {tcp connection with client port specified} -setup {
     gets $f listen
 } -constraints [list supported_$af stdio] -body {
     # $x == "ready" at this point
-    set sock [iocp::socket -myport $port $localhost $listen]
+    set sock [iocp::inet::socket -myport $port $localhost $listen]
     puts $sock hello
     flush $sock
     lappend x [expr {[gets $f] eq "hello $port"}]
     close $sock
     return $x
 } -cleanup {
-    catch {close [iocp::socket $localhost $listen]}
+    catch {close [iocp::inet::socket $localhost $listen]}
     close $f
 } -result {ready 1}
 test socket_$af-2.3 {tcp connection with client interface specified} -setup {
@@ -406,7 +406,7 @@ test socket_$af-2.3 {tcp connection with client interface specified} -setup {
     puts $f $iocp_load_command
     puts $f {
 	set timer [after 2000 "set x done"]
-        set f [iocp::socket  -server accept 0]
+        set f [iocp::inet::socket  -server accept 0]
 	proc accept {file addr port} {
             global x
             puts "[gets $file] $addr"
@@ -425,7 +425,7 @@ test socket_$af-2.3 {tcp connection with client interface specified} -setup {
     gets $f x
 } -constraints [list supported_$af stdio] -body {
     # $x == "ready" at this point
-    set sock [iocp::socket -myaddr $localhost $localhost $listen]
+    set sock [iocp::inet::socket -myaddr $localhost $localhost $listen]
     puts $sock hello
     flush $sock
     lappend x [gets $f]
@@ -441,7 +441,7 @@ test socket_$af-2.4 {tcp connection with server interface specified} -setup {
     puts $f [list set localhost $localhost]
     puts $f {
 	set timer [after 2000 "set x done"]
-        set f [iocp::socket -server accept -myaddr $localhost 0]
+        set f [iocp::inet::socket -server accept -myaddr $localhost 0]
 	proc accept {file addr port} {
             global x
             puts "[gets $file]"
@@ -460,7 +460,7 @@ test socket_$af-2.4 {tcp connection with server interface specified} -setup {
     gets $f listen
 } -constraints [list supported_$af stdio] -body {
     # $x == "ready" at this point
-    set sock [iocp::socket $localhost $listen]
+    set sock [iocp::inet::socket $localhost $listen]
     puts $sock hello
     flush $sock
     lappend x [gets $f]
@@ -475,7 +475,7 @@ test socket_$af-2.5 {tcp connection with redundant server port} -setup {
     puts $f $iocp_load_command
     puts $f {
 	set timer [after 10000 "set x timeout"]
-        set f [iocp::socket -server accept 0]
+        set f [iocp::inet::socket -server accept 0]
 	proc accept {file addr port} {
             global x
             puts "[gets $file]"
@@ -494,7 +494,7 @@ test socket_$af-2.5 {tcp connection with redundant server port} -setup {
     gets $f listen
 } -constraints [list supported_$af stdio] -body {
     # $x == "ready" at this point
-    set sock [iocp::socket $localhost $listen]
+    set sock [iocp::inet::socket $localhost $listen]
     puts $sock hello
     flush $sock
     lappend x [gets $f]
@@ -505,7 +505,7 @@ test socket_$af-2.5 {tcp connection with redundant server port} -setup {
 } -result {ready hello}
 test socket_$af-2.6 {tcp connection} -constraints [list supported_$af] -body {
     set status ok
-    if {![catch {set sock [iocp::socket $localhost [randport]]}]} {
+    if {![catch {set sock [iocp::inet::socket $localhost [randport]]}]} {
 	if {![catch {gets $sock}]} {
 	    set status broken
 	}
@@ -519,7 +519,7 @@ test socket_$af-2.7 {echo server, one line} -constraints [list supported_$af std
     puts $f $iocp_load_command
     puts $f {
 	set timer [after 10000 "set x timeout"]
-	set f [iocp::socket -server accept 0]
+	set f [iocp::inet::socket -server accept 0]
 	proc accept {s a p} {
             fileevent $s readable [list echo $s]
 	    fconfigure $s -translation lf -buffering line
@@ -546,7 +546,7 @@ test socket_$af-2.7 {echo server, one line} -constraints [list supported_$af std
     gets $f
     gets $f listen
 } -body {
-    set s [iocp::socket $localhost $listen]
+    set s [iocp::inet::socket $localhost $listen]
     fconfigure $s -buffering line -translation lf
     puts $s "hello abcdefghijklmnop"
     set x [gets $s]
@@ -560,7 +560,7 @@ removeFile script
 test socket_$af-2.8 {echo server, loop 50 times, single connection} -setup {
     set script "$iocp_load_command\n"
     append script {
-	set f [iocp::socket -server accept 0]
+	set f [iocp::inet::socket -server accept 0]
 	proc accept {s a p} {
             fileevent $s readable [list echo $s]
             fconfigure $s -buffering line
@@ -591,7 +591,7 @@ test socket_$af-2.8 {echo server, loop 50 times, single connection} -setup {
     gets $f
     gets $f listen
 } -constraints [list supported_$af stdio] -body {
-    set s [iocp::socket $localhost $listen]
+    set s [iocp::inet::socket $localhost $listen]
     fconfigure $s -buffering line
     catch {
 	for {set x 0} {$x < 50} {incr x} {
@@ -607,13 +607,13 @@ test socket_$af-2.8 {echo server, loop 50 times, single connection} -setup {
     removeFile script
 } -result {done 50}
 set path(script) [makeFile {} script]
-test socket_$af-2.9 {iocp::socket conflict} -constraints [list supported_$af stdio] -body {
-    set s [iocp::socket -server accept 0]
+test socket_$af-2.9 {iocp::inet::socket conflict} -constraints [list supported_$af stdio] -body {
+    set s [iocp::inet::socket -server accept 0]
     file delete $path(script)
     set f [open $path(script) w]
     puts $f $iocp_load_command
     puts $f [list set ::tcl::unsupported::socketAF $::tcl::unsupported::socketAF]
-    puts $f "iocp::socket -server accept [lindex [fconfigure $s -sockname] 2]"
+    puts $f "iocp::inet::socket -server accept [lindex [fconfigure $s -sockname] 2]"
     close $f
     set f [open "|[list [interpreter] $path(script)]" r]
     gets $f
@@ -626,7 +626,7 @@ test socket_$af-2.10 {close on accept, accepted socket lives} -setup {
     set done 0
     set timer [after 20000 "set done timed_out"]
 } -constraints [list supported_$af] -body {
-    set ss [iocp::socket -server accept 0]
+    set ss [iocp::inet::socket -server accept 0]
     proc accept {s a p} {
 	global ss
 	close $ss
@@ -639,7 +639,7 @@ test socket_$af-2.10 {close on accept, accepted socket lives} -setup {
 	close $s
 	set done 1
     }
-    set cs [iocp::socket $localhost [lindex [fconfigure $ss -sockname] 2]]
+    set cs [iocp::inet::socket $localhost [lindex [fconfigure $ss -sockname] 2]]
     puts $cs hello
     close $cs
     vwait done
@@ -652,10 +652,10 @@ test socket_$af-2.11 {detecting new data} -constraints [list supported_$af] -set
 	global sock
 	set sock $s
     }
-    set s [iocp::socket -server accept 0]
+    set s [iocp::inet::socket -server accept 0]
     set sock ""
 } -body {
-    set s2 [iocp::socket $localhost [lindex [fconfigure $s -sockname] 2]]
+    set s2 [iocp::inet::socket $localhost [lindex [fconfigure $s -sockname] 2]]
     vwait sock
     puts $s2 one
     flush $s2
@@ -682,7 +682,7 @@ test socket_$af-2.12 {} [list stdio supported_$af] {
     set f [open $path(script) w]
     puts $f $iocp_load_command
     puts $f {
-	set server [iocp::socket -server accept_client 0]
+	set server [iocp::inet::socket -server accept_client 0]
 	puts [lindex [chan configure $server -sockname] 2]
 	proc accept_client { client host port } {
 	    chan configure $client -blocking  0 -buffering line
@@ -703,7 +703,7 @@ test socket_$af-2.12 {} [list stdio supported_$af] {
     close $f
     set f [open "|[list [interpreter] $path(script)]" r+]
     gets $f port
-    set sock [iocp::socket $localhost $port]
+    set sock [iocp::inet::socket $localhost $port]
     chan event $sock readable [list read_lines $sock $f]
     proc read_lines { sock pipe } {
 	gets $pipe
@@ -722,7 +722,7 @@ test socket_$af-2.13 {Bug 1758a0b603} {stdio} {
     set f [open $path(script) w]
     puts $f $iocp_load_command
     puts $f {
-	set server [iocp::socket -server accept 0]
+	set server [iocp::inet::socket -server accept 0]
 	puts [lindex [chan configure $server -sockname] 2]
 	proc accept { client host port } {
 	    chan configure $client -blocking  0 -buffering line -buffersize 1
@@ -740,7 +740,7 @@ test socket_$af-2.13 {Bug 1758a0b603} {stdio} {
     close $f
     set pipe [open |[list [interpreter] $path(script)] r]
     gets $pipe port
-    set sock [iocp::socket $localhost $port]
+    set sock [iocp::inet::socket $localhost $port]
     chan configure $sock -blocking  0 -buffering line
     chan event $sock readable [list read_lines $sock $pipe ]
     proc read_lines { sock pipe } {
@@ -760,13 +760,13 @@ test socket_$af-2.13 {Bug 1758a0b603} {stdio} {
     set done
 } write
 
-test socket_$af-3.1 {iocp::socket conflict} -constraints [list supported_$af stdio] -setup {
+test socket_$af-3.1 {iocp::inet::socket conflict} -constraints [list supported_$af stdio] -setup {
     file delete $path(script)
     set f [open $path(script) w]
     puts $f $iocp_load_command
     puts $f [list set localhost $localhost]
     puts $f {
-	set f [iocp::socket -server accept -myaddr $localhost 0]
+	set f [iocp::inet::socket -server accept -myaddr $localhost 0]
 	puts ready
 	puts [lindex [fconfigure $f -sockname] 2]
 	gets stdin
@@ -777,7 +777,7 @@ test socket_$af-3.1 {iocp::socket conflict} -constraints [list supported_$af std
     gets $f
     gets $f listen
 } -body {
-    iocp::socket -server accept -myaddr $localhost $listen
+    iocp::inet::socket -server accept -myaddr $localhost $listen
 } -cleanup {
     puts $f bye
     close $f
@@ -792,7 +792,7 @@ test socket_$af-3.2 {server with several clients} -setup {
 	set t2 [after 31000 "set x timed_out"]
 	set t3 [after 32000 "set x timed_out"]
 	set counter 0
-	set s [iocp::socket -server accept -myaddr $localhost 0]
+	set s [iocp::inet::socket -server accept -myaddr $localhost 0]
 	proc accept {s a p} {
 	    fileevent $s readable [list echo $s]
 	    fconfigure $s -buffering line
@@ -824,11 +824,11 @@ test socket_$af-3.2 {server with several clients} -setup {
     gets $f listen
 } -constraints [list supported_$af stdio] -body {
     # $x == "ready" here
-    set s1 [iocp::socket $localhost $listen]
+    set s1 [iocp::inet::socket $localhost $listen]
     fconfigure $s1 -buffering line
-    set s2 [iocp::socket $localhost $listen]
+    set s2 [iocp::inet::socket $localhost $listen]
     fconfigure $s2 -buffering line
-    set s3 [iocp::socket $localhost $listen]
+    set s3 [iocp::inet::socket $localhost $listen]
     fconfigure $s3 -buffering line
     for {set i 0} {$i < 100} {incr i} {
 	puts $s1 hello,s1
@@ -853,7 +853,7 @@ test socket_$af-4.1 {server with several clients} -setup {
     puts $f [list set localhost $localhost]
     puts $f {
 	set port [gets stdin]
-	set s [iocp::socket $localhost $port]
+	set s [iocp::inet::socket $localhost $port]
 	fconfigure $s -buffering line
 	for {set i 0} {$i < 100} {incr i} {
 	    puts $s hello
@@ -888,7 +888,7 @@ test socket_$af-4.1 {server with several clients} -setup {
     set t1 [after 30000 "set x timed_out"]
     set t2 [after 31000 "set x timed_out"]
     set t3 [after 32000 "set x timed_out"]
-    set s [iocp::socket -server accept -myaddr $localhost 0]
+    set s [iocp::inet::socket -server accept -myaddr $localhost 0]
     set listen [lindex [fconfigure $s -sockname] 2]
     puts $p1 $listen
     puts $p2 $listen
@@ -912,27 +912,27 @@ test socket_$af-4.1 {server with several clients} -setup {
     close $p2
     close $p3
 } -result {{p1 bye done} {p2 bye done} {p3 bye done}}
-test socket_$af-4.2 {byte order problems, iocp::socket numbers, htons} -body {
-    close [iocp::socket -server dodo -myaddr $localhost 0x3000]
+test socket_$af-4.2 {byte order problems, iocp::inet::socket numbers, htons} -body {
+    close [iocp::inet::socket -server dodo -myaddr $localhost 0x3000]
     return ok
 } -constraints [list supported_$af] -result ok
 
-test socket_$af-5.1 {byte order problems, iocp::socket numbers, htons} -body {
-    if {![catch {iocp::socket -server dodo 0x1} msg]} {
+test socket_$af-5.1 {byte order problems, iocp::inet::socket numbers, htons} -body {
+    if {![catch {iocp::inet::socket -server dodo 0x1} msg]} {
 	close $msg
         return {htons problem, should be disallowed, are you running as SU?}
     }
     return {couldn't open socket: not owner}
 } -constraints [list supported_$af unix notRoot] -result {couldn't open socket: not owner}
-test socket_$af-5.2 {byte order problems, iocp::socket numbers, htons} -body {
-    if {![catch {iocp::socket -server dodo 0x10000} msg]} {
+test socket_$af-5.2 {byte order problems, iocp::inet::socket numbers, htons} -body {
+    if {![catch {iocp::inet::socket -server dodo 0x10000} msg]} {
 	close $msg
 	return {port resolution problem, should be disallowed}
     }
     return {couldn't open socket: port number too high}
 } -constraints [list supported_$af] -result {couldn't open socket: port number too high}
-test socket_$af-5.3 {byte order problems, iocp::socket numbers, htons} -body {
-    if {![catch {iocp::socket -server dodo 21} msg]} {
+test socket_$af-5.3 {byte order problems, iocp::inet::socket numbers, htons} -body {
+    if {![catch {iocp::inet::socket -server dodo 21} msg]} {
 	close $msg
 	return {htons problem, should be disallowed, are you running as SU?}
     }
@@ -952,12 +952,12 @@ test socket_$af-6.1 {accept callback error} -constraints [list supported_$af std
     puts $f [list set localhost $localhost]
     puts $f {
 	gets stdin port
-	iocp::socket $localhost $port
+	iocp::inet::socket $localhost $port
     }
     close $f
     set f [open "|[list [interpreter] $path(script)]" r+]
     proc accept {s a p} {expr 10 / 0}
-    set s [iocp::socket -server accept -myaddr $localhost 0]
+    set s [iocp::inet::socket -server accept -myaddr $localhost 0]
     puts $f [lindex [fconfigure $s -sockname] 2]
     close $f
     set timer [after 10000 "set x timed_out"]
@@ -972,7 +972,7 @@ test socket_$af-6.1 {accept callback error} -constraints [list supported_$af std
 test socket_$af-6.2 {
     readable fileevent on server socket
 } -setup {
-    set sock [iocp::socket -server dummy 0]
+    set sock [iocp::inet::socket -server dummy 0]
 } -constraints [list supported_$af] -body {
     fileevent $sock readable dummy
 } -cleanup {
@@ -980,19 +980,19 @@ test socket_$af-6.2 {
 } -returnCodes 1 -result "channel is not readable"
 
 test socket_$af-6.3 {writable fileevent on server socket} -setup {
-    set sock [iocp::socket -server dummy 0]
+    set sock [iocp::inet::socket -server dummy 0]
 } -constraints [list supported_$af] -body {
     fileevent $sock writable dummy
 } -cleanup {
     close $sock
 } -returnCodes 1 -result "channel is not writable"
 
-test socket_$af-7.1 {testing iocp::socket specific options} -setup {
+test socket_$af-7.1 {testing iocp::inet::socket specific options} -setup {
     file delete $path(script)
     set f [open $path(script) w]
     puts $f $iocp_load_command
     puts $f {
-	set ss [iocp::socket -server accept 0]
+	set ss [iocp::inet::socket -server accept 0]
 	proc accept args {
 	    global x
 	    set x done
@@ -1009,7 +1009,7 @@ test socket_$af-7.1 {testing iocp::socket specific options} -setup {
     gets $f listen
     set l ""
 } -constraints [list supported_$af stdio] -body {
-    set s [iocp::socket $localhost $listen]
+    set s [iocp::inet::socket $localhost $listen]
     set p [fconfigure $s -peername]
     close $s
     lappend l [string compare [lindex $p 0] $localhost]
@@ -1018,13 +1018,13 @@ test socket_$af-7.1 {testing iocp::socket specific options} -setup {
 } -cleanup {
     close $f
 } -result {0 0 3}
-test socket_$af-7.2 {testing iocp::socket specific options} -setup {
+test socket_$af-7.2 {testing iocp::inet::socket specific options} -setup {
     file delete $path(script)
     set f [open $path(script) w]
     puts $f $iocp_load_command
     puts $f [list set ::tcl::unsupported::socketAF $::tcl::unsupported::socketAF]
     puts $f {
-	set ss [iocp::socket -server accept 0]
+	set ss [iocp::inet::socket -server accept 0]
 	proc accept args {
 	    global x
 	    set x done
@@ -1040,7 +1040,7 @@ test socket_$af-7.2 {testing iocp::socket specific options} -setup {
     gets $f
     gets $f listen
 } -constraints [list supported_$af stdio] -body {
-    set s [iocp::socket $localhost $listen]
+    set s [iocp::inet::socket $localhost $listen]
     set p [fconfigure $s -sockname]
     close $s
     list [llength $p] \
@@ -1049,25 +1049,25 @@ test socket_$af-7.2 {testing iocp::socket specific options} -setup {
 } -cleanup {
     close $f
 } -result {3 1 0}
-test socket_$af-7.3 {testing iocp::socket specific options} -constraints [list supported_$af] -body {
-    set s [iocp::socket -server accept -myaddr $localhost 0]
+test socket_$af-7.3 {testing iocp::inet::socket specific options} -constraints [list supported_$af] -body {
+    set s [iocp::inet::socket -server accept -myaddr $localhost 0]
     set l [fconfigure $s]
     close $s
     update
     lsort [dict keys $l]
 } -result {-blocking -buffering -buffersize -connecting -encoding -eofchar -error -maxpendingaccepts -maxpendingreads -maxpendingwrites -sockname -translation}
-test socket_$af-7.4 {testing iocp::socket specific options} -constraints [list supported_$af] -setup {
+test socket_$af-7.4 {testing iocp::inet::socket specific options} -constraints [list supported_$af] -setup {
     set timer [after 10000 "set x timed_out"]
     set l ""
 } -body {
-    set s [iocp::socket -server accept -myaddr $localhost 0]
+    set s [iocp::inet::socket -server accept -myaddr $localhost 0]
     proc accept {s a p} {
 	global x
 	set x [fconfigure $s -sockname]
 	close $s
     }
     set listen [lindex [fconfigure $s -sockname] 2]
-    set s1 [iocp::socket $localhost $listen]
+    set s1 [iocp::inet::socket $localhost $listen]
     vwait x
     lappend l [expr {[lindex $x 2] == $listen}] [llength $x]
 } -cleanup {
@@ -1075,18 +1075,18 @@ test socket_$af-7.4 {testing iocp::socket specific options} -constraints [list s
     close $s
     close $s1
 } -result {1 3}
-test socket_$af-7.5 {testing iocp::socket specific options} -setup {
+test socket_$af-7.5 {testing iocp::inet::socket specific options} -setup {
     set timer [after 10000 "set x timed_out"]
     set l ""
 } -constraints [list supported_$af unixOrWin] -body {
-    set s [iocp::socket -server accept 0]
+    set s [iocp::inet::socket -server accept 0]
     proc accept {s a p} {
 	global x
 	set x [fconfigure $s -sockname]
 	close $s
     }
     set listen [lindex [fconfigure $s -sockname] 2]
-    set s1 [iocp::socket $localhost $listen]
+    set s1 [iocp::inet::socket $localhost $listen]
     vwait x
     lappend l [lindex $x 0] [expr {[lindex $x 2] == $listen}] [llength $x]
 } -cleanup {
@@ -1110,14 +1110,14 @@ test socket_$af-8.1 {testing -async flag on sockets} -constraints [list supporte
     # please email jyl@eng.sun.com. We have not observed this failure on
     # Solaris 2.5, so another option (instead of installing these patches) is
     # to upgrade to Solaris 2.5.
-    set s [iocp::socket -server accept -myaddr $localhost 0]
+    set s [iocp::inet::socket -server accept -myaddr $localhost 0]
     proc accept {s a p} {
 	global x
 	puts $s bye
 	close $s
 	set x done
     }
-    set s1 [iocp::socket -async $localhost [lindex [fconfigure $s -sockname] 2]]
+    set s1 [iocp::inet::socket -async $localhost [lindex [fconfigure $s -sockname] 2]]
     vwait x
     gets $s1
 } -cleanup {
@@ -1149,8 +1149,8 @@ test socket_$af-9.1 {testing spurious events} -constraints [list supported_$af] 
 	fconfigure $s -buffering none -blocking off
 	fileevent $s readable [list readlittle $s]
     }
-    set s [iocp::socket -server accept -myaddr $localhost 0]
-    set c [iocp::socket $localhost [lindex [fconfigure $s -sockname] 2]]
+    set s [iocp::inet::socket -server accept -myaddr $localhost 0]
+    set c [iocp::inet::socket $localhost [lindex [fconfigure $s -sockname] 2]]
     puts -nonewline $c 01234567890123456789012345678901234567890123456789
     close $c
     vwait done
@@ -1167,7 +1167,7 @@ test socket_$af-9.2 {testing async write, fileevents, flush on close} -constrain
 	set secondblock "b$secondblock$secondblock"
     }
     set timer [after 10000 "set done timed_out"]
-    set l [iocp::socket -server accept -myaddr $localhost 0]
+    set l [iocp::inet::socket -server accept -myaddr $localhost 0]
     proc accept {s a p} {
 	fconfigure $s -blocking 0 -translation lf -buffersize 16384 \
 		-buffering line
@@ -1189,7 +1189,7 @@ test socket_$af-9.2 {testing async write, fileevents, flush on close} -constrain
 	close $s
     }
 } -body {
-    set s [iocp::socket $localhost [lindex [fconfigure $l -sockname] 2]]
+    set s [iocp::inet::socket $localhost [lindex [fconfigure $l -sockname] 2]]
     fconfigure $s -blocking 0 -trans lf -buffering line
     set count 0
     puts $s hello
@@ -1220,7 +1220,7 @@ test socket_$af-9.3 {testing EOF stickyness} -constraints [list supported_$af] -
 	fconfigure $s -buffering line -translation lf
 	fileevent $s writable "write_then_close $s"
     }
-    set s [iocp::socket -server accept -myaddr $localhost 0]
+    set s [iocp::inet::socket -server accept -myaddr $localhost 0]
 } -body {
     proc count_to_eof {s} {
 	global count done
@@ -1240,7 +1240,7 @@ test socket_$af-9.3 {testing EOF stickyness} -constraints [list supported_$af] -
 	set count {timer went off, eof is not sticky}
 	close $s
     }
-    set c [iocp::socket $localhost [lindex [fconfigure $s -sockname] 2]]
+    set c [iocp::inet::socket $localhost [lindex [fconfigure $s -sockname] 2]]
     fconfigure $c -blocking off -buffering line -translation lf
     fileevent $c readable "count_to_eof $c"
     set timer [after 1000 timerproc $c]
@@ -1253,7 +1253,7 @@ test socket_$af-9.3 {testing EOF stickyness} -constraints [list supported_$af] -
 
 removeFile script
 
-test socket_$af-10.1 {testing iocp::socket accept callback error handling} \
+test socket_$af-10.1 {testing iocp::inet::socket accept callback error handling} \
     -constraints [list supported_$af] -setup {
     variable goterror 0
     proc myHandler {msg options} {
@@ -1262,9 +1262,9 @@ test socket_$af-10.1 {testing iocp::socket accept callback error handling} \
     set handler [interp bgerror {}]
     interp bgerror {} [namespace which myHandler]
 } -body {
-    set s [iocp::socket -server accept -myaddr $localhost 0]
+    set s [iocp::inet::socket -server accept -myaddr $localhost 0]
     proc accept {s a p} {close $s; error}
-    set c [iocp::socket $localhost [lindex [fconfigure $s -sockname] 2]]
+    set c [iocp::inet::socket $localhost [lindex [fconfigure $s -sockname] 2]]
     vwait goterror
     close $s
     close $c
@@ -1275,7 +1275,7 @@ test socket_$af-10.1 {testing iocp::socket accept callback error handling} \
 
 test socket_$af-11.1 {tcp connection} -setup {
     set port [sendCommand {
-	set server [iocp::socket -server accept 0]
+	set server [iocp::inet::socket -server accept 0]
 	proc accept {s a p} {
 	    puts $s done
 	    close $s
@@ -1283,7 +1283,7 @@ test socket_$af-11.1 {tcp connection} -setup {
 	getPort $server
     }]
 } -constraints [list supported_$af doTestsWithRemoteServer] -body {
-    set s [iocp::socket $remoteServerIP $port]
+    set s [iocp::inet::socket $remoteServerIP $port]
     gets $s
 } -cleanup {
     close $s
@@ -1292,7 +1292,7 @@ test socket_$af-11.1 {tcp connection} -setup {
 test socket_$af-11.2 {client specifies its port} -setup {
     set lport [randport]
     set rport [sendCommand {
-	set server [iocp::socket -server accept 0]
+	set server [iocp::inet::socket -server accept 0]
 	proc accept {s a p} {
 	    puts $s $p
 	    close $s
@@ -1300,7 +1300,7 @@ test socket_$af-11.2 {client specifies its port} -setup {
 	getPort $server
     }]
 } -constraints [list supported_$af doTestsWithRemoteServer] -body {
-    set s [iocp::socket -myport $lport $remoteServerIP $rport]
+    set s [iocp::inet::socket -myport $lport $remoteServerIP $rport]
     set r [gets $s]
     expr {$r==$lport ? "ok" : "broken: $r != $port"}
 } -cleanup {
@@ -1309,7 +1309,7 @@ test socket_$af-11.2 {client specifies its port} -setup {
 } -result ok
 test socket_$af-11.3 {trying to connect, no server} -body {
     set status ok
-    if {![catch {set s [iocp::socket $remoteServerIp [randport]]}]} {
+    if {![catch {set s [iocp::inet::socket $remoteServerIp [randport]]}]} {
 	if {![catch {gets $s}]} {
 	    set status broken
 	}
@@ -1319,7 +1319,7 @@ test socket_$af-11.3 {trying to connect, no server} -body {
 } -constraints [list supported_$af doTestsWithRemoteServer] -result ok
 test socket_$af-11.4 {remote echo, one line} -setup {
     set port [sendCommand {
-	set server [iocp::socket -server accept 0]
+	set server [iocp::inet::socket -server accept 0]
 	proc accept {s a p} {
 	    fileevent $s readable [list echo $s]
 	    fconfigure $s -buffering line -translation crlf
@@ -1335,7 +1335,7 @@ test socket_$af-11.4 {remote echo, one line} -setup {
 	getPort $server
     }]
 } -constraints [list supported_$af doTestsWithRemoteServer] -body {
-    set f [iocp::socket $remoteServerIP $port]
+    set f [iocp::inet::socket $remoteServerIP $port]
     fconfigure $f -translation crlf -buffering line
     puts $f hello
     gets $f
@@ -1345,7 +1345,7 @@ test socket_$af-11.4 {remote echo, one line} -setup {
 } -result hello
 test socket_$af-11.5 {remote echo, 50 lines} -setup {
     set port [sendCommand {
-	set server [iocp::socket -server accept 0]
+	set server [iocp::inet::socket -server accept 0]
 	proc accept {s a p} {
 	    fileevent $s readable [list echo $s]
 	    fconfigure $s -buffering line -translation crlf
@@ -1361,7 +1361,7 @@ test socket_$af-11.5 {remote echo, 50 lines} -setup {
 	getPort $server
     }]
 } -constraints [list supported_$af doTestsWithRemoteServer] -body {
-    set f [iocp::socket $remoteServerIP $port]
+    set f [iocp::inet::socket $remoteServerIP $port]
     fconfigure $f -translation crlf -buffering line
     for {set cnt 0} {$cnt < 50} {incr cnt} {
 	puts $f "hello, $cnt"
@@ -1374,17 +1374,17 @@ test socket_$af-11.5 {remote echo, 50 lines} -setup {
     close $f
     sendCommand {close $server}
 } -result 50
-test socket_$af-11.6 {iocp::socket conflict} -setup {
-    set s1 [iocp::socket -server accept -myaddr $localhost 0]
+test socket_$af-11.6 {iocp::inet::socket conflict} -setup {
+    set s1 [iocp::inet::socket -server accept -myaddr $localhost 0]
 } -constraints [list supported_$af doTestsWithRemoteServer] -body {
-    set s2 [iocp::socket -server accept -myaddr $localhost [getPort $s1]]
+    set s2 [iocp::inet::socket -server accept -myaddr $localhost [getPort $s1]]
     list [getPort $s2] [close $s2]
 } -cleanup {
     close $s1
 } -returnCodes error -result {couldn't open socket: address already in use}
 test socket_$af-11.7 {server with several clients} -setup {
     set port [sendCommand {
-	set server [iocp::socket -server accept 0]
+	set server [iocp::inet::socket -server accept 0]
 	proc accept {s a p} {
 	    fconfigure $s -buffering line
 	    fileevent $s readable [list echo $s]
@@ -1400,11 +1400,11 @@ test socket_$af-11.7 {server with several clients} -setup {
 	getPort $server
     }]
 } -constraints [list supported_$af doTestsWithRemoteServer] -body {
-    set s1 [iocp::socket $remoteServerIP $port]
+    set s1 [iocp::inet::socket $remoteServerIP $port]
     fconfigure $s1 -buffering line
-    set s2 [iocp::socket $remoteServerIP $port]
+    set s2 [iocp::inet::socket $remoteServerIP $port]
     fconfigure $s2 -buffering line
-    set s3 [iocp::socket $remoteServerIP $port]
+    set s3 [iocp::inet::socket $remoteServerIP $port]
     fconfigure $s3 -buffering line
     for {set i 0} {$i < 100} {incr i} {
 	puts $s1 hello,s1
@@ -1423,9 +1423,9 @@ test socket_$af-11.7 {server with several clients} -setup {
 } -result 100
 test socket_$af-11.8 {client with several servers} -setup {
     lassign [sendCommand {
-	set s1 [iocp::socket -server "accept server1" 0]
-	set s2 [iocp::socket -server "accept server2" 0]
-	set s3 [iocp::socket -server "accept server3" 0]
+	set s1 [iocp::inet::socket -server "accept server1" 0]
+	set s2 [iocp::inet::socket -server "accept server2" 0]
+	set s3 [iocp::inet::socket -server "accept server3" 0]
 	proc accept {mp s a p} {
 	    puts $s $mp
 	    close $s
@@ -1433,9 +1433,9 @@ test socket_$af-11.8 {client with several servers} -setup {
 	list [getPort $s1] [getPort $s2] [getPort $s3]
     }] p1 p2 p3
 } -constraints [list supported_$af doTestsWithRemoteServer] -body {
-    set s1 [iocp::socket $remoteServerIP $p1]
-    set s2 [iocp::socket $remoteServerIP $p2]
-    set s3 [iocp::socket $remoteServerIP $p3]
+    set s1 [iocp::inet::socket $remoteServerIP $p1]
+    set s2 [iocp::inet::socket $remoteServerIP $p2]
+    set s3 [iocp::inet::socket $remoteServerIP $p3]
     list [gets $s1] [gets $s1] [eof $s1] [gets $s2] [gets $s2] [eof $s2] \
 	[gets $s3] [gets $s3] [eof $s3]
 } -cleanup {
@@ -1456,13 +1456,13 @@ test socket_$af-11.9 {accept callback error} -constraints [list supported_$af do
     interp bgerror {} [namespace which myHandler]
     set timer [after 10000 "set x timed_out"]
 } -body {
-    set s [iocp::socket -server accept 0]
+    set s [iocp::inet::socket -server accept 0]
     proc accept {s a p} {expr {10 / 0}}
     sendCommand "set port [getPort $s]"
     if {[catch {
 	sendCommand {
 	    set peername [fconfigure $callerSocket -peername]
-	    set s [iocp::socket [lindex $peername 0] $port]
+	    set s [iocp::inet::socket [lindex $peername 0] $port]
 	    close $s
     	 }
     } msg]} then {
@@ -1476,14 +1476,14 @@ test socket_$af-11.9 {accept callback error} -constraints [list supported_$af do
     after cancel $timer
     interp bgerror {} $handler
 } -result {divide by zero}
-test socket_$af-11.10 {testing iocp::socket specific options} -setup {
+test socket_$af-11.10 {testing iocp::inet::socket specific options} -setup {
     set port [sendCommand {
-	set server [iocp::socket -server accept 0]
+	set server [iocp::inet::socket -server accept 0]
 	proc accept {s a p} {close $s}
 	getPort $server
     }]
 } -constraints [list supported_$af doTestsWithRemoteServer] -body {
-    set s [iocp::socket $remoteServerIP $port]
+    set s [iocp::inet::socket $remoteServerIP $port]
     set p [fconfigure $s -peername]
     set n [fconfigure $s -sockname]
     list [expr {[lindex $p 2] == $port}] [llength $p] [llength $n]
@@ -1493,7 +1493,7 @@ test socket_$af-11.10 {testing iocp::socket specific options} -setup {
 } -result {1 3 3}
 test socket_$af-11.11 {testing spurious events} -setup {
     set port [sendCommand {
-	set server [iocp::socket -server accept 0]
+	set server [iocp::inet::socket -server accept 0]
 	proc accept {s a p} {
 	    fconfigure $s -translation "auto lf"
 	    after idle writesome $s
@@ -1525,7 +1525,7 @@ test socket_$af-11.11 {testing spurious events} -setup {
 	    incr len [string length $l]
 	}
     }
-    set c [iocp::socket $remoteServerIP $port]
+    set c [iocp::inet::socket $remoteServerIP $port]
     fileevent $c readable "readlittle $c"
     vwait done
     list $spurious $len $done
@@ -1537,7 +1537,7 @@ test socket_$af-11.12 {testing EOF stickyness} -constraints [list supported_$af 
     set counter 0
     set done 0
     set port [sendCommand {
-	set server [iocp::socket -server accept 0]
+	set server [iocp::inet::socket -server accept 0]
 	proc accept {s a p} {
 	    after idle close $s
 	}
@@ -1561,7 +1561,7 @@ test socket_$af-11.12 {testing EOF stickyness} -constraints [list supported_$af 
 	    }
 	}
     }
-    set c [iocp::socket $remoteServerIP $port]
+    set c [iocp::inet::socket $remoteServerIP $port]
     fileevent $c readable [list count_up $c]
     vwait done
     return $done
@@ -1579,7 +1579,7 @@ test socket_$af-11.13 {testing async write, async flush, async close} -setup {
 	for {set i 0} {$i < 16} {incr i} {
 	    set secondblock "b$secondblock$secondblock"
 	}
-	set l [iocp::socket -server accept 0]
+	set l [iocp::inet::socket -server accept 0]
 	proc accept {s a p} {
 	    fconfigure $s -blocking 0 -translation lf -buffersize 16384 \
 		-buffering line
@@ -1613,7 +1613,7 @@ test socket_$af-11.13 {testing async write, async flush, async close} -setup {
 	    set done 1
 	}
     }
-    set s [iocp::socket $remoteServerIP $port]
+    set s [iocp::inet::socket $remoteServerIP $port]
     fconfigure $s -blocking 0 -trans lf -buffering line
     set count 0
     puts $s hello
@@ -1648,7 +1648,7 @@ test socket_$af-12.1 {testing inheritance of server sockets} -setup {
     puts $f [list set delay $path(script1)]
     puts $f [list set localhost $localhost]
     puts $f {
-	set f [iocp::socket -server accept -myaddr $localhost 0]
+	set f [iocp::inet::socket -server accept -myaddr $localhost 0]
 	proc accept { file addr port } {
 	    close $file
 	}
@@ -1663,7 +1663,7 @@ test socket_$af-12.1 {testing inheritance of server sockets} -setup {
     ### exec [interpreter] script2 &
     set p [open "|[list [interpreter] $path(script2)]" r]
     # If we can still connect to the server, the socket got inherited.
-    if {[catch {close [iocp::socket $localhost $listen]}]} {
+    if {[catch {close [iocp::inet::socket $localhost $listen]}]} {
 	return {server socket was not inherited}
     } else {
 	return {server socket was inherited}
@@ -1693,7 +1693,7 @@ test socket_$af-12.2 {testing inheritance of client sockets} -setup {
     puts $f [list set localhost $localhost]
     puts $f {
         gets stdin port
-	set f [iocp::socket $localhost $port]
+	set f [iocp::inet::socket $localhost $port]
         exec $tcltest $delay &
 	puts $f testing
 	flush $f
@@ -1706,7 +1706,7 @@ test socket_$af-12.2 {testing inheritance of client sockets} -setup {
     set after [after 10000 {set x "client socket was inherited"}]
 } -constraints [list supported_$af stdio exec] -body {
     # Create the server socket
-    set server [iocp::socket -server accept -myaddr $localhost 0]
+    set server [iocp::inet::socket -server accept -myaddr $localhost 0]
     proc accept { file host port } {
 	# When the client connects, establish the read handler
 	global server
@@ -1757,7 +1757,7 @@ test socket_$af-12.3 {testing inheritance of accepted sockets} -setup {
     puts $f [list set delay $path(script1)]
     puts $f [list set localhost $localhost]
     puts $f {
-	set server [iocp::socket -server accept -myaddr $localhost 0]
+	set server [iocp::inet::socket -server accept -myaddr $localhost 0]
 	proc accept { file host port } {
 	    global tcltest delay
 	    puts $file {test data on socket}
@@ -1774,7 +1774,7 @@ test socket_$af-12.3 {testing inheritance of accepted sockets} -setup {
     ## exec [interpreter] script2 &
     set p [open "|[list [interpreter] $path(script2)]" r]
     gets $p listen
-    set f [iocp::socket $localhost $listen]
+    set f [iocp::inet::socket $localhost $listen]
     fconfigure $f -buffering full -blocking 0
     fileevent $f readable [list getdata $f]
     # If the socket is still open after 5 seconds, the script1 process must
@@ -1810,7 +1810,7 @@ test socket_$af-13.1 {Testing use of shared socket between two threads} -body {
     # create a thread
     set script "$iocp_load_command\n"
     append script [string map [list @localhost@ $localhost] {
-        set f [iocp::socket -server accept -myaddr @localhost@ 0]
+        set f [iocp::inet::socket -server accept -myaddr @localhost@ 0]
         set listen [lindex [fconfigure $f -sockname] 2]
         proc accept {s a p} {
             fileevent $s readable [list echo $s]
@@ -1834,7 +1834,7 @@ test socket_$af-13.1 {Testing use of shared socket between two threads} -body {
     }]
     set serverthread [thread::create -preserved $script]
     set port [thread::send $serverthread {set listen}]
-    set s [iocp::socket $localhost $port]
+    set s [iocp::inet::socket $localhost $port]
     fconfigure $s -buffering line
     catch {
         puts $s "hello"
@@ -1858,17 +1858,17 @@ catch {close $commandSocket}
 catch {close $remoteProcChan}
 }
 unset ::tcl::unsupported::socketAF
-test socket-14.0.0 {[iocp::socket -async] when server only listens on IPv4} -setup {
+test socket-14.0.0 {[iocp::inet::socket -async] when server only listens on IPv4} -setup {
     proc accept {s a p} {
 	global x
 	puts $s bye
 	close $s
 	set x ok
     }
-    set server [iocp::socket -server accept -myaddr 127.0.0.1 0]
+    set server [iocp::inet::socket -server accept -myaddr 127.0.0.1 0]
     set port [lindex [fconfigure $server -sockname] 2]
 } -constraints {supported_inet localhost_v4} -body {
-    set client [iocp::socket -async localhost $port]
+    set client [iocp::inet::socket -async localhost $port]
     set after [after $latency {set x [fconfigure $client -error]}]
     vwait x
     set x
@@ -1878,17 +1878,17 @@ test socket-14.0.0 {[iocp::socket -async] when server only listens on IPv4} -set
     catch {close $client}
     unset -nocomplain x
 } -result ok
-test socket-14.0.1 {[iocp::socket -async] when server only listens on IPv6} -setup {
+test socket-14.0.1 {[iocp::inet::socket -async] when server only listens on IPv6} -setup {
     proc accept {s a p} {
 	global x
 	puts $s bye
 	close $s
 	set x ok
     }
-    set server [iocp::socket -server accept -myaddr ::1 0]
+    set server [iocp::inet::socket -server accept -myaddr ::1 0]
     set port [lindex [fconfigure $server -sockname] 2]
 } -constraints {supported_inet6 localhost_v6} -body {
-    set client [iocp::socket -async localhost $port]
+    set client [iocp::inet::socket -async localhost $port]
     set after [after $latency {set x [fconfigure $client -error]}]
     vwait x
     set x
@@ -1898,18 +1898,18 @@ test socket-14.0.1 {[iocp::socket -async] when server only listens on IPv6} -set
     catch {close $client}
     unset -nocomplain x
 } -result ok
-test socket-14.1 {[iocp::socket -async] fileevent while still connecting} -setup {
+test socket-14.1 {[iocp::inet::socket -async] fileevent while still connecting} -setup {
     proc accept {s a p} {
 	global x
 	puts $s bye
 	close $s
 	lappend x ok
     }
-    set server [iocp::socket -server accept -myaddr localhost 0]
+    set server [iocp::inet::socket -server accept -myaddr localhost 0]
     set port [lindex [fconfigure $server -sockname] 2]
     set x ""
 } -body {
-    set client [iocp::socket -async localhost $port]
+    set client [iocp::inet::socket -async localhost $port]
     fileevent $client writable {
 	lappend x [fconfigure $client -error]
 	fileevent $client writable {}
@@ -1925,10 +1925,10 @@ test socket-14.1 {[iocp::socket -async] fileevent while still connecting} -setup
     catch {close $client}
     unset -nocomplain x
 } -result {{} ok}
-test socket-14.2 {[iocp::socket -async] fileevent connection refused} -setup {
+test socket-14.2 {[iocp::inet::socket -async] fileevent connection refused} -setup {
     set after [after $latency set x timeout]
 } -body {
-    set client [iocp::socket -async localhost [randport]]
+    set client [iocp::inet::socket -async localhost [randport]]
     fileevent $client writable {set x ok}
     vwait x
     lappend x [fconfigure $client -error]
@@ -1937,17 +1937,17 @@ test socket-14.2 {[iocp::socket -async] fileevent connection refused} -setup {
     catch {close $client}
     unset -nocomplain x after client
 } -result {ok {connection refused}}
-test socket-14.3 {[iocp::socket -async] when server only listens on IPv6} -setup {
+test socket-14.3 {[iocp::inet::socket -async] when server only listens on IPv6} -setup {
     proc accept {s a p} {
 	global x
 	puts $s bye
 	close $s
 	set x ok
     }
-    set server [iocp::socket -server accept -myaddr ::1 0]
+    set server [iocp::inet::socket -server accept -myaddr ::1 0]
     set port [lindex [fconfigure $server -sockname] 2]
 } -constraints {supported_inet6 localhost_v6} -body {
-    set client [iocp::socket -async localhost $port]
+    set client [iocp::inet::socket -async localhost $port]
     set after [after $latency {set x [fconfigure $client -error]}]
     vwait x
     set x
@@ -1957,16 +1957,16 @@ test socket-14.3 {[iocp::socket -async] when server only listens on IPv6} -setup
     catch {close $client}
     unset -nocomplain x
 } -result ok
-test socket-14.4 {[iocp::socket -async] and both, readdable and writable fileevents} -setup {
+test socket-14.4 {[iocp::inet::socket -async] and both, readdable and writable fileevents} -setup {
     proc accept {s a p} {
 	puts $s bye
 	close $s
     }
-    set server [iocp::socket -server accept -myaddr localhost 0]
+    set server [iocp::inet::socket -server accept -myaddr localhost 0]
     set port [lindex [fconfigure $server -sockname] 2]
     set x ""
 } -body {
-    set client [iocp::socket -async localhost $port]
+    set client [iocp::inet::socket -async localhost $port]
     fileevent $client writable {
 	lappend x [fconfigure $client -error]
 	fileevent $client writable {}
@@ -1984,23 +1984,23 @@ test socket-14.4 {[iocp::socket -async] and both, readdable and writable fileeve
     unset -nocomplain x
 } -result {{} bye}
 # FIXME: we should also have an IPv6 counterpart of this
-test socket-14.5 {[iocp::socket -async] which fails before any connect() can be made} -body {
+test socket-14.5 {[iocp::inet::socket -async] which fails before any connect() can be made} -body {
     # address from rfc5737
-    iocp::socket -async -myaddr 192.0.2.42 127.0.0.1 [randport]
+    iocp::inet::socket -async -myaddr 192.0.2.42 127.0.0.1 [randport]
 } -constraints {supported_inet notOSX} -returnCodes 1 \
     -result {couldn't open socket: cannot assign requested address}
-test socket-14.6.0 {[iocp::socket -async] with no event loop and server listening on IPv4} -setup {
+test socket-14.6.0 {[iocp::inet::socket -async] with no event loop and server listening on IPv4} -setup {
     proc accept {s a p} {
 	global x
 	puts $s bye
 	close $s
 	set x ok
     }
-    set server [iocp::socket -server accept -myaddr 127.0.0.1 0]
+    set server [iocp::inet::socket -server accept -myaddr 127.0.0.1 0]
     set port [lindex [fconfigure $server -sockname] 2]
     set x ""
 } -constraints {supported_inet localhost_v4} -body {
-    set client [iocp::socket -async localhost $port]
+    set client [iocp::inet::socket -async localhost $port]
     for {set i 0} {$i < 50} {incr i } {
 	update
 	if {$x ne ""} {
@@ -2015,18 +2015,18 @@ test socket-14.6.0 {[iocp::socket -async] with no event loop and server listenin
     catch {close $client}
     unset -nocomplain x
 } -result {ok bye}
-test socket-14.6.1 {[iocp::socket -async] with no event loop and server listening on IPv6} -setup {
+test socket-14.6.1 {[iocp::inet::socket -async] with no event loop and server listening on IPv6} -setup {
     proc accept {s a p} {
 	global x
 	puts $s bye
 	close $s
 	set x ok
     }
-    set server [iocp::socket -server accept -myaddr ::1 0]
+    set server [iocp::inet::socket -server accept -myaddr ::1 0]
     set port [lindex [fconfigure $server -sockname] 2]
     set x ""
 } -constraints {supported_inet6 localhost_v6} -body {
-    set client [iocp::socket -async localhost $port]
+    set client [iocp::inet::socket -async localhost $port]
     for {set i 0} {$i < 50} {incr i } {
 	update
 	if {$x ne ""} {
@@ -2041,11 +2041,11 @@ test socket-14.6.1 {[iocp::socket -async] with no event loop and server listenin
     catch {close $client}
     unset -nocomplain x
 } -result {ok bye}
-test socket-14.7.0 {pending [iocp::socket -async] and blocking [gets], server is IPv4} -setup {
+test socket-14.7.0 {pending [iocp::inet::socket -async] and blocking [gets], server is IPv4} -setup {
     set server_code "$iocp_load_command\n"
     append server_code {
 	fileevent stdin readable exit
-	set server [iocp::socket -server accept -myaddr 127.0.0.1 0]
+	set server [iocp::inet::socket -server accept -myaddr 127.0.0.1 0]
 	proc accept {s h p} {puts $s ok; close $s; set ::x 1}
 	puts [lindex [fconfigure $server -sockname] 2]
 	flush stdout
@@ -2056,18 +2056,18 @@ test socket-14.7.0 {pending [iocp::socket -async] and blocking [gets], server is
     set fd [open |[list [interpreter] script] RDWR]
     set port [gets $fd]
 } -constraints {supported_inet localhost_v4 notOSX} -body {
-    set sock [iocp::socket -async localhost $port]
+    set sock [iocp::inet::socket -async localhost $port]
     list [fconfigure $sock -error] [gets $sock] [fconfigure $sock -error]
 } -cleanup {
     catch {close $fd}
     catch {close $sock}
     removeFile script
 } -result {{} ok {}}
-test socket-14.7.1 {pending [iocp::socket -async] and blocking [gets], server is IPv6} -setup {
+test socket-14.7.1 {pending [iocp::inet::socket -async] and blocking [gets], server is IPv6} -setup {
     set server_code "$iocp_load_command\n"
     append server_code {
 	fileevent stdin readable exit
-	set server [iocp::socket -server accept -myaddr ::1 0]
+	set server [iocp::inet::socket -server accept -myaddr ::1 0]
 	proc accept {s h p} {puts $s ok; close $s; set ::x 1}
 	puts [lindex [fconfigure $server -sockname] 2]
 	flush stdout
@@ -2077,29 +2077,29 @@ test socket-14.7.1 {pending [iocp::socket -async] and blocking [gets], server is
     set fd [open |[list [interpreter] script] RDWR]
     set port [gets $fd]
 } -constraints {supported_inet6 localhost_v6 notOSX} -body {
-    set sock [iocp::socket -async localhost $port]
+    set sock [iocp::inet::socket -async localhost $port]
     list [fconfigure $sock -error] [gets $sock] [fconfigure $sock -error]
 } -cleanup {
     catch {close $fd}
     catch {close $sock}
     removeFile script
 } -result {{} ok {}}
-test socket-14.7.2 {pending [iocp::socket -async] and blocking [gets], no listener} -setup {
-    set sock [iocp::socket -server error 0]
+test socket-14.7.2 {pending [iocp::inet::socket -async] and blocking [gets], no listener} -setup {
+    set sock [iocp::inet::socket -server error 0]
     set unusedPort [lindex [fconfigure $sock -sockname] 2]
     close $sock
 } -body {
-    set sock [iocp::socket -async localhost $unusedPort]
+    set sock [iocp::inet::socket -async localhost $unusedPort]
     catch {gets $sock} x
     list $x [fconfigure $sock -error] [fconfigure $sock -error]
 } -constraints {notOSX} -cleanup {
     catch {close $sock}
 } -match glob -result {{error reading "tcp*": socket is not connected} {connection refused} {}}
-test socket-14.8.0 {pending [iocp::socket -async] and nonblocking [gets], server is IPv4} -setup {
+test socket-14.8.0 {pending [iocp::inet::socket -async] and nonblocking [gets], server is IPv4} -setup {
     set server_code "$iocp_load_command\n"
     append server_code {
 	fileevent stdin readable exit
-	set server [iocp::socket -server accept -myaddr 127.0.0.1 0]
+	set server [iocp::inet::socket -server accept -myaddr 127.0.0.1 0]
 	proc accept {s h p} {puts $s ok; close $s; set ::x 1}
 	puts [lindex [fconfigure $server -sockname] 2]
 	flush stdout
@@ -2109,7 +2109,7 @@ test socket-14.8.0 {pending [iocp::socket -async] and nonblocking [gets], server
     set fd [open |[list [interpreter] script] RDWR]
     set port [gets $fd]
 } -constraints {supported_inet localhost_v4} -body {
-    set sock [iocp::socket -async localhost $port]
+    set sock [iocp::inet::socket -async localhost $port]
     fconfigure $sock -blocking 0
     for {set i 0} {$i < 50} {incr i } {
 	if {[catch {gets $sock} x] || $x ne "" || ![fblocked $sock]} break
@@ -2121,11 +2121,11 @@ test socket-14.8.0 {pending [iocp::socket -async] and nonblocking [gets], server
     catch {close $sock}
     removeFile script
 } -result {ok}
-test socket-14.8.1 {pending [iocp::socket -async] and nonblocking [gets], server is IPv6} -setup {
+test socket-14.8.1 {pending [iocp::inet::socket -async] and nonblocking [gets], server is IPv6} -setup {
     set server_code "$iocp_load_command\n"
     append server_code {
 	fileevent stdin readable exit
-	set server [iocp::socket -server accept -myaddr ::1 0]
+	set server [iocp::inet::socket -server accept -myaddr ::1 0]
 	proc accept {s h p} {puts $s ok; close $s; set ::x 1}
 	puts [lindex [fconfigure $server -sockname] 2]
 	flush stdout
@@ -2135,7 +2135,7 @@ test socket-14.8.1 {pending [iocp::socket -async] and nonblocking [gets], server
     set fd [open |[list [interpreter] script] RDWR]
     set port [gets $fd]
 } -constraints {supported_inet6 localhost_v6} -body {
-    set sock [iocp::socket -async localhost $port]
+    set sock [iocp::inet::socket -async localhost $port]
     fconfigure $sock -blocking 0
     for {set i 0} {$i < 50} {incr i } {
 	if {[catch {gets $sock} x] || $x ne "" || ![fblocked $sock]} break
@@ -2147,8 +2147,8 @@ test socket-14.8.1 {pending [iocp::socket -async] and nonblocking [gets], server
     catch {close $sock}
     removeFile script
 } -result {ok}
-test socket-14.8.2 {pending [iocp::socket -async] and nonblocking [gets], no listener} -body {
-    set sock [iocp::socket -async localhost [randport]]
+test socket-14.8.2 {pending [iocp::inet::socket -async] and nonblocking [gets], no listener} -body {
+    set sock [iocp::inet::socket -async localhost [randport]]
     fconfigure $sock -blocking 0
     for {set i 0} {$i < 50} {incr i } {
 	if {[catch {gets $sock} x] || $x ne "" || ![fblocked $sock]} break
@@ -2158,12 +2158,12 @@ test socket-14.8.2 {pending [iocp::socket -async] and nonblocking [gets], no lis
 } -cleanup {
     catch {close $sock}
 } -match glob -result {{error reading "tcp*": socket is not connected} {connection refused} {}}
-test socket-14.9.0 {pending [iocp::socket -async] and blocking [puts], server is IPv4} -setup {
+test socket-14.9.0 {pending [iocp::inet::socket -async] and blocking [puts], server is IPv4} -setup {
     set server_code "$iocp_load_command\n"
     append server_code {
 	fileevent stdin readable exit
 	after 10000 exit
-	set server [iocp::socket -server accept -myaddr 127.0.0.1 0]
+	set server [iocp::inet::socket -server accept -myaddr 127.0.0.1 0]
 	proc accept {s h p} {set ::x $s}
 	puts [lindex [fconfigure $server -sockname] 2]
 	flush stdout
@@ -2174,7 +2174,7 @@ test socket-14.9.0 {pending [iocp::socket -async] and blocking [puts], server is
     set fd [open |[list [interpreter] script] RDWR]
     set port [gets $fd]
 } -constraints {supported_inet localhost_v4 notOSX} -body {
-    set sock [iocp::socket -async localhost $port]
+    set sock [iocp::inet::socket -async localhost $port]
     puts $sock ok
     flush $sock
     list [fconfigure $sock -error] [gets $fd]
@@ -2183,12 +2183,12 @@ test socket-14.9.0 {pending [iocp::socket -async] and blocking [puts], server is
     catch {close $sock}
     removeFile script
 } -result {{} ok}
-test socket-14.9.1 {pending [iocp::socket -async] and blocking [puts], server is IPv6} -setup {
+test socket-14.9.1 {pending [iocp::inet::socket -async] and blocking [puts], server is IPv6} -setup {
     set server_code "$iocp_load_command\n"
     append server_code {
 	fileevent stdin readable exit
 	after 10000 exit
-	set server [iocp::socket -server accept -myaddr ::1 0]
+	set server [iocp::inet::socket -server accept -myaddr ::1 0]
 	proc accept {s h p} {set ::x $s}
 	puts [lindex [fconfigure $server -sockname] 2]
 	flush stdout
@@ -2199,7 +2199,7 @@ test socket-14.9.1 {pending [iocp::socket -async] and blocking [puts], server is
     set fd [open |[list [interpreter] script] RDWR]
     set port [gets $fd]
 } -constraints {supported_inet6 localhost_v6 notOSX} -body {
-    set sock [iocp::socket -async localhost $port]
+    set sock [iocp::inet::socket -async localhost $port]
     puts $sock ok
     flush $sock
     list [fconfigure $sock -error] [gets $fd]
@@ -2208,11 +2208,11 @@ test socket-14.9.1 {pending [iocp::socket -async] and blocking [puts], server is
     catch {close $sock}
     removeFile script
 } -result {{} ok}
-test socket-14.10.0 {pending [iocp::socket -async] and nonblocking [puts], server is IPv4} -setup {
+test socket-14.10.0 {pending [iocp::inet::socket -async] and nonblocking [puts], server is IPv4} -setup {
     set server_code "$iocp_load_command\n"
     append server_code {
 	fileevent stdin readable exit
-	set server [iocp::socket -server accept -myaddr 127.0.0.1 0]
+	set server [iocp::inet::socket -server accept -myaddr 127.0.0.1 0]
 	proc accept {s h p} {set ::x $s}
 	puts [lindex [fconfigure $server -sockname] 2]
 	flush stdout
@@ -2224,7 +2224,7 @@ test socket-14.10.0 {pending [iocp::socket -async] and nonblocking [puts], serve
     set port [gets $fd]
     set after [after $latency set x timeout]
 } -constraints {supported_inet localhost_v4} -body {
-    set sock [iocp::socket -async localhost $port]
+    set sock [iocp::inet::socket -async localhost $port]
     fconfigure $sock -blocking 0
     puts $sock ok
     flush $sock
@@ -2237,11 +2237,11 @@ test socket-14.10.0 {pending [iocp::socket -async] and nonblocking [puts], serve
     catch {close $sock}
     removeFile script
 } -result {{} ok}
-test socket-14.10.1 {pending [iocp::socket -async] and nonblocking [puts], server is IPv6} -setup {
+test socket-14.10.1 {pending [iocp::inet::socket -async] and nonblocking [puts], server is IPv6} -setup {
     set server_code "$iocp_load_command\n"
     append server_code {
 	fileevent stdin readable exit
-	set server [iocp::socket -server accept -myaddr ::1 0]
+	set server [iocp::inet::socket -server accept -myaddr ::1 0]
 	proc accept {s h p} {set ::x $s}
 	puts [lindex [fconfigure $server -sockname] 2]
 	flush stdout
@@ -2253,7 +2253,7 @@ test socket-14.10.1 {pending [iocp::socket -async] and nonblocking [puts], serve
     set port [gets $fd]
     set after [after $latency set x timeout]
 } -constraints {supported_inet6 localhost_v6} -body {
-    set sock [iocp::socket -async localhost $port]
+    set sock [iocp::inet::socket -async localhost $port]
     fconfigure $sock -blocking 0
     puts $sock ok
     flush $sock
@@ -2266,10 +2266,10 @@ test socket-14.10.1 {pending [iocp::socket -async] and nonblocking [puts], serve
     catch {close $sock}
     removeFile script
 } -result {{} ok}
-test socket-14.11.0 {pending [iocp::socket -async] and nonblocking [puts], no listener, no flush} -setup {
+test socket-14.11.0 {pending [iocp::inet::socket -async] and nonblocking [puts], no listener, no flush} -setup {
     set after [after $latency set x timeout]
 } -body {
-    set sock [iocp::socket -async localhost [randport]]
+    set sock [iocp::inet::socket -async localhost [randport]]
     fconfigure $sock -blocking 0
     puts $sock ok
     fileevent $sock writable {set x 1}
@@ -2280,10 +2280,10 @@ test socket-14.11.0 {pending [iocp::socket -async] and nonblocking [puts], no li
     catch {close $sock}
     unset -nocomplain x
 } -result {socket is not connected} -returnCodes 1
-test socket-14.11.1 {pending [iocp::socket -async] and nonblocking [puts], no listener, flush} -setup {
+test socket-14.11.1 {pending [iocp::inet::socket -async] and nonblocking [puts], no listener, flush} -setup {
     set after [after $latency set x timeout]
 } -body {
-    set sock [iocp::socket -async localhost [randport]]
+    set sock [iocp::inet::socket -async localhost [randport]]
     fconfigure $sock -blocking 0
     puts $sock ok
     flush $sock
@@ -2295,8 +2295,8 @@ test socket-14.11.1 {pending [iocp::socket -async] and nonblocking [puts], no li
     catch {close $sock}
     unset -nocomplain x
 } -result {socket is not connected} -returnCodes 1
-test socket-14.12 {[iocp::socket -async] background progress triggered by [fconfigure -error]} -body {
-    set s [iocp::socket -async localhost [randport]]
+test socket-14.12 {[iocp::inet::socket -async] background progress triggered by [fconfigure -error]} -body {
+    set s [iocp::inet::socket -async localhost [randport]]
     for {set i 0} {$i < 50} {incr i} {
 	set x [fconfigure $s -error]
 	if {$x != ""} break
@@ -2315,7 +2315,7 @@ test socket-14.13 {testing writable event when quick failure} -body {
     #
     # The following connect should fail very quickly
     set a1 [after $latency {set x timeout}]
-    set s [iocp::socket -async 255.255.255.255 43434]
+    set s [iocp::inet::socket -async 255.255.255.255 43434]
     fileevent $s writable {set x writable}
     vwait x
     set x
@@ -2327,7 +2327,7 @@ test socket-14.14 {testing fileevent readable on failed async socket connect} -b
     # Test for bug 581937ab1e
     set a1 [after $latency {set x timeout}]
     # This connect should fail
-    set s [iocp::socket -async localhost [randport]]
+    set s [iocp::inet::socket -async localhost [randport]]
     fileevent $s readable {set x readable}
     vwait x
     set x
@@ -2340,7 +2340,7 @@ test socket-14.15 {blocking read on async socket should not trigger event handle
     fconfigure $subprocess -blocking 0 -buffering none
 } -body {
     puts $subprocess {
-	set s [iocp::socket -async localhost [randport]]
+	set s [iocp::inet::socket -async localhost [randport]]
 	set x ok
 	fileevent $s writable {set x fail}
 	catch {read $s}
@@ -2363,7 +2363,7 @@ test socket-14.15 {blocking read on async socket should not trigger event handle
 # v4 and v6 is required to prevent that the async connect does not terminate
 # before the fconfigure command. There is always an additional ip to try.
 test socket-14.16 {empty -peername while [socket -async] connecting} -body {
-    set client [iocp::socket -async localhost [randport]]
+    set client [iocp::inet::socket -async localhost [randport]]
     fconfigure $client -peername
 } -constraints {localhost_v4 localhost_v6 notOSX} -cleanup {
     catch {close $client}
@@ -2371,7 +2371,7 @@ test socket-14.16 {empty -peername while [socket -async] connecting} -body {
 # v4 and v6 is required to prevent that the async connect does not terminate
 # before the fconfigure command. There is always an additional ip to try.
 test socket-14.17 {empty -sockname while [socket -async] connecting} -body {
-    set client [iocp::socket -async localhost [randport]]
+    set client [iocp::inet::socket -async localhost [randport]]
     fconfigure $client -sockname
 } -constraints {localhost_v4 localhost_v6 notOSX} -cleanup {
     catch {close $client}
@@ -2381,9 +2381,9 @@ test socket-14.17 {empty -sockname while [socket -async] connecting} -body {
 test socket-14.18 {bug c6ed4acfd8: running async socket connect made other connect block} -body {
     proc accept {channel address port} {}
     set port [randport]
-    set ssock [iocp::socket -server accept $port]
-    set csock1 [iocp::socket -async localhost [randport]]
-    set csock2 [iocp::socket localhost $port]
+    set ssock [iocp::inet::socket -server accept $port]
+    set csock1 [iocp::inet::socket -async localhost [randport]]
+    set csock2 [iocp::inet::socket localhost $port]
     after 1000 {set done ok}
     vwait done
 } -constraints {notOSX} -cleanup {
@@ -2420,11 +2420,11 @@ foreach {servip sc} $x {
             }
         }
         test socket-15.1.$num "Connect to $servip from $cliip" -setup {
-	    set server [iocp::socket -server accept -myaddr $servip 0]
+	    set server [iocp::inet::socket -server accept -myaddr $servip 0]
 	    proc accept {s h p} { close $s }
 	    set port [lindex [fconfigure $server -sockname] 2]
 	} -constraints $constraints -body {
-	    set s [iocp::socket $cliip $port]
+	    set s [iocp::inet::socket $cliip $port]
 	} -cleanup {
 	    close $server
 	    catch {close $s}

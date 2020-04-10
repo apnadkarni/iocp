@@ -1013,10 +1013,10 @@ BtClientPostConnect(
                     (int) btPtr->addresses.inet.remote->ai_addrlen,
                     NULL, 0, &nbytes, &bufPtr->u.wsaOverlap) == FALSE) {
         winError = WSAGetLastError();
-        bufPtr->chanPtr = NULL;
-        IOCP_ASSERT(btPtr->base.numRefs > 1); /* Since caller also holds ref */
-        btPtr->base.numRefs -= 1;
         if (winError != WSA_IO_PENDING) {
+            bufPtr->chanPtr = NULL;
+            IOCP_ASSERT(btPtr->base.numRefs > 1); /* Since caller also holds ref */
+            btPtr->base.numRefs -= 1;
             IocpBufferFree(bufPtr);
             return winError;
         }

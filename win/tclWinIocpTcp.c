@@ -272,10 +272,10 @@ static IocpWinError TcpClientPostConnect(
                     (int) tcpPtr->addresses.inet.remote->ai_addrlen,
                     NULL, 0, &nbytes, &bufPtr->u.wsaOverlap) == FALSE) {
         winError = WSAGetLastError();
-        bufPtr->chanPtr = NULL;
-        IOCP_ASSERT(tcpPtr->base.numRefs > 1); /* Since caller also holds ref */
-        tcpPtr->base.numRefs -= 1;
         if (winError != WSA_IO_PENDING) {
+            bufPtr->chanPtr = NULL;
+            IOCP_ASSERT(tcpPtr->base.numRefs > 1); /* Since caller also holds ref */
+            tcpPtr->base.numRefs -= 1;
             IocpBufferFree(bufPtr);
             return winError;
         }
@@ -1703,6 +1703,6 @@ Tcp_SocketObjCmd (
  */
 IocpTclCode Winsock_ModuleInitialize (Tcl_Interp *interp)
 {
-    Tcl_CreateObjCommand(interp, "iocp::socket", Tcp_SocketObjCmd, 0L, 0L);
+    Tcl_CreateObjCommand(interp, "iocp::inet::socket", Tcp_SocketObjCmd, 0L, 0L);
     return TCL_OK;
 }
