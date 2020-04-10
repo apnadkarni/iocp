@@ -1106,13 +1106,18 @@ BtClientInitiateConnection(
 Tcl_Channel
 Iocp_OpenBTClient(
     Tcl_Interp *interp, /* Interpreter */
-    GUID *serviceGuidP, /* BT service guid */
+    int port, /* Port 1-30 */
     BLUETOOTH_ADDRESS *btAddress, /* Address of device */
     int async) /* Async connect or not */
 {
     WinsockClient *btPtr;
     IocpWinError   winError;
     Tcl_Channel    channel;
+
+    if (port < 1 || port > 30) {
+        Tcl_SetObjResult(interp, Tcl_ObjPrintf("Invalid RFCOMM port number %d. Must be between 1 and 30.", port));
+        return NULL;
+    }
 
     btPtr = (WinsockClient *)IocpChannelNew(&btClientVtbl);
     if (btPtr == NULL) {
@@ -1123,8 +1128,8 @@ Iocp_OpenBTClient(
     }
     btPtr->addresses.bt.remote.addressFamily = AF_BTH;
     btPtr->addresses.bt.remote.btAddr    = btAddress->ullLong;
-    btPtr->addresses.bt.remote.port      = 0;
-    btPtr->addresses.bt.remote.serviceClassId = *serviceGuidP;
+    btPtr->addresses.bt.remote.port      = port;
+    btPtr->addresses.bt.remote.serviceClassId = GUID_NULL;
 
     IocpChannelLock(WinsockClientToIocpChannel(btPtr));
     if (async) {
@@ -1220,7 +1225,7 @@ BT_SocketObjCmd(ClientData  notUsed,   /* Not used. */
     enum socketOptions { SKT_ASYNC, SKT_SERVER, SKT_AUTHENTICATE };
     int               optionIndex, a, server = 0, async = 0, authenticate = 0;
     const char *      script = NULL;
-    GUID              service;
+    int               port;
     Tcl_Channel       chan = NULL;
 
 #ifdef TBD
@@ -1295,8 +1300,8 @@ BT_SocketObjCmd(ClientData  notUsed,   /* Not used. */
         return TCL_ERROR;
     }
 
-    /* Last arg is always service for both */
-    if (UnwrapUuid(interp, objv[objc-1], &service) != TCL_OK) 
+    /* Last arg is always port for both */
+    if (Tcl_GetIntFromObj(interp, objv[objc-1], &port) != TCL_OK)
         return TCL_ERROR;
 
     if (server) {
@@ -1346,7 +1351,7 @@ BT_SocketObjCmd(ClientData  notUsed,   /* Not used. */
             return TCL_ERROR;
         }
 
-        chan = Iocp_OpenBTClient(interp, &service, &btAddress, async);
+        chan = Iocp_OpenBTClient(interp, port, &btAddress, async);
         if (chan == NULL) {
             return TCL_ERROR;
         }
