@@ -168,6 +168,11 @@ proc iocp::bt::names::protocol_name {uuid} {
     return [MapUuidToName $uuid protocol_names]
 }
 
+proc iocp::bt::names::protocol_uuid {name} {
+    variable protocol_names
+    return [MapNameToUuid $name protocol_names]
+}
+
 proc iocp::bt::names::attribute_name {attr_id} {
     variable attribute_names
     dict for {name id} $attribute_names {

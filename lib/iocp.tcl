@@ -95,15 +95,16 @@ proc iocp::bt::resolve_device {name args} {
 }
 
 proc iocp::bt::get_service_references {device service} {
-    # Retrieve service records that refer to a specified service.
+    # Retrieve service discovery records that refer to a specified service.
     #  device - Bluetooth address or name of a device. If specified as a name,
     #           it must resolve to a single address.
     #  service - the UUID of a service or service class or its mnemonic.
-
-    # The returned service discovery records (SDR) should be treated as 
+    # The command will return all service discovery records that contain
+    # an attribute referring to the specified service.
+    # The returned service discovery records should be treated as 
     # opaque and accessed through the service record decoding commands.
     #
-    # Returns a list of service records.
+    # Returns a list of service discovery records.
     set h [LookupServiceBegin $device [names::service_class_uuid $service]]
     set recs {}
     try {
@@ -114,6 +115,22 @@ proc iocp::bt::get_service_references {device service} {
         LookupServiceEnd $h
     }
     return $recs
+}
+
+proc iocp::bt::browse_services {device} {
+    # Retrieve the service discovery records for top level services
+    # advertised by a device.
+    #  device - Bluetooth address or name of a device. If specified as a name,
+    #           it must resolve to a single address.
+    # 
+    # The command will return all service discovery records that reference
+    # the `PublicBrowseRoot` service class.
+    #
+    # The returned service discovery records should be treated as 
+    # opaque and accessed through the service record decoding commands.
+    #
+    # Returns a list of service dscovery records.
+    return [get_service_references $device 00001002-0000-1000-8000-00805f9b34fb]
 }
 
 proc iocp::bt::sdr_parse {binsdr} {
@@ -697,12 +714,6 @@ proc iocp::bt::sdr_icon_url {sdr {varname {}}} {
     tailcall SdrGetAttributeValue 12 $sdr $varname
 }
 
-
-
-
-
-
-
 proc iocp::bt::SdrGetUuids {sdr attr_id {varname {}}} {
     if {! [sdr_has_attribute $sdr $attr_id attrval]} {
         if {$varname eq ""} {
@@ -1254,3 +1265,4 @@ proc iocp::AddressFamilyName {af} {
         return AF$af
     }
 }
+
