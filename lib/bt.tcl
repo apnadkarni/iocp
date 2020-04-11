@@ -55,18 +55,22 @@ proc iocp::bt::devices {args} {
     #                  identified by the RADIOH handle
     # Each device information element is returned as a dictionary with
     # the following keys:
-    # Name - Human readable name of the device
-    # Address - Bluetooth address of the devicec
-    # Class - Device class
-    # Connected - Boolean value indicating whether the device is connected
-    # Remembered - Boolean value indicating whether the device is connected
     # Authenticated - Boolean value indicating whether the device has
     #                 been authenticated
+    # Address - Bluetooth address of the devicec
+    # Class - Device class as a numeric value
+    # Connected - Boolean value indicating whether the device is connected
     # LastSeen - Time when device was last seen. The format is a list of
     #            year, month, day, hour, minutes, seconds and milliseconds.
     # LastUsed - Time when device was last used. The format is a list of
     #            year, month, day, hour, minutes, seconds and milliseconds.
-    # 
+    # MajorClassName - Human readable major device class name. Should not
+    #  be relied on.
+    # MinorClassName - Human readable minor device class name. Should not
+    #  be relied on.
+    # Name - Human readable name of the device
+    # Remembered - Boolean value indicating whether the device is connected
+    # ServiceClasses - Human readable list of general device class categories
     # The filtering options may be specified to limit the devices
     # returned. If none are specified, all devices are returned.
     #
@@ -78,10 +82,13 @@ proc iocp::bt::devices {args} {
         return {} 
     }
     lassign $pair finder device
+    set device [dict merge $device [DeviceClass [dict get $device Class]]]
     set devices [list $device]
     try {
         while {1} {
-            lappend devices [FindNextDevice $finder]
+            set device [FindNextDevice $finder]
+            set device [dict merge $device [DeviceClass [dict get $device Class]]]
+            lappend devices $device
         }
     } finally {
         FindFirstDeviceClose $finder
@@ -124,7 +131,8 @@ proc iocp::bt::get_service_references {device service} {
     set recs {}
     try {
         while {1} {
-            lappend recs [LookupServiceNext $h]
+            # 0x0200 -> LUP_RETURN_BLOB. Returns {Blob BINDATA}
+            lappend recs [lindex [LookupServiceNext $h 0x200] 1]
         }
     } finally {
         LookupServiceEnd $h
@@ -292,6 +300,109 @@ proc iocp::AddressFamilyName {af} {
     } else {
         return AF$af
     }
+}
+
+proc DeviceClass {class} {
+    if {[expr {$class & 3}] != 0} {
+        # Not format type that we understand
+        return {}
+    }
+
+    # https://www.bluetooth.com/specifications/assigned-numbers/baseband/
+
+    set minor_class [expr {($class >> 2) & 0x3f}]
+    set major_class [expr {($class >> 8) & 0x1f}]
+
+    if {$major_class == 0} {
+        set major_name "Miscellaneous"
+        set minor_name "Miscellaneous"
+    } elseif {$major_class == 1} {
+        set major_name Computer
+        set minor_name [lindex {
+            Uncategorized Desktop Server Laptop "Handheld PC/PDA" "Palm-size PC/PDA" Wearable Tablet
+        } $minor_class]
+    } elseif {$major_class == 2} {
+        set major_name Phone
+        set minor_name [lindex {
+            Uncategorized Cellular Cordless Smartphone "Wired modem"  ISDN
+        } $minor_class]
+    } elseif {$major_class == 3} {
+        set major_name "LAN/Network Access point"
+        set minor_name [lindex {
+            0% 1-17% 17-33% 33-50% 50-67% 67-83% 83-99% 100%
+        } $minor_class]
+    } elseif {$major_class == 4} {
+        set major_name "Audio/Video"
+        set minor_name [lindex {
+            Uncategorized "Wearable Headset Device" "Hands-free Device" Reserved
+            Microphone Loudspeaker Headphones "Portable Audio" "Car Audio"
+            "Set-top box" "HiFi Audio Device" VCR Camcorder "Video Monitor"
+            "Video Display and Loudspeaker" "Video Conferencing" Reserved
+            "Gaming/Toy"
+        } $minor_class]
+    } elseif {$major_class == 5} {
+        set major_name Peripheral
+        set bits [expr {$minor_class >> 4}]
+        set minor_name [lindex {
+            Other Keyboard "Pointing device" "Combo keyboard/pointing device"
+        } $bits]
+        set bits [expr {$minor_class & 0xf}]
+        if {$bits < 10} {
+            append minor_name /[lindex {
+                Uncategorized Joystick Gamepad "Remote control" "Sensing device"
+                "Digitizer tabler" "Card reader" "Digital pen" "Handheld scanner"
+                "Handheld gesture input device"
+            }]
+        }
+    } elseif {$major_class == 6} {
+        set major_name Imaging
+        set minor_name {}
+        if {$minor_class & 4} {lappend minor_name Display}
+        if {$minor_class & 8} {lappend minor_name Camera}
+        if {$minor_class & 16} {lappend minor_name Scanner}
+        if {$minor_class & 32} {lappend minor_name Printer}
+        set minor_name [join $minor_name /]
+    } elseif {$major_class == 7} {
+        set major_name Wearable
+        set minor_name [lindex {
+            Wristwatch Pager Jacket Helmet Glasses
+        } $minor_class]
+    } elseif {$major_class == 8} {
+        set major_name Toy
+        set minor_name [lindex {
+            Robot Vehicle Doll Controller Game
+        } $minor_class]
+    } elseif {$major_class == 9} {
+        set major_name Health
+        set minor_name [lindex {
+            Undefined "Blood Pressure Monitor" Thermometer "Weighing Scale"
+            "Glucose Meter" "Pulse Oximeter" "Heart/Pulse Rate Monitor"
+            "Health Data Display" "Step Counter" "Body Composition Analyzer"
+            "Peak Flow Monitor" "Medication Monitor" "Knee Prosthesis"
+            "Andle Prosthesis" "Generic Health Manager" "Personal Mobility Device"
+        } $minor_class]
+    } elseif {$major_class == 31} {
+        set major_name Uncategorized
+        set minor_name ""
+    } else {
+        set major_name Reserved
+        set minor_name ""
+    }
+
+    set service_class {}
+    if {$class & (1<<13)} {lappend service_class "Limited Discoverable Mode"}
+    if {$class & (1<<16)} {lappend service_class "Positioning (Location identification)"}
+    if {$class & (1<<17)} {lappend service_class "Networking"}
+    if {$class & (1<<18)} {lappend service_class "Rendering"}
+    if {$class & (1<<19)} {lappend service_class "Capturing"}
+    if {$class & (1<<20)} {lappend service_class "Object Transfer"}
+    if {$class & (1<<21)} {lappend service_class "Audio"}
+    if {$class & (1<<22)} {lappend service_class "Telephony"}
+    if {$class & (1<<23)} {lappend service_class "Information"}
+
+    return [dict create MajorClassName $major_name \
+                MinorClassName $minor_name \
+                ServiceClasses $service_class]
 }
 
 package provide iocp_bt $iocp::bt::version

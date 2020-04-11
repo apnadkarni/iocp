@@ -21,7 +21,7 @@ proc iocp::bt::sdr::parse {binsdr} {
     # A SDR record is a single data element which is a sequence
     # containing nested data elements.
     # {{sequence {nested data elements}}}
-    set rec [lindex [ParseElements [dict get $binsdr Blob]] 0 1]
+    set rec [lindex [ParseElements $binsdr] 0 1]
 
     # $rec contains alternating attribute value pairs. The result
     # is built as a list as its faster to do that and shimmer
@@ -39,7 +39,7 @@ proc iocp::bt::sdr::attribute_type {sdr} {
     if {[string is integer -strict $attr_id]} {
         set key [expr {$attr_id + 0}]; # Force decimal rep. Faster than format
     } else {
-        set key [attribute_id $attr_id]; # name -> id
+        set key [names::attribute_id $attr_id]; # name -> id
     }
 
     if {[dict exists $sdr $key]} {
@@ -53,6 +53,7 @@ proc iocp::bt::sdr::attribute_type {sdr} {
     return 0
 
 }
+
 proc iocp::bt::sdr::has_attribute {sdr attr_id {varname {}}} {
     # Checks if an attribute exists in a service discovery record
     # sdr - a parsed service discovery record in the form returned by
@@ -66,7 +67,8 @@ proc iocp::bt::sdr::has_attribute {sdr attr_id {varname {}}} {
     if {[string is integer -strict $attr_id]} {
         set key [expr {$attr_id + 0}]; # Force decimal rep. Faster than format
     } else {
-        set key [attribute_id $attr_id]; # name -> id
+        puts ID:$attr_id
+        set key [names::attribute_id $attr_id]; # name -> id
     }
 
     if {[dict exists $sdr $key]} {
@@ -80,6 +82,14 @@ proc iocp::bt::sdr::has_attribute {sdr attr_id {varname {}}} {
     return 0
 }
 
+proc iocp::bt::sdr::attributes {sdr} {
+    # Get the list of attributes in a service discovery record
+    # sdr - a parsed service discovery record in the form returned by
+    #       sdr_parse.
+    # Returns a list of numeric attribute ids.
+    return [lmap {attr val} $sdr {set attr}]
+}
+
 proc iocp::bt::sdr::attribute {sdr attr_id} {
     # Get an attribute value from an service discovery record.
     # sdr - a parsed service discovery record in the form returned by
@@ -91,7 +101,7 @@ proc iocp::bt::sdr::attribute {sdr attr_id} {
     # Returns the attribute value as a pair consisting of the type and
     # the raw data element value.
 
-    if {[sdr_has_attribute $sdr $attr_id value]} {
+    if {[has_attribute $sdr $attr_id value]} {
         return $value
     } else {
         error "Attribute with id \"$attr_id\" not found."
@@ -229,7 +239,7 @@ proc iocp::bt::sdr::service_name {sdr lang {varname {}}} {
      tailcall TextAttribute $sdr 0 $lang $varname
 }
 
-proc iocp::bt::sdr::service_description {sdr lang {varname {}}} {
+proc iocp::bt::sdr::description {sdr lang {varname {}}} {
     # Returns the service description from a service discovery record.
     #  sdr - parsed service discovery record
     #  lang - language identifier as specified in iso639, e.g. `en` for
@@ -398,8 +408,8 @@ proc iocp::bt::sdr::profiles {sdr {varname {}}} {
     #  sdr - parsed service discovery record
     #  varname - optional name of variable in caller's context.
     #
-    # The retrieved value is a list of service class descriptors
-    # corresponding to the ServiceClassIDList
+    # The retrieved value is a list of profile descriptors
+    # corresponding to the BluetoothProfileDescriptorList
     # universal attribute in the Bluetooth Core specification.
     # Each descriptor is a dictionary with the following keys:
     #  `Uuid` - the UUID of the profile
@@ -420,7 +430,7 @@ proc iocp::bt::sdr::profiles {sdr {varname {}}} {
     # 
     # Returns a boolean or the list of service class descriptors.
 
-    if {! [sdr_has_attribute $sdr 9 attr]} {
+    if {! [has_attribute $sdr 9 attr]} {
         if {$varname eq ""} {
             error "Attribute not found."
         } else {
@@ -463,7 +473,7 @@ proc iocp::bt::sdr::additional_protocols {sdr {varname {}}} {
     tailcall Protocols $sdr 13 $varname
 }
 
-proc iocp::bt::sdr::service_time_to_live {sdr {varname {}}} {
+proc iocp::bt::sdr::time_to_live {sdr {varname {}}} {
     # Retrieve the time-to-live attribute for a service discovery record.
     #  sdr - parsed service discovery record
     #  varname - optional name of variable in caller's context.
@@ -486,10 +496,10 @@ proc iocp::bt::sdr::service_time_to_live {sdr {varname {}}} {
     # Returns a boolean or the integer time-to-live value.
 
     # Tailcall so varname context is correct
-    tailcall AttributeValue 7 $sdr $varname
+    tailcall AttributeValue $sdr 7 $varname
 }
 
-proc iocp::bt::sdr::service_availability {sdr {varname {}}} {
+proc iocp::bt::sdr::availability {sdr {varname {}}} {
     # Retrieve the service availability attribute from a service 
     # discovery record.
     #  sdr - parsed service discovery record
@@ -514,7 +524,7 @@ proc iocp::bt::sdr::service_availability {sdr {varname {}}} {
     # Returns a boolean or the service availability value.
 
     # Tailcall so varname context is correct
-    tailcall AttributeValue 8 $sdr $varname
+    tailcall AttributeValue $sdr 8 $varname
 }
 
 proc iocp::bt::sdr::documentation_url {sdr {varname {}}} {
@@ -538,7 +548,7 @@ proc iocp::bt::sdr::documentation_url {sdr {varname {}}} {
     # Returns a boolean or the documentation url.
 
     # Tailcall so varname context is correct
-    tailcall AttributeValue 10 $sdr $varname
+    tailcall AttributeValue $sdr 10 $varname
 }
 
 proc iocp::bt::sdr::client_executable_url {sdr {varname {}}} {
@@ -562,7 +572,7 @@ proc iocp::bt::sdr::client_executable_url {sdr {varname {}}} {
     # Returns a boolean or the client executable URL.
 
     # Tailcall so varname context is correct
-    tailcall AttributeValue 11 $sdr $varname
+    tailcall AttributeValue $sdr 11 $varname
 }
 
 proc iocp::bt::sdr::icon_url {sdr {varname {}}} {
@@ -586,11 +596,11 @@ proc iocp::bt::sdr::icon_url {sdr {varname {}}} {
     # Returns a boolean or the icon URL.
 
     # Tailcall so varname context is correct
-    tailcall AttributeValue 12 $sdr $varname
+    tailcall AttributeValue $sdr 12 $varname
 }
 
 proc iocp::bt::sdr::Uuids {sdr attr_id {varname {}}} {
-    if {! [sdr_has_attribute $sdr $attr_id attrval]} {
+    if {! [has_attribute $sdr $attr_id attrval]} {
         if {$varname eq ""} {
             error "Attribute not found."
         } else {
@@ -614,7 +624,7 @@ proc iocp::bt::sdr::Uuids {sdr attr_id {varname {}}} {
 
 proc iocp::bt::sdr::Protocols {sdr attr_id {varname {}}} {
 
-    if {! [sdr_has_attribute $sdr $attr_id attrval]} {
+    if {! [has_attribute $sdr $attr_id attrval]} {
         if {$varname eq ""} {
             error "Attribute not found."
         } else {
@@ -658,9 +668,9 @@ proc iocp::bt::sdr::Protocols {sdr attr_id {varname {}}} {
 
 proc iocp::bt::sdr::AttributeValue {sdr attr_id {varname {}}} {
     if {$varname eq ""} {
-        return [lindex [sdr_attribute $sdr $attr_id] 1]
+        return [lindex [attribute $sdr $attr_id] 1]
     } else {
-        if {[sdr_has_attribute $sdr $attr_id attrval]} {
+        if {[has_attribute $sdr $attr_id attrval]} {
             upvar 1 $varname value
             set value [lindex $attrval 1]
             return 1
@@ -689,11 +699,11 @@ proc iocp::bt::sdr::TextAttribute {sdr attr_offset lang {varname {}}} {
         }
     }
     set attr_index [expr {$base_offset + $attr_offset}]
-    if {! [sdr_has_attribute $sdr $attr_index name]} {
+    if {! [has_attribute $sdr $attr_index name]} {
         # This language does not exist. Return primary language if possible.
         # If base_offset was 256, that's already primary so don't retry
         if {$base_offset == 256 ||
-            ![sdr_has_attribute $sdr [expr {256 + $attr_offset}] name] } {
+            ![has_attribute $sdr [expr {256 + $attr_offset}] name] } {
             if {$varname ne ""} {
                 return 0
             } else {
@@ -885,75 +895,121 @@ proc iocp::bt::sdr::ExtractFirstElement {bin} {
 
 proc iocp::bt::sdr::print {rec} {
     # Prints a SDP record to a more human readable form.
-    # rec - a SDP record in the form returned by ParseElements
+    # rec - a binary SDP record in the form returned by [browse_services] or
+    #       [get_service_references].
     #
-    if {[llength $rec] != 1} {
-        error "Invalid SDP record."
-    } 
-    set rec [lindex $rec 0]
-    if {[llength $rec] != 2 || [lindex $rec 0] ne "sequence"} {
-        error "Invalid SDP record."
-    }
-    if {[llength [lindex $rec 1]] % 2} {
-        error "Invalid SDP record. Should have multiple of 4 elements."
-    }
 
     # Alternating attribute value pairs
-    foreach {attr val} [lindex $rec 1] {
-        lassign $attr attrtype attrval
-        set attrname [names::attribute_name $attrval]
+    set rec [parse $rec]
+    foreach attr [attributes $rec] {
+        set attrname [names::attribute_name $attr]
         if {[string is integer -strict $attrname]} {
             # For easier matching with Bluetooth specs
             set attrname [format 0x%x $attrname]
         }
         switch -exact -- $attrname {
-            ProtocolDescriptorList {
-                puts "$attrname: [lindex $val 0]"
-                foreach protocol [lindex $val 1] {
-                    # puts PROTOCOL:$protocol
-                    # Protocol is {sequence {attribute_list}} wwhere first
-                    # attribute is protocol uuid
-                    set layers [lindex $protocol 1]
-                    set uuid [lindex $layers 0 1]
-                    set protocol_name [names::protocol_name $uuid]
-                    set protocol_args [lmap elem [lrange $layers 1 end] {
-                        #PrintableElement $elem
-                        lindex $elem 1
-                    }]
-                    puts "    $uuid $protocol_name ([join $protocol_args {, }])"
-                }
+            ServiceRecordHandle {
+                puts "$attrname: [handle $rec]"
             }
-            LanguageBaseAttributeIDList {
-                puts "$attrname: [lindex $val 0]"
-                # Sequence of langid, encoding, base attribute offset triples
-                foreach {langid enc baseattr} [lindex $val 1] {
-                    # langid is ISO 639 language code
-                    set langid [lindex $langid 1]
-                    set langid "[format %c [expr {$langid >> 8}]][format %c [expr {$langid &0xff}]]"
-                    set enc [encoding_name [lindex $enc 1]]
-                    set baseattr [lindex $baseattr 1]
-                    puts "    $langid, $enc, $baseattr"
-                }
-            }
-            BluetoothProfileDescriptorList {
-                puts "$attrname: [lindex $val 0]"
-                foreach profile [lindex $val 1] {
-                    # Sequence of profiles. Each profile is a sequence of
-                    # profile uuid and version.
-                    # puts profile:$profile
-                    set uuid [lindex $profile 1 0 1]
-                    set name [names::profile_name $uuid]
-                    set ver  [lindex $profile 1 1 1]
-                    set ver [expr {($ver >> 8)}].[expr {$ver & 0xff}]
-                    if {$name eq $uuid} {
-                        puts "    $uuid V$ver"
-                    } else {
-                        puts "    $uuid $name V$ver"
+            ServiceClassIDList {
+                puts "$attrname: sequence"
+                foreach elem [service_classes $rec] {
+                    dict with elem {
+                        if {$Name eq $Uuid} {
+                            puts "    $Uuid"
+                        } else {
+                            puts "    $Uuid $Name"
+                        }
                     }
                 }
             }
+            ServiceRecordState {
+                puts "$attrname: [state_indicator $rec]"
+            }
+            ServiceId {
+                puts "$attrname: [service_id $rec]"
+
+            }
+            AdditionalProtocolDescriptorList -
+            ProtocolDescriptorList {
+                puts "$attrname:"
+                foreach protocol [protocols $rec] {
+                    puts "    ProtocolStack:"
+                    foreach layer $protocol {
+                        set name [dict get $layer ProtocolName]
+                        set uuid [dict get $layer Protocol]
+                        set params [lmap param [dict get $layer ProtocolParams] {
+                            PrintableElement $param
+                        }]
+                        if {$name eq ""} {
+                            puts "        $uuid ([join $params {, }])"
+                        } else {
+                            puts "        $uuid $name ([join $params {, }])"
+                        }
+                    }
+                }
+            }
+            BrowseGroupList {
+                puts "$attrname: sequence"
+                foreach elem [browse_groups $rec] {
+                    dict with elem {
+                        if {$Name eq $Uuid} {
+                            puts "    $Uuid"
+                        } else {
+                            puts "    $Uuid $Name"
+                        }
+                    }
+                }
+            }
+            LanguageBaseAttributeIDList {
+                puts "$attrname: sequence"
+                dict for {lang val} [language_offsets $rec] {
+                    puts "    $lang: [dict get $val Encoding], [dict get $val BaseOffset]"
+                }
+            }
+            ServiceInfoTimeToLive {
+                puts "$attrname: [time_to_live $rec]"
+            }
+            ServiceAvailability {
+                puts "$attrname: [availability $rec]"
+            }
+            BluetoothProfileDescriptorList {
+                puts "$attrname: sequence"
+                foreach profile [profiles $rec] {
+                    # Sequence of profiles. Each profile is a sequence of
+                    # profile uuid and version.
+                    # puts profile:$profile
+                    dict with profile {
+                        if {$Uuid eq $Name} {
+                            puts "    $Uuid v$MajorVersion.$MinorVersion"
+                        } else {
+                            puts "    $Uuid $Name v$MajorVersion.$MinorVersion"
+                        }
+                    }
+                }
+            }
+            DocumentationURL {
+                puts "$attrname: [documentation_url $rec]"
+            }
+            ClientExecutableURL {
+                puts "$attrname: [client_executable_url $rec]"
+            }
+            IconURL {
+                puts "$attrname: [icon_url $rec]"
+            }
+            ServiceName {
+                puts "$attrname: [service_name $rec primary]"
+            }
+            ServiceDescription {
+                puts "$attrname: [description $rec primary]"
+            }
+            ProviderName {
+                puts "$attrname: [provider_name $rec primary]"
+            }
             default {
-                puts "$attrname: [PrintableElement $val]"
+                # TBD - special handling for 0x100-0x1ff attributes by
+                # looking up languages table
+                puts "$attrname: [PrintableElement [attribute $rec $attr]]"
             }
         }
     }
