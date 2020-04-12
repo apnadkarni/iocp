@@ -1535,54 +1535,37 @@ BT_LookupServiceNextObjCmd (
         qsP->dwNameSpace = NS_BTH;
     }
     if (winError == 0) {
-        Tcl_Obj *objs[10];
+        Tcl_Obj *objs[12];
         int i = 0;
 
-        if (flags & LUP_RETURN_NAME) {
+        if (flags & LUP_RETURN_NAME && qsP->lpszServiceInstanceName) {
             objs[i++] = STRING_LITERAL_OBJ("ServiceInstanceName");
-            if (qsP->lpszServiceInstanceName)
-                objs[i++] = Tcl_NewUnicodeObj(qsP->lpszServiceInstanceName, -1);
-            else
-                objs[i++] = Tcl_NewObj();
+            objs[i++] = Tcl_NewUnicodeObj(qsP->lpszServiceInstanceName, -1);
         }
 
-        if (flags & LUP_RETURN_ADDR) {
+        if (flags & LUP_RETURN_ADDR && qsP->lpcsaBuffer) {
+            SOCKADDR_BTH *soAddr;
             objs[i++] = STRING_LITERAL_OBJ("RemoteAddress");
-            if (qsP->lpcsaBuffer) {
-                SOCKADDR_BTH *soAddr;
-                soAddr  = (SOCKADDR_BTH *)qsP->lpcsaBuffer->RemoteAddr.lpSockaddr;
-                objs[i++] = ObjFromSOCKADDR_BTH(soAddr);
-            }
-            else
-                objs[i++] = Tcl_NewObj();
+            soAddr  = (SOCKADDR_BTH *)qsP->lpcsaBuffer->RemoteAddr.lpSockaddr;
+            objs[i++] = ObjFromSOCKADDR_BTH(soAddr);
+            objs[i++] = STRING_LITERAL_OBJ("Protocol");
+            objs[i++] = Tcl_NewIntObj(qsP->lpcsaBuffer->iProtocol);
         }
 
-        if (flags & LUP_RETURN_COMMENT) {
+        if (flags & LUP_RETURN_COMMENT && qsP->lpszComment) {
             objs[i++] = STRING_LITERAL_OBJ("Comment");
-            if (qsP->lpszComment)
-                objs[i++] = Tcl_NewUnicodeObj(qsP->lpszComment, -1);
-            else
-                objs[i++] = Tcl_NewObj();
+            objs[i++] = Tcl_NewUnicodeObj(qsP->lpszComment, -1);
         }
 
-        if (flags & LUP_RETURN_TYPE) {
+        if (flags & LUP_RETURN_TYPE && qsP->lpServiceClassId) {
             objs[i++] = STRING_LITERAL_OBJ("ServiceClassId");
-            if (qsP->lpServiceClassId)
-                objs[i++] = Tclh_WrapUuid(qsP->lpServiceClassId);
-            else {
-                Tclh_UUID null_uuid = GUID_NULL;
-                objs[i++] = Tclh_WrapUuid(&null_uuid);
-            }
+            objs[i++] = Tclh_WrapUuid(qsP->lpServiceClassId);
         }
 
-        if (flags & LUP_RETURN_BLOB) {
+        if (flags & LUP_RETURN_BLOB && qsP->lpBlob) {
             objs[i++] = STRING_LITERAL_OBJ("Blob");
-            if (qsP->lpBlob) {
-                objs[i++]
-                    = Tcl_NewByteArrayObj(qsP->lpBlob->pBlobData, qsP->lpBlob->cbSize);
-            } else {
-                objs[i++] = Tcl_NewObj();
-            }
+            objs[i++]
+                = Tcl_NewByteArrayObj(qsP->lpBlob->pBlobData, qsP->lpBlob->cbSize);
         }
 
         IOCP_ASSERT(i <= (sizeof(objs)/sizeof(objs[0])));

@@ -121,6 +121,36 @@ proc iocp::bt::resolve_device {name args} {
     return $addresses
 }
 
+proc iocp::bt::resolve_port {device service} {
+    # Resolve the port for a Bluetooth service running over RFCOMM.
+    #  device - Bluetooth address or name of a device. If specified as a name,
+    #           it must resolve to a single address.
+    #  service - UUID or name of service of interest.
+    # Returns the port number for the service or raises an error if it
+    # cannot be resolved.
+
+    set h [LookupServiceBegin \
+               [ResolveDeviceUnique $device] \
+               [names::service_class_uuid $service]]
+    try {
+        while {1} {
+            # 0x100 -> LUP_RETURN_ADDR
+            set rec [LookupServiceNext $h 0x100]
+            if {[dict exists $rec RemoteAddress] &&
+                [dict get $rec RemoteAddress AddressFamily] == 32} {
+                # 32 -> AF_BTH (Bluetooth)
+                # Further we are looking for RFCOMM (protocol 3)
+                if {[dict exists $rec Protocol] &&
+                    [dict get $rec Protocol] == 3} {
+                    return [dict get $rec RemoteAddress Port]
+                }
+            }
+        }
+    } finally {
+        LookupServiceEnd $h
+    }
+    error "Could not resolve service \"$service\" to a port on device \"$device\"."
+}
 
 proc iocp::bt::get_service_references {device service} {
     # Retrieve service discovery records that refer to a specified service.
@@ -133,7 +163,10 @@ proc iocp::bt::get_service_references {device service} {
     # opaque and accessed through the service record decoding commands.
     #
     # Returns a list of service discovery records.
-    set h [LookupServiceBegin $device [names::service_class_uuid $service]]
+
+    set h [LookupServiceBegin \
+               [ResolveDeviceUnique $device] \
+               [names::service_class_uuid $service]]
     set recs {}
     try {
         while {1} {
@@ -408,6 +441,19 @@ proc DeviceClass {class} {
     return [dict create MajorClassName $major_name \
                 MinorClassName $minor_name \
                 DeviceClasses $service_class]
+}
+
+proc iocp::bt::ResolveDeviceUnique {device} {
+    if {[IsAddress $device]} {
+        return $device
+    }
+    set addrs [resolve_device $device]
+    if {[llength $addrs] == 0} {
+        error "Could not resolve Bluetooth device name \"$device.\""
+    } elseif {[llength $addrs] > 1} {
+        error "Device \"$device\" resolves to multiple addresses."
+    }
+    return [lindex $addrs 0]
 }
 
 package provide iocp_bt $iocp::bt::version
