@@ -422,7 +422,7 @@ int BT_RemoveDeviceObjCmd (
         return tclResult;
 
     winError = BluetoothRemoveDevice(&btAddress);
-    if (winError != ERROR_SUCCESS) {
+    if (winError != ERROR_SUCCESS && winError != ERROR_NOT_FOUND) {
         return Iocp_ReportWindowsError(interp, winError, "Could not remove device: ");
     }
     return TCL_OK;

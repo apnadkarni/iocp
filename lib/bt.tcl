@@ -152,6 +152,14 @@ proc iocp::bt::resolve_port {device service} {
     error "Could not resolve service \"$service\" to a port on device \"$device\"."
 }
 
+proc iocp::bt::remove_device {device} {
+    # Removes cached authentication information for a device from the system cache.
+    #  device - bluetooth address or name of a device. if specified as a name,
+    #           it must resolve to a single address.
+
+    RemoveDevice [ResolveDeviceUnique $device]
+}
+
 proc iocp::bt::get_service_references {device service} {
     # Retrieve service discovery records that refer to a specified service.
     #  device - Bluetooth address or name of a device. If specified as a name,
