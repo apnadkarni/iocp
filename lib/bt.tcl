@@ -19,9 +19,12 @@ proc iocp::bt::radios {} {
     # Each radio element of the returned list contains the following keys:
     # Address - The Bluetooth address of the radio.
     # Name - Name assigned to the local system as advertised by the radio.
-    # Class - Device class.
+    # Class - Device class as a numeric value.
+    # DeviceClasses - Human readable list of general device class categories
     # Subversion - Integer value whose interpretation is manufacturer-specific.
     # Manufacturer - Integer identifier assigned to the manufacturer.
+    # MajorClassName - Human readable major device class name.
+    # MinorClassName - Human readable minor device class name.
     #
     # Returns a list of radio information elements.
 
@@ -33,7 +36,8 @@ proc iocp::bt::radios {} {
     set radios {}
     try {
         while {1} {
-            lappend radios [GetRadioInfo $hradio]
+            set radio [GetRadioInfo $hradio]
+            lappend radios [dict merge $radio [DeviceClass [dict get $radio Class]]]
             CloseHandle $hradio
             set hradio [FindNextRadio $finder]
         }
@@ -46,13 +50,15 @@ proc iocp::bt::radios {} {
 proc iocp::bt::devices {args} {
     # Enumerate known Bluetooth devices.
     # -authenticated - filter for authenticated devices
-    # -remembered    - filter for remembered devices
-    # -unknown       - filter for unknown devices
     # -connected     - filter for connected devices
-    # -inquire       - issue a new inquiry
-    # -timeout MS    - timeout for the inquiry in milliseconds
-    # -radio RADIOH  - limit to devices associated with the radio 
+    # -inquire       - issue a new inquiry. Without this option, devices that are
+    #                  not already known to the system will not be discovered.
+    # -radio RADIOH  - filter to devices associated with the radio
     #                  identified by the RADIOH handle
+    # -remembered    - filter for remembered devices
+    # -timeout MS    - timeout for the inquiry in milliseconds. Defaults to 10240ms.
+    #                  Ignored if `-inquire` is not specified.
+    # -unknown       - filter for unknown devices
     # Each device information element is returned as a dictionary with
     # the following keys:
     # Authenticated - Boolean value indicating whether the device has
@@ -60,17 +66,16 @@ proc iocp::bt::devices {args} {
     # Address - Bluetooth address of the devicec
     # Class - Device class as a numeric value
     # Connected - Boolean value indicating whether the device is connected
+    # DeviceClasses - Human readable list of general device class categories
     # LastSeen - Time when device was last seen. The format is a list of
     #            year, month, day, hour, minutes, seconds and milliseconds.
     # LastUsed - Time when device was last used. The format is a list of
     #            year, month, day, hour, minutes, seconds and milliseconds.
-    # MajorClassName - Human readable major device class name. Should not
-    #  be relied on.
-    # MinorClassName - Human readable minor device class name. Should not
-    #  be relied on.
+    # MajorClassName - Human readable major device class name.
+    # MinorClassName - Human readable minor device class name.
     # Name - Human readable name of the device
     # Remembered - Boolean value indicating whether the device is connected
-    # ServiceClasses - Human readable list of general device class categories
+    #
     # The filtering options may be specified to limit the devices
     # returned. If none are specified, all devices are returned.
     #
@@ -116,6 +121,7 @@ proc iocp::bt::resolve_device {name args} {
     return $addresses
 }
 
+
 proc iocp::bt::get_service_references {device service} {
     # Retrieve service discovery records that refer to a specified service.
     #  device - Bluetooth address or name of a device. If specified as a name,
@@ -141,7 +147,7 @@ proc iocp::bt::get_service_references {device service} {
 }
 
 proc iocp::bt::browse_services {device} {
-    # Retrieve the service discovery records for top level services
+    # Retrieve the service discovery records for top level services.
     # advertised by a device.
     #  device - Bluetooth address or name of a device. If specified as a name,
     #           it must resolve to a single address.
@@ -156,12 +162,12 @@ proc iocp::bt::browse_services {device} {
     return [get_service_references $device 00001002-0000-1000-8000-00805f9b34fb]
 }
 
-
+# TBD - is this needed? Less functional version of browse_services
 proc iocp::bt::device_services {device} {
     # Get installed services on a device.
     #  device - Bluetooth address or name of device. If specified as a name,
     #           it must resolve to a single address.
-    # Returns a list GUIDS identifying the services.
+    # Returns a list of service UUID's.
     if {![IsAddress $device]} {
         set addrs [resolve_device $device]
         if {[llength $addrs] == 1} {
@@ -179,7 +185,6 @@ proc iocp::bt::device_services {device} {
 
 proc iocp::bt::IsAddress {addr} {
     # Returns boolean indicating whether addr is a valid Bluetooth address
-        error "Invalid SDP record."
     # addr - value to be checked
 
     # TBD - implement in C?
@@ -402,7 +407,7 @@ proc DeviceClass {class} {
 
     return [dict create MajorClassName $major_name \
                 MinorClassName $minor_name \
-                ServiceClasses $service_class]
+                DeviceClasses $service_class]
 }
 
 package provide iocp_bt $iocp::bt::version

@@ -252,6 +252,7 @@ BT_FindFirstDeviceObjCmd(
 
     memset(&params, 0, sizeof(params));
     params.dwSize = sizeof(params);
+    params.cTimeoutMultiplier = 8; /* Default if -inquire is specified, else ignored */
     for (i = 1; i < objc; ++i) {
         const char *optname = Tcl_GetString(objv[i]);
         if (Tcl_GetIndexFromObj(interp, objv[i], opts, "option",
@@ -659,6 +660,8 @@ int BT_EnumerateInstalledServicesObjCmd (
         tclResult = PointerObjVerify(interp, objv[2], &radioH, "HRADIO");
         if (tclResult != TCL_OK)
             return tclResult;
+    } else {
+        radioH = NULL;
     }
 
     serviceP = services;
