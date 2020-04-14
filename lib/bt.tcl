@@ -192,14 +192,18 @@ proc iocp::bt::browse_services {device} {
     # advertised by a device.
     #  device - Bluetooth address or name of a device. If specified as a name,
     #           it must resolve to a single address.
-    # 
+    #
     # The command will return all service discovery records that reference
     # the `PublicBrowseRoot` service class.
     #
-    # The returned service discovery records should be treated as 
+    # The returned service discovery records should be treated as
     # opaque and accessed through the service record decoding commands.
     #
     # Returns a list of service dscovery records.
+
+    # TBD - add a browse group parameter
+    # TBD - perhaps check that the sdr acually refernces browse group in
+    # the appropriate attribute
     return [get_service_references $device 00001002-0000-1000-8000-00805f9b34fb]
 }
 
