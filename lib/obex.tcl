@@ -5,6 +5,7 @@
 # See the file LICENSE for license
 
 namespace eval obex {
+
     variable HeaderIds
     proc HeaderId {name} {
         variable HeaderIds
@@ -44,7 +45,7 @@ namespace eval obex {
         # Initialize HeaderNames
         variable HeaderIds
         HeaderId Count;         #Just to ensure HeaderIds initialized 
-        foreach {name id} [array get $HeaderIds] {
+        foreach {name id} [array get HeaderIds] {
             set HeaderNames($id) $name
         }
 
@@ -61,7 +62,7 @@ namespace eval obex {
     }
 }
 
-proc obex::connect_packet {args} {
+proc obex::encode_connect_request {args} {
     set headers [HeaderEncode {*}$args]
     # Packet is opcode 0x80, 2 bytes length, version (1.0->0x10),
     # flags (0), 2 bytes max len
@@ -71,7 +72,56 @@ proc obex::connect_packet {args} {
     return $packet
 }
 
-proc obex::disconnect_packet {args} {
+proc obex::decode_connect_response {packet} {
+    # Decodes a OBEX response packet.
+    #  packet - Binary OBEX packet.
+    # The dictionary returned by the command has the following keys:
+    #  Status       - One of `success`, `fail` or `error`. The first two
+    #                 indicate a response, either positive or negative, was
+    #                 received from the server. In this case, all keys in this
+    #                 table except `ErrorMessage` will be set. A status of
+    #                 `error` indicates a protocol or other error where an
+    #                 invalid or truncated response was received. In this
+    #                 case only the `Status` and `ErrorMessage` keys will
+    #                 be present.
+    #  ErrorMessage - A human-readable error message.
+    #  OpCode       - The numeric operation code
+    #  MajorVersion - The OBEX protocol major version returned by server.
+    #  MinorVersion - The OBEX protocol minor version returned by server.
+    #  Flags        - Currently always 0.
+    #  MaxLength    - Maximum length OBEX packet length the server can
+    #                 receive.
+    #  Headers      - List of headers received in the packet.
+
+    # OBEX Section 3.3.18 - 0xa0 success, any other response is a failure.
+    # It is still supposed to include same fields
+    if {[binary scan $packet cuSucucuSu op len version flags maxlen] != 5 ||
+        $len > [string length $packet]} {
+        return [list Status error \
+                    ErrorMessage "Truncated OBEX packet."]
+    }
+    # OBEX Section 3.3.18 - 0xa0 success, any other response is a failure.
+    # It is still supposed to include same fields
+    if {[binary scan $packet x3cucuSu version flags maxlen] != 3} {
+        error "Truncated OBEX CONNECT response."
+    }
+    if {$op == 0xA0} {
+        set status success
+    } else {
+        set status fail
+    }
+    return [list \
+                OpCode $op \
+                Status $status \
+                MajorVersion [expr {$version >> 4}] \
+                MinorVersion [expr {$version & 0xf}] \
+                Flags  $flags \
+                MaxLength $maxlen \
+                Headers [HeaderDecodeAll $packet 7] \
+           ]
+}
+
+proc obex::encode_disconnect_request {args} {
     set headers [HeaderEncode {*}$args]
     # Packet is opcode 0x81, 2 bytes length, followed by headers
     set len [expr {3+[string length $headers]}]
@@ -79,15 +129,28 @@ proc obex::disconnect_packet {args} {
     return $packet
 }
 
+proc obex::get_length {packet} {
+    # Get the length of a packet.
+    #  packet - an OBEX packet or the initial fragment of one with
+    #           at least three bytes.
+    # Returns the packet length as encoded in its header or 0 if the passed
+    # fragment is too short to contain a length field.
+
+    if {[binary scan $packet xSu -> len] != 1} {
+        return 0
+    }
+    return $len
+}
+
+
 proc obex::HeaderEncode {args} {
-    variable HI
     if {[llength $args] == 0} {
         set args [lindex $args 0]
     }
 
     set encoded ""
     foreach {header_name header_value} $args {
-        set hi $HI($header_name)
+        set hi [HeaderId $header_name]
         # Top 2 bits encode data type
         switch -exact -- [expr {$hi >> 6}] {
             0 {
@@ -173,11 +236,20 @@ proc obex::HeaderDecode {bytes start} {
     }
 
     # Return the name, the value and the new offset for next header element
-    return $name $value [expr {$start+$len}]
+    return [list $name $value [expr {$start+$len}]]
 }
 
+proc obex::HeaderDecodeAll {bytes start} {
+    set nbytes [string length $bytes]
+    set headers {}
+    while {$start < $nbytes} {
+        lassign [HeaderDecode $bytes $start] name value start
+        lappend headers $name $value
+    }
+    return $headers
+}
 
-if {$::tcl_platform(byteOrder) "littleEndian"} {
+if {$::tcl_platform(byteOrder) eq "littleEndian"} {
     proc obex::ToUnicodeBE {s} {
         set be ""
         set le [encoding convertto unicode $s]
@@ -204,3 +276,12 @@ if {$::tcl_platform(byteOrder) "littleEndian"} {
         return [encoding convertfrom unicode $be]
     }
 }
+
+proc obex::MakeBinUuid {uuid} {
+    if {![regexp {^[[:xdigit:]]{8}-([[:xdigit:]]{4}-){3}[[:xdigit:]]{12}$} $uuid]} {
+       error "Invalid UUID."
+    }
+    return [binary decode hex [string map {- {}} $uuid]]
+}
+
+package provide obex 0.1

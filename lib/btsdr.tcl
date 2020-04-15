@@ -894,10 +894,27 @@ proc iocp::bt::sdr::ExtractFirstElement {bin} {
     return [list $type $elem [string range $bin $dataoffset+$len end]]
 }
 
-proc iocp::bt::sdr::print {rec} {
+proc iocp::bt::sdr::printn {recs {attrfilter *}} {
+    # Prints a SDP record to a more human readable form.
+    # recs - a list of binary SDP records in the form returned by
+    #        [browse_services] or [get_service_references].
+    # attrfilter - If specified, only attribute names matching the filter
+    #       using `string match` are printed.
+    #
+    set sep ""
+    foreach rec $recs {
+        puts $sep
+        set sep "--------------------------------------------"
+        print $rec $attrfilter
+    }
+}
+
+proc iocp::bt::sdr::print {rec {attrfilter *}} {
     # Prints a SDP record to a more human readable form.
     # rec - a binary SDP record in the form returned by [browse_services] or
     #       [get_service_references].
+    # attrfilter - If specified, only attribute names matching the filter
+    #       using `string match` are printed.
     #
 
     # Alternating attribute value pairs
@@ -907,6 +924,9 @@ proc iocp::bt::sdr::print {rec} {
         if {[string is integer -strict $attrname]} {
             # For easier matching with Bluetooth specs
             set attrname [format 0x%x $attrname]
+        }
+        if {![string match -nocase $attrfilter $attrname]} {
+            continue
         }
         switch -exact -- $attrname {
             ServiceRecordHandle {
