@@ -60,6 +60,171 @@ namespace eval obex {
         }
         return [HeaderName $hid]
     }
+
+    variable RequestCodeNames
+    proc RequestCodeName {op} {
+        variable RequestCodeNames
+        array set RequestCodeNames {
+            0x80 Connect
+            0x81 Disconnect
+            0x02 Put
+            0x82 Put
+            0x03 Get
+            0x83 Get
+            0x85 SetPath
+            0x87 Session
+            0xFF Abort
+        }
+        proc RequestCodeName {op} {
+            variable RequestCodeNames
+            set op [format 0x%2.2X $op]
+            if {[info exists RequestCodeNames($op)]} {
+                return $RequestCodeNames($op)
+            }
+            return Request_$op
+        }
+        return [RequestCodeName $op]
+    }
+
+    variable ResponseCodeNames
+    proc ResponseCodeName {op} {
+        variable ResponseCodeNames
+        # Hex -> name
+        array set ResponseCodeNames {
+            0x10 Continue
+            0x20 OK
+            0x21 Created
+            0x22 Accepted
+            0x23 Non-Authoritative
+            0x24 NoContent
+            0x25 ResetContent
+            0x26 PartialContent
+            0x30 MultipleChoices
+            0x31 MovedPermanently
+            0x32 MovedTemporarily
+            0x33 SeeOther
+            0x34 NotModified
+            0x35 UseProxy
+            0x40 BadRequest
+            0x41 Unauthorized
+            0x42 PaymentRequired
+            0x43 Forbidden
+            0x44 NotFound
+            0x45 MethodNotAllowed
+            0x46 NotAcceptable
+            0x47 ProxyAuthenticationRequired
+            0x48 RequestTimeOut
+            0x49 Conflict
+            0x4A Gone
+            0x4B LengthRequired
+            0x4C PreconditionFailed
+            0x4D RequestedEntityTooLarge
+            0x4E RequestURLTooLarge
+            0x4F UnsupportedMediaType
+            0x50 InternalServerError
+            0x51 NotImplemented
+            0x52 BadGateway
+            0x53 ServiceUnavailable
+            0x54 GatewayTimeout
+            0x55 HTTPVersionNotSupported
+            0x60 DatabaseFull
+            0x61 DatabaseLocked
+        }
+        proc ResponseCodeName {op} {
+            variable ResponseCodeNames
+            set op [expr {$op & ~0x80}]; # Knock off final bit
+            set op [format 0x%2.2X $op]
+            if {[info exists ResponseCodeNames($op)]} {
+                return $ResponseCodeNames($op)
+            }
+            return Response_$op
+        }
+        return [ResponseCodeName $op]
+    }
+}
+
+
+proc obex::encode_request {request_op args} {
+    # Generic request encoder
+    set headers [HeaderEncode {*}$args]
+    # Packet is opcode, 2 bytes length, followed by headers
+    set len [expr {3+[string length $headers]}]
+    append packet [binary format cSu $request_op $len] $headers
+    return $packet
+
+}
+
+proc obex::decode_request {packet} {
+    if {[binary scan $packet cuSu op len] != 2 ||
+        $len > [string length $packet]} {
+        return [list Status error \
+                    ErrorMessage "Truncated OBEX packet."]
+    }
+    if {$op == 0x80} {
+        # CONNECT request
+        # Packet is opcode 0x80, 2 bytes length, version (1.0->0x10),
+        # flags (0), 2 bytes max len followed by headers
+        if {[binary scan $packet x3cucuSu version flags maxlen] != 3} {
+            return [list Status error ErrorMessage "Truncated OBEX request."]
+        }
+        return [list \
+                    RequestCode $op \
+                    Final  [expr {($op & 0x80) == 0x80}] \
+                    RequestCodeName [RequestCodeName $op] \
+                    MajorVersion [expr {$version >> 4}] \
+                    MinorVersion [expr {$version & 0xf}] \
+                    Flags  $flags \
+                    MaxLength $maxlen \
+                    Headers [HeaderDecodeAll $packet 7] \
+                   ]
+    } elseif {$op == 0x87} {
+        # SETPATH request
+        if {[binary scan $packet x3cucu flags constants] != 2} {
+            return [list Status error ErrorMessage "Truncated OBEX request."]
+        }
+        return [list \
+                    RequestCode $op \
+                    Final  [expr {($op & 0x80) == 0x80}] \
+                    RequestCodeName [RequestCodeName $op] \
+                    Flags  $flags \
+                    Constants $constants \
+                    Headers [HeaderDecodeAll $packet 5] \
+                   ]
+    } else {
+        return [list \
+                    RequestCode $op \
+                    RequestCodeName [RequestCodeName $op] \
+                    Final  [expr {($op & 0x80) == 0x80}] \
+                    Headers [HeaderDecodeAll $packet 3] \
+                   ]
+    }
+
+}
+
+proc obex::decode_response {packet} {
+    # Decodes a standard response which has no leading fields other
+    # than the opcode and length.
+    #  packet - Binary OBEX packet.
+    # The returned dictionary has the following keys:
+    #  ErrorMessage - If set, a human-readable error message.
+    #  Final        - 1/0 depending on whether the `final` bit was set
+    #                 in the response operation code or not.
+    #  Headers      - List of headers received in the packet.
+    #  ResponseCode       - The numeric response code from server.
+    #  ResponseCodeName   - The mnemonic for the response code.
+
+    if {[binary scan $packet cuSu op len] != 2 ||
+        $len > [string length $packet]} {
+        return [list Status error \
+                    ErrorMessage "Truncated OBEX packet."]
+    }
+
+    return [list \
+                ResponseCode $op \
+                ResponseCodeName [ResponseCodeName $op] \
+                Final  [expr {($op & 0x80) == 0x80}] \
+                Headers [HeaderDecodeAll $packet 3] \
+               ]
 }
 
 proc obex::encode_connect_request {args} {
@@ -68,7 +233,7 @@ proc obex::encode_connect_request {args} {
     # flags (0), 2 bytes max len
     # followed by headers
     set len [expr {7+[string length $headers]}]
-    append packet [binary format cSuccSu 0x80 $len 0x10 0 8192] $headers
+    append packet [binary format cuSucucuSu 0x80 $len 0x10 0 8192] $headers
     return $packet
 }
 
@@ -76,43 +241,29 @@ proc obex::decode_connect_response {packet} {
     # Decodes a OBEX response packet.
     #  packet - Binary OBEX packet.
     # The dictionary returned by the command has the following keys:
-    #  Status       - One of `success`, `fail` or `error`. The first two
-    #                 indicate a response, either positive or negative, was
-    #                 received from the server. In this case, all keys in this
-    #                 table except `ErrorMessage` will be set. A status of
-    #                 `error` indicates a protocol or other error where an
-    #                 invalid or truncated response was received. In this
-    #                 case only the `Status` and `ErrorMessage` keys will
-    #                 be present.
-    #  ErrorMessage - A human-readable error message.
-    #  OpCode       - The numeric operation code
-    #  MajorVersion - The OBEX protocol major version returned by server.
-    #  MinorVersion - The OBEX protocol minor version returned by server.
+    #  ErrorMessage - If set, a human-readable error message.
+    #  Final        - 1/0 depending on whether the `final` bit was set
+    #                 in the response operation code or not.
     #  Flags        - Currently always 0.
+    #  Headers      - List of headers received in the packet.
     #  MaxLength    - Maximum length OBEX packet length the server can
     #                 receive.
-    #  Headers      - List of headers received in the packet.
+    #  ResponseCode       - The numeric response code from server.
+    #  ResponseCodeName   - The mnemonic for the response code.
+    #  MajorVersion - The OBEX protocol major version returned by server.
+    #  MinorVersion - The OBEX protocol minor version returned by server.
 
     # OBEX Section 3.3.18 - 0xa0 success, any other response is a failure.
     # It is still supposed to include same fields
     if {[binary scan $packet cuSucucuSu op len version flags maxlen] != 5 ||
         $len > [string length $packet]} {
         return [list Status error \
-                    ErrorMessage "Truncated OBEX packet."]
-    }
-    # OBEX Section 3.3.18 - 0xa0 success, any other response is a failure.
-    # It is still supposed to include same fields
-    if {[binary scan $packet x3cucuSu version flags maxlen] != 3} {
-        error "Truncated OBEX CONNECT response."
-    }
-    if {$op == 0xA0} {
-        set status success
-    } else {
-        set status fail
+                    ErrorMessage "Truncated OBEX response."]
     }
     return [list \
-                OpCode $op \
-                Status $status \
+                ResponseCode $op \
+                Final  [expr {($op & 0x80) == 0x80}] \
+                ResponseCodeName [ResponseCodeName $op] \
                 MajorVersion [expr {$version >> 4}] \
                 MinorVersion [expr {$version & 0xf}] \
                 Flags  $flags \
@@ -122,11 +273,48 @@ proc obex::decode_connect_response {packet} {
 }
 
 proc obex::encode_disconnect_request {args} {
+    return [encode_request 0x81 {*}$args]
+}
+
+proc obex::decode_disconnect_response {packet} {
+    return [decode_response $packet]
+}
+
+proc obex::encode_put_request {final args} {
+    return [encode_request [expr {$final ? 0x82 : 0x02}] {*}$args]
+}
+
+proc obex::decode_put_response {packet} {
+    return [decode_response $packet]
+}
+
+proc obex::encode_get_request {final args} {
+    return [encode_request [expr {$final ? 0x83 : 0x03}] {*}$args]
+}
+
+proc obex::decode_get_response {packet} {
+    return [decode_response $packet]
+}
+
+proc obex::encode_abort_request {args} {
+    return [encode_request 0xff {*}$args]
+}
+
+proc obex::decode_abort_response {packet} {
+    return [decode_response $packet]
+}
+
+proc obex::encode_setpath_request {flags constants args} {
     set headers [HeaderEncode {*}$args]
-    # Packet is opcode 0x81, 2 bytes length, followed by headers
-    set len [expr {3+[string length $headers]}]
-    append packet [binary format cSu 0x81 $len] $headers
+    # Packet is opcode 0x85, 2 bytes length,
+    # flags, constants, # followed by headers
+    set len [expr {5+[string length $headers]}]
+    append packet [binary format cuSucucu 0x85 $len flags constants] $headers
     return $packet
+}
+
+proc obex::decode_setpath_response {packet} {
+    return [decode_response $packet]
 }
 
 proc obex::get_length {packet} {
@@ -283,5 +471,6 @@ proc obex::MakeBinUuid {uuid} {
     }
     return [binary decode hex [string map {- {}} $uuid]]
 }
+
 
 package provide obex 0.1

@@ -233,16 +233,15 @@ proc iocp::bt::names::attribute_id {name} {
 proc iocp::bt::names::MapUuidToName {uuid dictvar} {
     upvar 1 $dictvar names
 
+    if {[IsBluetoothUuid $uuid] &&
+        [string range $uuid 0 3] eq "0000"} {
+        set uuid16 [string toupper [string range $uuid 4 7]]
+        if {[dict exists $names $uuid16]} {
+            return [dict get $names $uuid16]
+        }
+    }
     if {![IsUuid $uuid]} {
-        error "Invalid Bluetooth UUID \"$uuid\""
-    }
-    if {[string range $uuid 0 3] ne "0000"} {
-        # Top bits must be 0's
-        return $uuid
-    }
-    set uuid16 [string toupper [string range $uuid 4 7]]
-    if {[dict exists $names $uuid16]} {
-        return [dict get $names $uuid16]
+        error "Invalid UUID \"$uuid\""
     }
     return $uuid
 }

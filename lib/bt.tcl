@@ -167,7 +167,7 @@ proc iocp::bt::get_service_references {device service} {
     #  service - the UUID of a service or service class or its mnemonic.
     # The command will return all service discovery records that contain
     # an attribute referring to the specified service.
-    # The returned service discovery records should be treated as 
+    # The returned service discovery records should be treated as
     # opaque and accessed through the service record decoding commands.
     #
     # Returns a list of service discovery records.
@@ -227,6 +227,28 @@ proc iocp::bt::device_services {device} {
     return [EnumerateInstalledServices $device]
 }
 
+proc iocp::bt::print_devices {devices {detailed false}} {
+    set sep ""
+    foreach device $devices {
+        dict with device {
+            if {$detailed} {
+                puts $sep
+                set sep "----------------------------------------------"
+                puts "Device $Name"
+                puts "Address: $Address"
+                puts "Class: $Class ($MajorClassName:$MinorClassName)"
+                puts "Device categories: ([join $DeviceClasses {, }])"
+                puts "Authenticated: $Authenticated"
+                puts "Remembered: $Remembered"
+                puts "Connected: $Connected"
+                puts "Last seen: $LastSeen"
+                puts "Last used: $LastUsed"
+            } else {
+                puts "$Address $Name"
+            }
+        }
+    }
+}
 
 proc iocp::bt::IsAddress {addr} {
     # Returns boolean indicating whether addr is a valid Bluetooth address
