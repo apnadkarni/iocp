@@ -703,7 +703,7 @@ void __cdecl IocpDebuggerOut(
     va_end(args);
     buf[sizeof(buf)-1] = '\0';
 
-    OutputDebugString(buf);
+    OutputDebugStringA(buf);
 }
 
 /*
@@ -735,7 +735,7 @@ void __cdecl Iocp_Panic(
         _vsnprintf_s(buf, sizeof(buf), _TRUNCATE, formatStr, args);
         va_end(args);
         buf[sizeof(buf)-1] = '\0';
-        OutputDebugString(buf);
+        OutputDebugStringA(buf);
         __debugbreak();
     } else {
         Tcl_PanicVA(formatStr, args);

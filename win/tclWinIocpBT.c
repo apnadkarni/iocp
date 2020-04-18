@@ -254,7 +254,6 @@ BT_FindFirstDeviceObjCmd(
     params.dwSize = sizeof(params);
     params.cTimeoutMultiplier = 8; /* Default if -inquire is specified, else ignored */
     for (i = 1; i < objc; ++i) {
-        const char *optname = Tcl_GetString(objv[i]);
         if (Tcl_GetIndexFromObj(interp, objv[i], opts, "option",
                                 TCL_EXACT, &opt) != TCL_OK) {
             return TCL_ERROR;
@@ -902,7 +901,7 @@ BtClientBlockingConnect(
                            * exclusivity */
 {
     WinsockClient *btPtr = IocpChannelToWinsockClient(chanPtr);
-    DWORD          winError;
+    DWORD          winError = 0;
     SOCKET         so = INVALID_SOCKET;
 
     IOCP_ASSERT(IocpIsBtClient(chanPtr));
@@ -962,7 +961,7 @@ BtClientBlockingConnect(
  *
  *------------------------------------------------------------------------
  */
-static IocpWinError 
+static IocpWinError
 BtClientPostConnect(
     WinsockClient *btPtr  /* Channel pointer, may or may not be locked
                            * but caller has to ensure no interference */
@@ -976,11 +975,14 @@ BtClientPostConnect(
     SOCKADDR_BTH    btAddress;
 
     /* Bind local address. Required for ConnectEx */
+    /*
+      Just memset because gcc does not know GUID_NULL and to lazy to define own
+      btAddress.btAddr        = 0;
+      btAddress.serviceClassId = GUID_NULL;
+      btAddress.port           = 0;
+    */
+    memset(&btAddress, 0, sizeof(btAddress));
     btAddress.addressFamily = AF_BTH;
-    btAddress.btAddr        = 0;
-    btAddress.serviceClassId = GUID_NULL;
-    btAddress.port           = 0;
-
     if (bind(btPtr->so, (SOCKADDR *) &btAddress, sizeof(btAddress)) != 0)
         return WSAGetLastError();
 
@@ -1132,8 +1134,9 @@ Iocp_OpenBTClient(
     btPtr->addresses.bt.remote.addressFamily = AF_BTH;
     btPtr->addresses.bt.remote.btAddr    = btAddress->ullLong;
     btPtr->addresses.bt.remote.port      = port;
-    btPtr->addresses.bt.remote.serviceClassId = GUID_NULL;
-
+    memset(&btPtr->addresses.bt.remote.serviceClassId,
+           0,
+           sizeof(btPtr->addresses.bt.remote.serviceClassId));
     IocpChannelLock(WinsockClientToIocpChannel(btPtr));
     if (async) {
         winError = BtClientInitiateConnection(btPtr);
@@ -1282,7 +1285,7 @@ BT_SocketObjCmd(ClientData  notUsed,   /* Not used. */
             script = TclGetString(objv[a]);
             break;
         case SKT_AUTHENTICATE:
-            authenticate = 1;
+            authenticate = 1; // TBD - need to setsockopt for this
             break;
         default:
             Iocp_Panic("BT_SocketObjCmd: bad option index to SocketOptions");
@@ -1393,7 +1396,6 @@ int BT_LookupServiceBeginObjCmd (
     int         flags;
     int         len;
     Tclh_UUID   serviceUuid;
-    LPWSTR      serviceName = NULL;
     Tcl_Obj    *objP;
     WSAQUERYSETW      qs;
     BLUETOOTH_ADDRESS btAddr;
@@ -1491,7 +1493,7 @@ BT_LookupServiceNextObjCmd (
 {
     HANDLE        lookupH;
     WSAQUERYSETW *qsP;
-    int           qsLen;
+    DWORD         qsLen;
     IocpWinError  winError;
     IocpTclCode   tclResult;
     DWORD         flags;
@@ -1504,12 +1506,7 @@ BT_LookupServiceNextObjCmd (
     if (UnwrapPointer(interp, objv[1], &lookupH, "HWSALOOKUPSERVICE") != TCL_OK)
         return TCL_ERROR;
 
-    /*
-     * As per Bluetooth-specific SDK docs https://docs.microsoft.com/en-us/windows/win32/bluetooth/bluetooth-and-wsalookupservicebegin-for-service-discovery
-     *     LUP_RETURN_TYPE  
-     * is only relevant for WSALookupServiceBegin, not Next.
-     */
-    if (Tcl_GetIntFromObj(interp, objv[2], &flags) != TCL_OK)
+    if (Tcl_GetIntFromObj(interp, objv[2], (int *)&flags) != TCL_OK)
         return TCL_ERROR;
 
     /*

@@ -119,8 +119,6 @@ static void         TcpListenerFinit(IocpChannel *chanPtr);
 static int          TcpListenerShutdown(Tcl_Interp *,
                                       IocpChannel *chanPtr, int flags);
 static IocpWinError TcpListenerAccept(IocpChannel *lockedChanPtr);
-static IocpTclCode  TcpListenerGetHandle(IocpChannel *lockedChanPtr,
-                                       int direction, ClientData *handlePtr);
 static IocpTclCode  TcpListenerGetOption (IocpChannel *lockedChanPtr,
                                               Tcl_Interp *interp, int optIndex,
                                               Tcl_DString *dsPtr);
@@ -1355,7 +1353,7 @@ Iocp_OpenTcpServer(
 #ifdef TBD
 
     if (TclpHasSockets(interp) != TCL_OK) {
-    return NULL;
+        return NULL;
     }
 
     /*
@@ -1365,7 +1363,7 @@ Iocp_OpenTcpServer(
      */
 
     if (!SocketsEnabled()) {
-    return NULL;
+        return NULL;
     }
 #endif
 
@@ -1390,9 +1388,13 @@ Iocp_OpenTcpServer(
     }
     tcpPtr->listeners = ckalloc(nsockets * sizeof(*tcpPtr->listeners));
     tcpPtr->numListeners = 0;
+    winError = 0;
     for (addrPtr = localAddrs; addrPtr; addrPtr = addrPtr->ai_next) {
 
         winError = IocpTcpListen(tcpPtr, addrPtr, port, chosenPort);
+        /*
+         * Tolerate errors unless at loop exit we find all listens failed
+         */
         if (winError != 0)
             continue;
         IOCP_ASSERT(tcpPtr->numListeners > 0);

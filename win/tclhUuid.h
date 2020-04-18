@@ -65,10 +65,7 @@ int Tclh_UnwrapUuid (Tcl_Interp *interp, Tcl_Obj *objP, Tclh_UUID *uuidP);
  * 1 - Current internal representation holds a Uuid.
  * 0 - otherwise.
  */
- TCLH_INLINE int Tclh_ObjIntrepIsUuid (Tcl_Obj *objP) {
-     extern struct Tcl_ObjType gUuidVtbl;
-     return objP->typePtr == &gUuidVtbl;
- }
+int Tclh_ObjIntrepIsUuid (Tcl_Obj *objP);
 
 #ifdef TCLH_IMPL
 # define TCLH_UUID_IMPL
@@ -107,6 +104,10 @@ TCLH_INLINE void IntrepSetUuid(Tcl_Obj *objP, Tclh_UUID *value) {
     objP->internalRep.twoPtrValue.ptr1 = (void *) value;
 }
 
+int Tclh_ObjIntrepIsUuid (Tcl_Obj *objP) {
+    return objP->typePtr == &gUuidVtbl;
+}
+
 static void DupUuidObj(Tcl_Obj *srcObj, Tcl_Obj *dstObj)
 {
     Tclh_UUID *uuidP = (Tclh_UUID *) ckalloc(16);
@@ -125,13 +126,13 @@ static void StringFromUuidObj(Tcl_Obj *objP)
 {
 #ifdef _WIN32
     UUID *uuidP = IntrepGetUuid(objP);
-    char *uuidStr;
+    unsigned char *uuidStr;
     int  len;
     if (UuidToStringA(uuidP, &uuidStr) != RPC_S_OK) {
         TCLH_PANIC("Out of memory stringifying UUID.");
     }
-    len          = Tclh_strlen(uuidStr);
-    objP->bytes  = Tclh_strdupn(uuidStr, len);
+    len          = Tclh_strlen((char *)uuidStr);
+    objP->bytes  = Tclh_strdupn((char *)uuidStr, len);
     objP->length = len;
     RpcStringFreeA(&uuidStr);
 #else

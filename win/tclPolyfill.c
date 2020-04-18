@@ -118,7 +118,7 @@ TclCreateSocketAddress(
 #ifdef EAI_SYSTEM	/* Doesn't exist on Windows */
 		(result == EAI_SYSTEM) ? Tcl_PosixError(interp) :
 #endif /* EAI_SYSTEM */
-		gai_strerror(result);
+		gai_strerrorA(result);
         return 0;
     }
 

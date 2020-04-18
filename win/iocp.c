@@ -12,7 +12,6 @@
 
 static void IocpNotifyChannel(IocpChannel *lockedChanPtr);
 static int  IocpEventHandler(Tcl_Event *evPtr, int flags);
-static void IocpThreadExitHandler (ClientData clientData);
 static int IocpChannelFileEventMask(IocpChannel *lockedChanPtr);
 static void IocpChannelConnectionStep(IocpChannel *lockedChanPtr, int blockable);
 static void IocpChannelExitConnectedState(IocpChannel *lockedChanPtr);
@@ -34,6 +33,7 @@ IocpStats iocpStats;
 /* Enable/disable tracing */
 int iocpEnableTrace;
 
+#ifdef IOCP_ENABLE_TRACE
 /*
  * GUID format for traceview
  * 3a674e76-fe96-4450-b634-24fc587b2828
@@ -42,6 +42,7 @@ TRACELOGGING_DEFINE_PROVIDER(
     iocpWinTraceProvider,
     "SimpleTraceLoggingProvider",
     (0x3a674e76, 0xfe96, 0x4450, 0xb6, 0x34, 0x24, 0xfc, 0x58, 0x7b, 0x28, 0x28));
+#endif
 
 /*
  * Initializes a IocpDataBuffer to be able to hold capacity bytes worth of
@@ -812,9 +813,11 @@ static void IocpCompleteWrite(
 static DWORD WINAPI
 IocpCompletionThread (LPVOID lpParam)
 {
-    IocpWinError winError;
+    IocpWinError winError = 0;
 
+#ifdef _MSC_VER
     __try {
+#endif
         while (1) {
             IocpBuffer *bufPtr;
             HANDLE      iocpPort = (HANDLE) lpParam;
@@ -877,10 +880,12 @@ IocpCompletionThread (LPVOID lpParam)
                 break;
             }
         }
+#ifdef _MSC_VER
     }
     __except (winError = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) {
         Iocp_Panic("Tcl IOCP thread died with exception %#x\n", winError);
     }
+#endif
 
     IOCP_TRACE(("CompletionThread exiting\n"));
 
@@ -1794,7 +1799,6 @@ int IocpEventHandler(
     )
 {
     IocpChannel *chanPtr;
-    int          notify = 0; /* Whether to notify fileevent callbacks */
 
     IOCP_TRACE(("IocpEventHandler Enter: chanPtr=%p, evPtr->reason=%d\n", ((IocpTclEvent *)evPtr)->chanPtr, ((IocpTclEvent *)evPtr)->reason));
 
@@ -1913,7 +1917,7 @@ Iocp_DebugOutObjCmd (
     Tcl_Obj *CONST objv[])		/* Argument objects. */
 {
     if (objc > 1)
-        OutputDebugString(Tcl_GetString(objv[1]));
+        OutputDebugStringA(Tcl_GetString(objv[1]));
     return TCL_OK;
 }
 

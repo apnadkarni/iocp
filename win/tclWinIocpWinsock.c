@@ -107,7 +107,7 @@ int WinsockClientShutdown(
     WinsockClient *lockedWsPtr = IocpChannelToWinsockClient(lockedChanPtr);
 
     if (lockedWsPtr->so != INVALID_SOCKET) {
-        int wsaStatus;
+        int wsaStatus = 0;
         switch (flags & (TCL_CLOSE_READ|TCL_CLOSE_WRITE)) {
         case TCL_CLOSE_READ:
             if ((lockedWsPtr->flags & IOCP_WINSOCK_HALF_CLOSABLE) == 0) {

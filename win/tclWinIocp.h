@@ -20,7 +20,6 @@
 #include <Bthsdpdef.h>
 #include <BluetoothAPIs.h>
 
-#include <TraceLoggingProvider.h>
 #include "tcl.h"
 
 #include "tclhPointer.h"
@@ -46,6 +45,7 @@
 #endif
 
 #ifdef IOCP_ENABLE_TRACE
+#include <TraceLoggingProvider.h>
 /* Used for ETW tracing */
 TRACELOGGING_DECLARE_PROVIDER( iocpWinTraceProvider );
 #endif
@@ -181,7 +181,6 @@ IOCP_INLINE int IocpDataBufferLength(const IocpDataBuffer *dataBufPtr) {
 
 /* Values used in IocpBuffer.operation */
 enum IocpBufferOp {
-    IOCP_BUFFER_OP_NONE,
     IOCP_BUFFER_OP_READ,
     IOCP_BUFFER_OP_WRITE,
     IOCP_BUFFER_OP_CONNECT,
@@ -326,7 +325,7 @@ typedef struct IocpChannel {
                                 * a completion */
     LONG      numRefs;         /* Reference count */
 
-    enum IocpTcpState state;   /* IOCP_STATE_* */
+    enum IocpState state;      /* IOCP_STATE_* */
     IocpWinError  winError;    /* Last error code on I/O */
 
     int pendingReads;                 /* Number of outstanding posted reads */
