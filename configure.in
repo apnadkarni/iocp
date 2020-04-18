@@ -98,15 +98,6 @@ if test "${TEA_PLATFORM}" = "windows" ; then
                        win/tclWinIocpUtil.c
     ])
 
-    TEA_ADD_HEADERS([
-                       win/opaque.h
-                       win/tclhBase.h
-                       win/tclhPointer.h
-                       win/tclhUuid.h
-                       win/tclWinIocp.h
-                       win/tclWinIocpWinsock.h
-    ])
-
     TEA_ADD_LIBS([
                     ws2_32.lib Bthprops.lib rpcrt4.lib
 		])

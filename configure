@@ -5387,25 +5387,6 @@ if test "${TEA_PLATFORM}" = "windows" ; then
 
 
     vars="
-                       win/opaque.h
-                       win/tclhBase.h
-                       win/tclhPointer.h
-                       win/tclhUuid.h
-                       win/tclWinIocp.h
-                       win/tclWinIocpWinsock.h
-    "
-    for i in $vars; do
-	# check for existence, be strict because it is installed
-	if test ! -f "${srcdir}/$i" ; then
-	    as_fn_error $? "could not find header file '${srcdir}/$i'" "$LINENO" 5
-	fi
-	PKG_HEADERS="$PKG_HEADERS $i"
-    done
-
-
-
-
-    vars="
                     ws2_32.lib Bthprops.lib rpcrt4.lib
 		"
     for i in $vars; do
@@ -8402,9 +8383,6 @@ $as_echo "no" >&6; }
     fi
 
 
-
-# Link to either the 64- or 32-bit dyncall libs. This check has to happen
-# after TEA_CONFIG_CFLAGS because that sets the do64bit variable
 
 #--------------------------------------------------------------------
 # Set the default compiler switches based on the --enable-symbols option.
