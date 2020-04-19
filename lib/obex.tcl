@@ -332,7 +332,7 @@ proc obex::get_length {packet} {
 
 
 proc obex::HeaderEncode {args} {
-    if {[llength $args] == 0} {
+    if {[llength $args] == 1} {
         set args [lindex $args 0]
     }
 
@@ -441,17 +441,17 @@ if {$::tcl_platform(byteOrder) eq "littleEndian"} {
     proc obex::ToUnicodeBE {s} {
         set be ""
         set le [encoding convertto unicode $s]
-        set n [expr {[string length $le] / 2}]
+        set n [string length $le]
         # TBD - measure alternate ways. E.g split into list
-        for {set i 0} {$i < $n} {incr i} {
+        for {set i 0} {$i < $n} {incr i 2} {
             append be [string index $le $i+1] [string index $le $i]
         }
         return $be
     }
     proc obex::FromUnicodeBE {be} {
         set le ""
-        set n [expr {[string length $be]/2}]
-        for {set i 0} {$i < $n} {incr i} {
+        set n [string length $be]
+        for {set i 0} {$i < $n} {incr i 2} {
             append le [string index $be $i+1] [string index $be $i]
         }
         return [encoding convertfrom unicode $le]
