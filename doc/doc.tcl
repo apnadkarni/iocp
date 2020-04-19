@@ -2,9 +2,8 @@
 # It also defines dummy procedures that document commands implemented in C.
 
 package require ruff
-if {[catch {package require iocp}]} {
-    source [file join [file dirname [info script]] .. lib iocp.tcl]
-}
+package require iocp
+package require iocp_bt
 
 namespace eval iocp {
     variable _preamble {
@@ -18,7 +17,7 @@ namespace eval iocp {
 
         The package commands are broken up into the following namespaces
         based on functional areas:
-        
+
         [::iocp::inet] - Commands for TCP/IP channels
         [::iocp::bt]   - Core commands for Bluetooth communication
         [::iocp::bt::sdr] - Commands for Bluetooth service discovery records
@@ -124,4 +123,9 @@ proc iocp::Document {outfile args} {
         -output $outfile -includesource 1 \
         -title "iocp package reference (V[package present iocp])" \
         {*}$args
+}
+
+if {[file normalize $argv0] eq [file normalize [info script]]} {
+    cd [file dirname [info script]]
+    iocp::Document iocp.html {*}$argv
 }

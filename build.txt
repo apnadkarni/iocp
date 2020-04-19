@@ -1,0 +1,25 @@
+To build using VC++,
+
+   cd win
+   "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Auxiliary\Build\vcvars64.bat" 10.0.15063.0
+   nmake /s /f makefile.vc INSTALLDIR=d:\tcl\debug\x64
+   nmake /s /f makefile.vc INSTALLDIR=d:\tcl\debug\x64 install
+
+To build using mingw/gcc,
+
+   mkdir build
+   cd build
+   ../configure --prefix=/d/tcl/868-mingw/x64 --enable-threads --enable-64bit --with-tcl=/d/tcl/868-mingw/x64/lib
+   make
+   make install
+
+Of course, change paths appropriately above.
+
+To generate documentation,
+
+   cd doc
+   tclsh doc.tcl
+
+The ruff and iocp packages need to be in the Tcl auto_path.
+
+
