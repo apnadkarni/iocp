@@ -7,16 +7,33 @@
 namespace eval iocp::bt {
     variable script_dir [file dirname [info script]]
     variable version
+
+    namespace eval radio {
+        namespace path [namespace parent]
+        namespace export configure devices info
+        namespace ensemble create
+    }
+    namespace eval device {
+        namespace path [namespace parent]
+        namespace export address port print printn remove service_references services
+        namespace ensemble create
+    }
 }
 
 set iocp::bt::version [package require iocp]
 source [file join $iocp::bt::script_dir btsdr.tcl]
 source [file join $iocp::bt::script_dir btnames.tcl]
 
-proc iocp::bt::radios {} {
+proc iocp::bt::radios {{detailed false}} {
     # Enumerate Bluetooth radios on the local system.
+    #  detailed - If true, detailed information about each radio is returned.
+    #             If false (default), only the radio addresses are returned.
     #
-    # Each radio element of the returned list contains the following keys:
+    # When $detailed is passed as a boolean false value, a list of radio
+    # addresses is returned.
+    #
+    # When $detailed is passed as a boolean true value,
+    # each element of the returned list contains the following keys:
     # Address - The Bluetooth address of the radio.
     # Name - Name assigned to the local system as advertised by the radio.
     # Class - Device class as a numeric value.
@@ -26,7 +43,7 @@ proc iocp::bt::radios {} {
     # MajorClassName - Human readable major device class name.
     # MinorClassName - Human readable minor device class name.
     #
-    # Returns a list of radio information elements.
+    # Returns a list of radio addresses or radio information elements.
 
     set pair [FindFirstRadio]
     if {[llength $pair] == 0} {
@@ -37,7 +54,11 @@ proc iocp::bt::radios {} {
     try {
         while {1} {
             set radio [GetRadioInfo $hradio]
-            lappend radios [dict merge $radio [DeviceClass [dict get $radio Class]]]
+            if {$detailed} {
+                lappend radios [dict merge $radio [DeviceClass [dict get $radio Class]]]
+            } else {
+                lappend radios [dict get $radio Address]
+            }
             CloseHandle $hradio
             set hradio [FindNextRadio $finder]
         }
@@ -47,14 +68,155 @@ proc iocp::bt::radios {} {
     return $radios
 }
 
+proc iocp::bt::radio::Open {{radio {}}} {
+    # Get a handle to a radio.
+    #  radio - The address or name associated with a radio on the system.
+    #          If unspecified or the empty string, a handle to the first
+    #          radio found is returned.
+
+    # The command will raise an error if no matching radio is present.
+    #
+    # The returned handle must be closed with the [close] command.
+    #
+    # Returns a handle to a Bluetooth radio.
+
+    set pair [FindFirstRadio]
+    if {[llength $pair] == 0} {
+        error "Radio not found."
+    }
+    lassign $pair finder hradio
+    try {
+        while {1} {
+            set info [GetRadioInfo $hradio]
+            if {$radio eq "" ||
+                [string equal -nocase $radio [dict get $info Name]] ||
+                [string equal -nocase $radio [dict get $info Address]]} {
+                return $hradio
+            }
+            CloseHandle $hradio
+            set hradio [FindNextRadio $finder]
+        }
+    } finally {
+        FindFirstRadioClose $finder
+    }
+    error "Radio not found."
+}
+
+proc iocp::bt::radio::Close {hradio} {
+    # Closes a radio handle.
+    #  hradio - The radio handle to close.
+    CloseHandle $hradio
+}
+
+proc iocp::bt::radio::info {{radio {}}} {
+    # Get detailed information about a radio on the system
+    #  radio - The address or name associated with a radio on the system.
+    #          If unspecified or the empty string, information about
+    #          the first radio found is returned.
+    #
+    # The returned dictionary has the following keys:
+    #
+    # Address - The Bluetooth address of the radio.
+    # Name - Name assigned to the local system as advertised by the radio.
+    # Class - Device class as a numeric value.
+    # DeviceClasses - Human readable list of general device class categories
+    # Subversion - Integer value whose interpretation is manufacturer-specific.
+    # Manufacturer - Integer identifier assigned to the manufacturer.
+    # MajorClassName - Human readable major device class name.
+    # MinorClassName - Human readable minor device class name.
+    #
+    # Returns a dictionary containing information about the radio.
+
+    set hradio [Open $radio]
+    try {
+        set radio [GetRadioInfo $hradio]
+        set radio [dict merge $radio [DeviceClass [dict get $radio Class]]]
+    } finally {
+        Close $hradio
+    }
+}
+
+proc iocp::bt::radio::configure {radio args} {
+    # Gets or modifies a radio configuration.
+    #  radio - The address or name associated with a radio on the system.
+    #  args - See below.
+    #
+    # Returns an option value, a dictionary of options and values, or an empty
+    # string.
+    #
+    # If no arguments are given to the command, it returns the current
+    # values of all options in the form of a dictionary.
+    #
+    # If exactly one argument is given, it must be the name of an option
+    # and the command returns the value of the option.
+    #
+    # Otherwise, the arguments must be a list of option name and
+    # values. The radio's options are set accordingly. The command returns
+    # an empty string for this case. Note that in case of raised exceptions
+    # the state of the radio options is indeterminate.
+
+    set hradio [Open $radio]
+    try {
+        if {[llength $args] == 0} {
+            return [list \
+                        -discoverable [IsDiscoverable $hradio] \
+                        -connectable  [IsConnectable $hradio]]
+        } elseif {[llength $args] == 1} {
+            return [switch -exact -- [lindex $args 0] {
+                -discoverable {IsDiscoverable $hradio}
+                -connectable  {IsConnectable $hradio}
+                default { error "Unknown option \"[lindex $args 0]\"."}
+            }]
+        } else {
+            set unchanged {}
+            foreach {opt val} {
+                switch -exact -- $opt {
+                    -discoverable {
+                        set changed [EnableDiscovery $val]
+                    }
+                    -connectable  {
+                        set changed [EnableIncoming $val]
+                    }
+                    default { error "Unknown option \"$opt\"."}
+                }
+                if {! $changed} {
+                    lappend unchanged $opt
+                }
+            }
+            if {[llength $unchanged]} {
+                error "Options [join $unchanged {, }] could not be modified."
+            }
+        }
+    } finally {
+        Close $hradio
+    }
+}
+
+proc iocp::bt::radio::devices {radio args} {
+    # Discover devices accessible through the specified radio.
+    #  radio - Name or address of Bluetooth radio
+    #  args  - Passed on to [::iocp::bt::devices]
+    # This command has the same functionality as the [::iocp::bt::devices]
+    # command except that it restricts discovery only to those devices
+    # accessible through the specified radio.
+    #
+    # Returns a list of device information dictionaries. See
+    # [::iocp::bt::devices] for the dictionary format.
+
+    set hradio [Open $radio]
+    try {
+        return [::iocp::bt::devices {*}$args -hradio $hradio]
+    } finally {
+        Close $hradio
+    }
+}
+
 proc iocp::bt::devices {args} {
-    # Enumerate known Bluetooth devices.
+    # Discover Bluetooth devices.
     # -authenticated - filter for authenticated devices
     # -connected     - filter for connected devices
     # -inquire       - issue a new inquiry. Without this option, devices that are
     #                  not already known to the system will not be discovered.
-    # -radio RADIOH  - filter to devices associated with the radio
-    #                  identified by the RADIOH handle
     # -remembered    - filter for remembered devices
     # -timeout MS    - timeout for the inquiry in milliseconds. Defaults to 10240ms.
     #                  Ignored if `-inquire` is not specified.
@@ -101,7 +263,7 @@ proc iocp::bt::devices {args} {
     return $devices
 }
 
-proc iocp::bt::device_address {name args} {
+proc iocp::bt::device::address {name args} {
     # Returns a list of Bluetooth addresses for a given name.
     # name - name of device of interest
     # args - Options to control device enquiry. See [devices].
@@ -113,7 +275,7 @@ proc iocp::bt::device_address {name args} {
         dict get $device Address
     }]
     # Also resolve local system radios
-    foreach radio [radios] {
+    foreach radio [radios 1] {
         if {[string equal -nocase $name [dict get $radio Name]]} {
             lappend addresses [dict get $radio Address]
         }
@@ -121,7 +283,7 @@ proc iocp::bt::device_address {name args} {
     return $addresses
 }
 
-proc iocp::bt::service_port {device service} {
+proc iocp::bt::device::port {device service} {
     # Resolve the port for a Bluetooth service running over RFCOMM.
     #  device - Bluetooth address or name of a device. If specified as a name,
     #           it must resolve to a single address.
@@ -152,7 +314,7 @@ proc iocp::bt::service_port {device service} {
     error "Could not resolve service \"$service\" to a port on device \"$device\"."
 }
 
-proc iocp::bt::remove_device {device} {
+proc iocp::bt::device::remove {device} {
     # Removes cached authentication information for a device from the system cache.
     #  device - bluetooth address or name of a device. if specified as a name,
     #           it must resolve to a single address.
@@ -160,7 +322,7 @@ proc iocp::bt::remove_device {device} {
     RemoveDevice [ResolveDeviceUnique $device]
 }
 
-proc iocp::bt::service_references {device service} {
+proc iocp::bt::device::service_references {device service} {
     # Retrieve service discovery records that refer to a specified service.
     #  device - Bluetooth address or name of a device. If specified as a name,
     #           it must resolve to a single address.
@@ -187,8 +349,8 @@ proc iocp::bt::service_references {device service} {
     return $recs
 }
 
-proc iocp::bt::services {device} {
-    # Retrieve the service discovery records for top level services.
+proc iocp::bt::device::services {device} {
+    # Retrieve the service discovery records for top level services
     # advertised by a device.
     #  device - Bluetooth address or name of a device. If specified as a name,
     #           it must resolve to a single address.
@@ -208,48 +370,48 @@ proc iocp::bt::services {device} {
 }
 
 # TBD - is this needed? Less functional version of services
-proc iocp::bt::services {device} {
+proc iocp::bt::device::enumerate_services {device} {
     # Get installed services on a device.
     #  device - Bluetooth address or name of device. If specified as a name,
     #           it must resolve to a single address.
     # Returns a list of service UUID's.
-    if {![IsAddress $device]} {
-        set addrs [device_address $device]
-        if {[llength $addrs] == 1} {
-            set device [lindex $addrs 0]
-        } elseif {[llength $addrs] == 0} {
-            error "Could not resolve device name \"$device\"."
-        } else {
-            error "Device \"$device\" resolves to multiple addresses."
-        }
-    }
 
-    return [EnumerateInstalledServices $device]
+    return [EnumerateInstalledServices [ResolveDeviceUnique $device]]
 }
 
-proc iocp::bt::print_devices {devices {detailed false}} {
+
+proc iocp::bt::device::print {devinfo} {
     # Prints device information in human-readable form to stdout.
-    #  devices - A list of device information records as returned by
+    #  devinfo - A device information record as returned by
+    #            the [devices] command.
+    dict with devinfo {
+        puts "Device $Name"
+        puts "Address: $Address"
+        puts "Class: $Class ($MajorClassName:$MinorClassName)"
+        puts "Device categories: ([join $DeviceClasses {, }])"
+        puts "Authenticated: $Authenticated"
+        puts "Remembered: $Remembered"
+        puts "Connected: $Connected"
+        puts "Last seen: $LastSeen"
+        puts "Last used: $LastUsed"
+    }
+}
+
+proc iocp::bt::device::printn {dinfolist {detailed false}} {
+    # Prints device information in human-readable form to stdout.
+    #  dinfolist - A list of device information records as returned by
     #            the [devices] command.
     #  detailed - If a true value, detailed information about the device
     #             is printed. If false (default), only the address and
     #             name are printed in compact form.
     set sep ""
-    foreach device $devices {
-        dict with device {
-            if {$detailed} {
-                puts $sep
-                set sep "----------------------------------------------"
-                puts "Device $Name"
-                puts "Address: $Address"
-                puts "Class: $Class ($MajorClassName:$MinorClassName)"
-                puts "Device categories: ([join $DeviceClasses {, }])"
-                puts "Authenticated: $Authenticated"
-                puts "Remembered: $Remembered"
-                puts "Connected: $Connected"
-                puts "Last seen: $LastSeen"
-                puts "Last used: $LastUsed"
-            } else {
+    foreach dinfo $dinfolist {
+        if {$detailed} {
+            puts $sep
+            set sep "----------------------------------------------"
+            print $dinfo
+        } else {
+            dict with dinfo {
                 puts "$Address $Name"
             }
         }
@@ -267,7 +429,7 @@ proc iocp::bt::IsAddress {addr} {
 
 proc iocp::bt::Uuid16 {uuid16} {
     if {![regexp {^[[:xdigit:]]{4}$} $uuid16]} {
-        error "Not a valid 16 bit UUID"
+        error "\"$uuid16\" is not a valid 16 bit UUID."
     }
     return 0000${uuid16}-0000-1000-8000-00805f9b34fb
 }

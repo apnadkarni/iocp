@@ -6,6 +6,17 @@
 
 namespace eval iocp::bt::sdr {
     namespace path [namespace parent]
+    namespace export attribute attributes decode print printn 
+
+    namespace eval attribute {
+        namespace path [list [namespace parent] [namespace parent [namespace parent]]]
+        namespace export exists get raw text
+        namespace ensemble create
+
+        namespace eval universal {
+            namespace path [list [namespace parent] [namespace parent [namespace parent]]]
+        }
+    }
 }
 
 proc iocp::bt::sdr::decode {binsdr} {
@@ -34,28 +45,7 @@ proc iocp::bt::sdr::decode {binsdr} {
     return $sdr
 }
 
-proc iocp::bt::sdr::attribute_type {sdr} {
-    # Returns the type of an attribute in a service discovery record or
-    # the empty string if the attribute does not exist.
-    if {[string is integer -strict $attr_id]} {
-        set key [expr {$attr_id + 0}]; # Force decimal rep. Faster than format
-    } else {
-        set key [names::attribute_id $attr_id]; # name -> id
-    }
-
-    if {[dict exists $sdr $key]} {
-        if {$varname ne ""} {
-            upvar 1 $varname value
-            set value [dict get $sdr $attr_id]
-        }
-        return 1
-    }
-
-    return 0
-
-}
-
-proc iocp::bt::sdr::has_attribute {sdr attr_id {varname {}}} {
+proc iocp::bt::sdr::attribute::exists {sdr attr_id {varname {}}} {
     # Checks if an attribute exists in a service discovery record
     # sdr - a decoded service discovery record in the form returned by
     #       [decode].
@@ -68,7 +58,6 @@ proc iocp::bt::sdr::has_attribute {sdr attr_id {varname {}}} {
     if {[string is integer -strict $attr_id]} {
         set key [expr {$attr_id + 0}]; # Force decimal rep. Faster than format
     } else {
-        puts ID:$attr_id
         set key [names::attribute_id $attr_id]; # name -> id
     }
 
@@ -91,25 +80,162 @@ proc iocp::bt::sdr::attributes {sdr} {
     return [lmap {attr val} $sdr {set attr}]
 }
 
-proc iocp::bt::sdr::attribute {sdr attr_id} {
+proc iocp::bt::sdr::attribute::raw {sdr attr_id} {
     # Get an attribute value from an service discovery record.
     # sdr - a decoded service discovery record in the form returned by
     #       sdr_decode.
     # attr_id   - attribute integer id
+    #
     # The command will raise an error if the attribute does not exist
-    # in the sdr and no default is specified by the caller.
+    # in the sdr.
     #
     # Returns the attribute value as a pair consisting of the type and
     # the raw data element value.
 
-    if {[has_attribute $sdr $attr_id value]} {
+    if {[exists $sdr $attr_id value]} {
         return $value
     } else {
         error "Attribute with id \"$attr_id\" not found."
     }
 }
 
-proc iocp::bt::sdr::handle {sdr {varname {}}} {
+proc iocp::bt::sdr::attribute::get {sdr attr_id {varname {}}} {
+    # Get the value of an universal attribute from a service
+    # discovery record.
+    #  sdr     - Decoded service discovery record.
+    #  attr_id - Universal attribute name or numeric identifier.
+    #  varname - Optional name of variable in caller's context.
+    #
+    # If $varname is not the empty string, it should be the name of
+    # a variable in the caller's context.
+    #  - If the attribute is present, the command returns `1` and
+    #    stores the attribute value in the variable.
+    #  - If the attribute is not present, the command returns 0.
+    #
+    # If $varname is an empty string,
+    #  - If the attribute is present, the command returns its value.
+    #  - If the attribute is not present, the command raises an error.
+    #
+    # The attribute value is decoded from its raw format into a
+    # attribute type-dependent format.
+    #
+    # The $attr_id argument must be one of those defined in
+    # the *Universal Attributes* section in the
+    # [Bluetooth Assigned Numbers](https://www.bluetooth.com/specifications/assigned-numbers/service-discovery/)
+    # specification. These are listed below. Refer to the Bluetooth
+    # specification for their exact semantics.
+    #
+    # AdditionalProtocolDescriptorList - List of protocol stacks. This
+    #    supplements the `ProtocolDescriptorList` attribute.
+    # BluetoothProfileDescriptorList - List of Bluetooth profile descriptors
+    #    to which the service conforms. Each element is a dictionary
+    #    with keys `Uuid`, `Name`, `MajorVersion` and `MinorVersion`
+    #    corresponding to the referenced profile.
+    # BrowseGroupList - List of browse group descriptors representing
+    #    the browse groups to which the service record belongs. Each
+    #    descriptor is dictionary with keys `Uuid` and `Name` identifying
+    #    the a browse group.
+    # ClientExecutableURL - URL pointing to the client application that
+    #    may be used to utilize the service.
+    # DocumentationURL - URL for the service documentation.
+    # IconURL - URL for icon that may be used to represent the service.
+    # LanguageBaseAttributeIDList - Nested dictionary of language-specific
+    #    attribute offsets (see below).
+    # ProtocolDescriptorList - List of protocol stacks (see below) that may
+    #    be used to access the service described by the service record.
+    # ProviderName - Name of entity providing the service in the primary
+    #    language of the service record.
+    # ServiceAvailability - A value in the range 0-255 that indicates
+    #    relative availability of the service in terms of the number of
+    #    clients it can accept. Note this is a scaled estimate.
+    # ServiceClassIDList - List with each element being a dictionary
+    #    corresponding to a service class that the record conforms to.
+    #    The keys of the dictionary are `Name` and `Uuid`.
+    # ServiceDescription - A description of the service in the primary
+    #    language of the record.
+    # ServiceID - UUID that uniquely identifies a service instance.
+    # ServiceInfoTimeToLive - The number of seconds from the time it was
+    #    generated that the service record information is expected to be valid.
+    # ServiceName - The human-readable name of the service in the primary
+    #    language of the record.
+    # ServiceRecordHandle - A numeric value that uniquely identifies a service
+    #    record within a SDP server.
+    # ServiceRecordState - Numeric value that is changed any time the service
+    #    record is modified by the SDP server.
+    #
+    # In the case of ProtocolDescriptorList and AdditionalProtocolDescriptorList,
+    # the attribute value is in the form of a list each element of
+    # which describes a protocol stack that may be used to access the
+    # service. Each such element is itself a list whose elements correspond
+    # to layers in that protocol stack starting with the lowest layer first.
+    # Each layer is described as a dictionary with the following keys:
+    #  Uuid - the UUID of the protocol for the layer
+    #  Name - the name of the protocol
+    #  Params - the protocol parameters. This is a list of raw data elements
+    #           of the form `{type value}` the interpretation of which is
+    #           protocol dependent.
+    #
+    # In the case of LanguageBaseAttributeIDList, the attribute value is
+    # a dictionary indexed by language
+    # identifiers as defined in ISO639, e.g. `en`, `fr` etc.
+    # The corresponding value is itself a dictionary with keys `BaseOffset`
+    # and `Encoding`. See the Bluetooth specification for the former.
+    # The latter is either a Tcl encoding name or in case the encoding
+    # is not supported by Tcl, an integer value that identifies an encoding
+    # as per the Bluetooth specification.
+    #
+    # Returns a boolean or the decoded attribute value.
+
+    set attr_name [names::attribute_name $attr_id]
+    switch -exact -- $attr_name {
+        ServiceName -
+        ServiceDescription -
+        ProviderName {
+            # Special case because they need a language argument
+            tailcall text $sdr $attr_name primary $varname
+        }
+        default {
+            if {[llength [info commands [namespace current]::universal::$attr_name]]} {
+                tailcall [namespace current]::universal::$attr_name $sdr $varname
+            }
+        }
+    }
+    error "Unknown universal attribute \"$attr_id\"."
+}
+
+proc iocp::bt::sdr::attribute::text {sdr attr_id lang {varname {}}} {
+    # Get the value of an text attribute in the specified language
+    # from a service discovery record.
+    #  sdr     - Decoded service discovery record.
+    #  attr_id - Universal attribute name or numeric identifier.
+    #  lang - language identifier as specified in iso639, e.g. `en` for
+    #         english, `fr` for french etc. or the keyword `primary`.
+    #  varname - Optional name of variable in caller's context.
+    #
+    # If $varname is not the empty string, it should be the name of
+    # a variable in the caller's context.
+    #  - If the attribute is present, the command returns `1` and
+    #    stores the attribute value in the variable.
+    #  - If the attribute is not present, the command returns 0.
+    #
+    # If $varname is an empty string,
+    #  - If the attribute is present, the command returns its value.
+    #  - If the attribute is not present, the command raises an error.
+    #
+    # If the record does not contain a value for the specified language,
+    # the value for the primary language will be retrieved.
+    #
+    # Returns a boolean or the attribute text value.
+    #
+    set lang_offset [names::attribute_id $attr_id]
+    if {$lang_offset < 256 || $lang_offset >= 512} {
+        error "Invalid text attribute id \"$attr_id\"."
+    }
+    incr lang_offset -256
+    tailcall TextAttribute $sdr $lang_offset $lang $varname
+}
+
+proc iocp::bt::sdr::attribute::universal::ServiceRecordHandle {sdr {varname {}}} {
     # Retrieve the handle for a service discovery record.
     #  sdr - decoded service discovery record
     #  varname - optional name of variable in caller's context.
@@ -133,7 +259,7 @@ proc iocp::bt::sdr::handle {sdr {varname {}}} {
     tailcall AttributeValue $sdr 0 $varname
 }
 
-proc iocp::bt::sdr::service_classes {sdr {varname {}}} {
+proc iocp::bt::sdr::attribute::universal::ServiceClassIDList {sdr {varname {}}} {
     # Retrieve the service classes in a service discovery record.
     #  sdr - decoded service discovery record
     #  varname - optional name of variable in caller's context.
@@ -161,7 +287,7 @@ proc iocp::bt::sdr::service_classes {sdr {varname {}}} {
     tailcall Uuids $sdr 1 $varname
 }
 
-proc iocp::bt::sdr::language_offsets {sdr {varname {}}} {
+proc iocp::bt::sdr::attribute::universal::LanguageBaseAttributeIDList {sdr {varname {}}} {
     # Retrieve the language base attributes in a service discovery record.
     #  sdr - decoded service discovery record
     #  varname - optional name of variable in caller's context.
@@ -203,7 +329,7 @@ proc iocp::bt::sdr::language_offsets {sdr {varname {}}} {
         # langid is ISO 639 language code
         set langid [lindex $langid 1]
         set langid "[format %c [expr {$langid >> 8}]][format %c [expr {$langid &0xff}]]"
-        dict set langs $langid Encoding [EncodingTclName [lindex $enc 1]]
+        dict set langs $langid Encoding [::iocp::bt::EncodingTclName [lindex $enc 1]]
         dict set langs $langid BaseOffset [lindex $offset 1]
     }
     if {$varname eq ""} {
@@ -215,7 +341,7 @@ proc iocp::bt::sdr::language_offsets {sdr {varname {}}} {
     }
 }
 
-proc iocp::bt::sdr::service_name {sdr lang {varname {}}} {
+proc iocp::bt::sdr::attribute::universal::ServiceName {sdr lang {varname {}}} {
     # Returns the service name from a service discovery record.
     #  sdr - decoded service discovery record
     #  lang - language identifier as specified in iso639, e.g. `en` for
@@ -240,7 +366,7 @@ proc iocp::bt::sdr::service_name {sdr lang {varname {}}} {
      tailcall TextAttribute $sdr 0 $lang $varname
 }
 
-proc iocp::bt::sdr::description {sdr lang {varname {}}} {
+proc iocp::bt::sdr::attribute::universal::ServiceDescription {sdr lang {varname {}}} {
     # Returns the service description from a service discovery record.
     #  sdr - decoded service discovery record
     #  lang - language identifier as specified in iso639, e.g. `en` for
@@ -265,7 +391,7 @@ proc iocp::bt::sdr::description {sdr lang {varname {}}} {
     tailcall TextAttribute $sdr 1 $lang $varname
 }
 
-proc iocp::bt::sdr::provider_name {sdr lang {varname {}}} {
+proc iocp::bt::sdr::attribute::universal::ProviderName {sdr lang {varname {}}} {
     # Returns the provider name from a service discovery record.
     #  sdr - decoded service discovery record
     #  lang - language identifier as specified in iso639, e.g. `en` for
@@ -290,7 +416,7 @@ proc iocp::bt::sdr::provider_name {sdr lang {varname {}}} {
     tailcall TextAttribute $sdr 2 $lang $varname
 }
 
-proc iocp::bt::sdr::state_indicator {sdr {varname {}}} {
+proc iocp::bt::sdr::attribute::universal::ServiceRecordState {sdr {varname {}}} {
     # Retrieve the state indicator for a service discovery record.
     #  sdr - decoded service discovery record
     #  varname - optional name of variable in caller's context.
@@ -316,7 +442,7 @@ proc iocp::bt::sdr::state_indicator {sdr {varname {}}} {
     tailcall AttributeValue $sdr 2 $varname
 }
 
-proc iocp::bt::sdr::service_id {sdr {varname {}}} {
+proc iocp::bt::sdr::attribute::universal::ServiceID {sdr {varname {}}} {
     # Retrieve the service id for a service discovery record.
     #  sdr - decoded service discovery record
     #  varname - optional name of variable in caller's context.
@@ -341,7 +467,7 @@ proc iocp::bt::sdr::service_id {sdr {varname {}}} {
     tailcall AttributeValue $sdr 3 $varname
 }
 
-proc iocp::bt::sdr::protocols {sdr {varname {}}} {
+proc iocp::bt::sdr::attribute::universal::ProtocolDescriptorList {sdr {varname {}}} {
     # Retrieve the protocol information from a service discovery record.
     #  sdr - decoded service discovery record
     #  varname - optional name of variable in caller's context.
@@ -361,7 +487,7 @@ proc iocp::bt::sdr::protocols {sdr {varname {}}} {
     #  - If the attribute is not present, the command raises an error.
     #
     # The returned information is in the form of a list each element of
-    # which describes a protocol stack that may be used to access the 
+    # which describes a protocol stack that may be used to access the
     # service. Each such element is itself a list whose elements correspond
     # to layers in that protocol stack starting with the lowest layer first.
     # Each layer is described as a dictionary with the following keys:
@@ -369,14 +495,28 @@ proc iocp::bt::sdr::protocols {sdr {varname {}}} {
     #  Name - the name of the protocol
     #  Params - the protocol parameters. This is a list of raw data elements
     #           of the form `{type value}` the interpretation of which is
-    #           protocol dependent. 
+    #           protocol dependent.
     #
     # Returns a boolean or the list of protocols.
 
-    tailcall Protocols $sdr 4 $varname
+    if {! [attribute exists $sdr 4 attrval]} {
+        if {$varname eq ""} {
+            error "Attribute not found."
+        } else {
+            return 0
+        }
+    }
+
+    if {$varname eq ""} {
+        return [Protocols $attrval]
+    } else {
+        upvar 1 $varname var
+        set var [Protocols $attrval]
+        return 1
+    }
 }
 
-proc iocp::bt::sdr::browse_groups {sdr {varname {}}} {
+proc iocp::bt::sdr::attribute::universal::BrowseGroupList {sdr {varname {}}} {
     # Retrieve the browse groups attribute in a service discovery record.
     #  sdr - decoded service discovery record
     #  varname - optional name of variable in caller's context.
@@ -404,7 +544,7 @@ proc iocp::bt::sdr::browse_groups {sdr {varname {}}} {
     tailcall Uuids $sdr 5 $varname
 }
 
-proc iocp::bt::sdr::profiles {sdr {varname {}}} {
+proc iocp::bt::sdr::attribute::universal::BluetoothProfileDescriptorList {sdr {varname {}}} {
     # Retrieve the service classes in a service discovery record.
     #  sdr - decoded service discovery record
     #  varname - optional name of variable in caller's context.
@@ -431,7 +571,7 @@ proc iocp::bt::sdr::profiles {sdr {varname {}}} {
     #
     # Returns a boolean or the list of service class descriptors.
 
-    if {! [has_attribute $sdr 9 attr]} {
+    if {! [attribute exists $sdr 9 attr]} {
         if {$varname eq ""} {
             error "Attribute not found."
         } else {
@@ -447,7 +587,7 @@ proc iocp::bt::sdr::profiles {sdr {varname {}}} {
         set version [lindex $profile 1 1 1]
         lappend profiles [dict create \
             Uuid $uuid \
-            Name [names::name $uuid] \
+            Name [iocp::bt::names::name $uuid] \
             MajorVersion [expr {$version >> 8}] \
             MinorVersion [expr {$version & 0xff}]
         ]
@@ -463,7 +603,7 @@ proc iocp::bt::sdr::profiles {sdr {varname {}}} {
 
 }
 
-proc iocp::bt::sdr::additional_protocols {sdr {varname {}}} {
+proc iocp::bt::sdr::attribute::universal::AdditionalProtocolDescriptorList {sdr {varname {}}} {
     # Returns protocol information from the additional protocols field
     # in a service discovery record.
     #  sdr - decoded service discovery record
@@ -471,10 +611,32 @@ proc iocp::bt::sdr::additional_protocols {sdr {varname {}}} {
     # This command is identical to [protocols] except it extracts
     # protocol information from the `AdditionalProtocolDescriptorList`
     # attribute instead of `ProtocolDescriptorList`.
-    tailcall Protocols $sdr 13 $varname
+
+    if {! [attribute exists $sdr 13 attrval]} {
+        if {$varname eq ""} {
+            error "Attribute not found."
+        } else {
+            return 0
+        }
+    }
+
+    # AdditionalProtocolDescriptorList is a sequence each element of which
+    # is formatted like a ProtocolDescriptorList
+    # assert [lindex $attrval 0] eq "sequence"
+    set protocols [lmap elem [lindex $attrval 1] {
+        Protocols $elem
+    }]
+
+    if {$varname eq ""} {
+        return $protocols
+    } else {
+        upvar 1 $varname var
+        set var $protocols
+        return 1
+    }
 }
 
-proc iocp::bt::sdr::time_to_live {sdr {varname {}}} {
+proc iocp::bt::sdr::attribute::universal::ServiceInfoTimeToLive {sdr {varname {}}} {
     # Retrieve the time-to-live attribute for a service discovery record.
     #  sdr - decoded service discovery record
     #  varname - optional name of variable in caller's context.
@@ -500,7 +662,7 @@ proc iocp::bt::sdr::time_to_live {sdr {varname {}}} {
     tailcall AttributeValue $sdr 7 $varname
 }
 
-proc iocp::bt::sdr::availability {sdr {varname {}}} {
+proc iocp::bt::sdr::attribute::universal::ServiceAvailability {sdr {varname {}}} {
     # Retrieve the service availability attribute from a service
     # discovery record.
     #  sdr - decoded service discovery record
@@ -528,7 +690,7 @@ proc iocp::bt::sdr::availability {sdr {varname {}}} {
     tailcall AttributeValue $sdr 8 $varname
 }
 
-proc iocp::bt::sdr::documentation_url {sdr {varname {}}} {
+proc iocp::bt::sdr::attribute::universal::DocumentationURL {sdr {varname {}}} {
     # Retrieve the documentation url from a service discovery record.
     #  sdr - decoded service discovery record
     #  varname - optional name of variable in caller's context.
@@ -552,7 +714,7 @@ proc iocp::bt::sdr::documentation_url {sdr {varname {}}} {
     tailcall AttributeValue $sdr 10 $varname
 }
 
-proc iocp::bt::sdr::client_executable_url {sdr {varname {}}} {
+proc iocp::bt::sdr::attribute::universal::ClientExecutableURL {sdr {varname {}}} {
     # Retrieve the client executable URL from a service discovery record.
     #  sdr - decoded service discovery record
     #  varname - optional name of variable in caller's context.
@@ -576,7 +738,7 @@ proc iocp::bt::sdr::client_executable_url {sdr {varname {}}} {
     tailcall AttributeValue $sdr 11 $varname
 }
 
-proc iocp::bt::sdr::icon_url {sdr {varname {}}} {
+proc iocp::bt::sdr::attribute::universal::IconURL {sdr {varname {}}} {
     # Retrieve the icon URL from a service discovery record.
     #  sdr - decoded service discovery record
     #  varname - optional name of variable in caller's context.
@@ -601,7 +763,7 @@ proc iocp::bt::sdr::icon_url {sdr {varname {}}} {
 }
 
 proc iocp::bt::sdr::Uuids {sdr attr_id {varname {}}} {
-    if {! [has_attribute $sdr $attr_id attrval]} {
+    if {! [attribute exists $sdr $attr_id attrval]} {
         if {$varname eq ""} {
             error "Attribute not found."
         } else {
@@ -623,16 +785,7 @@ proc iocp::bt::sdr::Uuids {sdr attr_id {varname {}}} {
     }
 }
 
-proc iocp::bt::sdr::Protocols {sdr attr_id {varname {}}} {
-
-    if {! [has_attribute $sdr $attr_id attrval]} {
-        if {$varname eq ""} {
-            error "Attribute not found."
-        } else {
-            return 0
-        }
-    }
-
+proc iocp::bt::sdr::Protocols {attrval} {
     # The attribute value may either be a single protocol stack encoded
     # as a sequence, or multiple stacks encoded as a selection of sequences.
     if {[lindex $attrval 0] eq "sequence"} {
@@ -653,25 +806,19 @@ proc iocp::bt::sdr::Protocols {sdr attr_id {varname {}}} {
             set protocol_uuid [lindex $elements 0 1]
             dict create \
                 Protocol $protocol_uuid \
-                ProtocolName [names::protocol_name $protocol_uuid] \
+                ProtocolName [iocp::bt::names::protocol_name $protocol_uuid] \
                 ProtocolParams [lrange $elements 1 end]
         }
     }]
 
-    if {$varname eq ""} {
-        return $protocols
-    } else {
-        upvar 1 $varname var
-        set var $protocols
-        return 1
-    }
+    return $protocols
 }
 
 proc iocp::bt::sdr::AttributeValue {sdr attr_id {varname {}}} {
     if {$varname eq ""} {
-        return [lindex [attribute $sdr $attr_id] 1]
+        return [lindex [attribute raw $sdr $attr_id] 1]
     } else {
-        if {[has_attribute $sdr $attr_id attrval]} {
+        if {[attribute exists $sdr $attr_id attrval]} {
             upvar 1 $varname value
             set value [lindex $attrval 1]
             return 1
@@ -691,7 +838,7 @@ proc iocp::bt::sdr::TextAttribute {sdr attr_offset lang {varname {}}} {
     # Otherwise get the offset from the base index 256
     if {$lang ne "primary"} {
         # See if the specified language has an entry in the languages table
-        if {[language_offsets $sdr base_offsets] &&
+        if {[attribute get $sdr LanguageBaseAttributeIDList base_offsets] &&
             [dict exists $base_offsets $lang]} {
             # Yes, so the language-specific text will be at an offset
             # from the base attribute index
@@ -700,11 +847,11 @@ proc iocp::bt::sdr::TextAttribute {sdr attr_offset lang {varname {}}} {
         }
     }
     set attr_index [expr {$base_offset + $attr_offset}]
-    if {! [has_attribute $sdr $attr_index name]} {
+    if {! [attribute exists $sdr $attr_index name]} {
         # This language does not exist. Return primary language if possible.
         # If base_offset was 256, that's already primary so don't retry
         if {$base_offset == 256 ||
-            ![has_attribute $sdr [expr {256 + $attr_offset}] name] } {
+            ![attribute exists $sdr [expr {256 + $attr_offset}] name] } {
             if {$varname ne ""} {
                 return 0
             } else {
@@ -897,7 +1044,7 @@ proc iocp::bt::sdr::ExtractFirstElement {bin} {
 proc iocp::bt::sdr::printn {recs {attrfilter *}} {
     # Prints a SDP record to a more human readable form.
     # recs - a list of binary SDP records in the form returned by
-    #        [services] or [service_references].
+    #        [::iocp::bt::device services] or [::iocp::bt::device service_references].
     # attrfilter - If specified, only attribute names matching the filter
     #       using `string match` are printed.
     #
@@ -911,8 +1058,8 @@ proc iocp::bt::sdr::printn {recs {attrfilter *}} {
 
 proc iocp::bt::sdr::print {rec {attrfilter *}} {
     # Prints a SDP record to a more human readable form.
-    # rec - a binary SDP record in the form returned by [services] or
-    #       [service_references].
+    # rec - a binary SDP record in the form returned by [::iocp::bt::device services] or
+    #       [::iocp::bt::device service_references].
     # attrfilter - If specified, only attribute names matching the filter
     #       using `string match` are printed.
     #
@@ -929,12 +1076,22 @@ proc iocp::bt::sdr::print {rec {attrfilter *}} {
             continue
         }
         switch -exact -- $attrname {
+            ServiceID -
+            ServiceRecordState -
+            ServiceInfoTimeToLive -
+            ServiceAvailability -
+            DocumentationURL -
+            ClientExecutableURL -
+            IconURL -
+            ServiceName -
+            ServiceDescription -
+            ProviderName -
             ServiceRecordHandle {
-                puts "$attrname: [handle $rec]"
+                puts "$attrname: [attribute get $rec $attrname]"
             }
             ServiceClassIDList {
                 puts "$attrname: sequence"
-                foreach elem [service_classes $rec] {
+                foreach elem [attribute get $rec $attrname] {
                     dict with elem {
                         if {$Name eq $Uuid} {
                             puts "    $Uuid"
@@ -944,17 +1101,9 @@ proc iocp::bt::sdr::print {rec {attrfilter *}} {
                     }
                 }
             }
-            ServiceRecordState {
-                puts "$attrname: [state_indicator $rec]"
-            }
-            ServiceId {
-                puts "$attrname: [service_id $rec]"
-
-            }
-            AdditionalProtocolDescriptorList -
             ProtocolDescriptorList {
                 puts "$attrname:"
-                foreach protocol [protocols $rec] {
+                foreach protocol [attribute get $rec $attrname] {
                     puts "    ProtocolStack:"
                     foreach layer $protocol {
                         set name [dict get $layer ProtocolName]
@@ -970,9 +1119,31 @@ proc iocp::bt::sdr::print {rec {attrfilter *}} {
                     }
                 }
             }
+            AdditionalProtocolDescriptorList {
+                # Like ProtocolDescriptorList but an additional level
+                # of nesting.
+                puts "$attrname:"
+                foreach additional_protocol [attribute get $rec $attrname] {
+                    foreach protocol $additional_protocol {
+                        puts "    ProtocolStack:"
+                        foreach layer $protocol {
+                            set name [dict get $layer ProtocolName]
+                            set uuid [dict get $layer Protocol]
+                            set params [lmap param [dict get $layer ProtocolParams] {
+                                PrintableElement $param
+                            }]
+                            if {$name eq ""} {
+                                puts "        $uuid ([join $params {, }])"
+                            } else {
+                                puts "        $uuid $name ([join $params {, }])"
+                            }
+                        }
+                    }
+                }
+            }
             BrowseGroupList {
                 puts "$attrname: sequence"
-                foreach elem [browse_groups $rec] {
+                foreach elem [attribute get $rec $attrname] {
                     dict with elem {
                         if {$Name eq $Uuid} {
                             puts "    $Uuid"
@@ -984,19 +1155,13 @@ proc iocp::bt::sdr::print {rec {attrfilter *}} {
             }
             LanguageBaseAttributeIDList {
                 puts "$attrname: sequence"
-                dict for {lang val} [language_offsets $rec] {
+                dict for {lang val} [attribute get $rec $attrname] {
                     puts "    $lang: [dict get $val Encoding], [dict get $val BaseOffset]"
                 }
             }
-            ServiceInfoTimeToLive {
-                puts "$attrname: [time_to_live $rec]"
-            }
-            ServiceAvailability {
-                puts "$attrname: [availability $rec]"
-            }
             BluetoothProfileDescriptorList {
                 puts "$attrname: sequence"
-                foreach profile [profiles $rec] {
+                foreach profile [attribute get $rec $attrname] {
                     # Sequence of profiles. Each profile is a sequence of
                     # profile uuid and version.
                     # puts profile:$profile
@@ -1009,28 +1174,10 @@ proc iocp::bt::sdr::print {rec {attrfilter *}} {
                     }
                 }
             }
-            DocumentationURL {
-                puts "$attrname: [documentation_url $rec]"
-            }
-            ClientExecutableURL {
-                puts "$attrname: [client_executable_url $rec]"
-            }
-            IconURL {
-                puts "$attrname: [icon_url $rec]"
-            }
-            ServiceName {
-                puts "$attrname: [service_name $rec primary]"
-            }
-            ServiceDescription {
-                puts "$attrname: [description $rec primary]"
-            }
-            ProviderName {
-                puts "$attrname: [provider_name $rec primary]"
-            }
             default {
                 # TBD - special handling for 0x100-0x1ff attributes by
                 # looking up languages table
-                puts "$attrname: [PrintableElement [attribute $rec $attr]]"
+                puts "$attrname: [PrintableElement [attribute raw $rec $attr]]"
             }
         }
     }

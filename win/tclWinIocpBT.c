@@ -239,7 +239,7 @@ BT_FindFirstDeviceObjCmd(
 {
     static const char *const opts[] = {
         "-authenticated", "-remembered", "-unknown", "-connected", "-inquire",
-        "-timeout", "-radio", NULL
+        "-timeout", "-hradio", NULL
     };
     enum Opts {
         AUTHENTICATED, REMEMBERED, UNKNOWN, CONNECTED, INQUIRE, TIMEOUT, RADIO
@@ -1630,7 +1630,7 @@ BT_ModuleInitialize(Tcl_Interp *interp)
                          (ClientData)BT_ENABLE_DISCOVERY,
                          0L);
     Tcl_CreateObjCommand(interp,
-                         "iocp::bt::EnableIncomingConnections",
+                         "iocp::bt::EnableIncoming",
                          BT_ConfigureRadioObjCmd,
                          (ClientData)BT_ENABLE_INCOMING,
                          0L);

@@ -117,15 +117,15 @@ namespace eval iocp::bt::names {
         ServiceRecordState      2
         ServiceID               3
         ProtocolDescriptorList  4
-        BrowseGroupList         5 
+        BrowseGroupList         5
         LanguageBaseAttributeIDList  6
         ServiceInfoTimeToLive   7
         ServiceAvailability     8
         BluetoothProfileDescriptorList 9
         DocumentationURL       10
         ClientExecutableURL    11
-        IconURL                12 
-        AdditionalProtocolDescriptorLists 13
+        IconURL                12
+        AdditionalProtocolDescriptorList 13
         ServiceName           256
         ServiceDescription    257
         ProviderName          258
@@ -207,17 +207,20 @@ proc iocp::bt::names::protocol_uuid {name} {
 }
 
 proc iocp::bt::names::attribute_name {attr_id} {
-    # Maps a numeric attribute id to a attribute name.
+    # Maps a attribute id (numeric or name) to a attribute name.
     #  attr_id - numeric attribute identifier
     # Returns a human-readable name for the attribute or
     # the numeric id itself if no mapping could be performed.
     variable attribute_names
     dict for {name id} $attribute_names {
-        if {$attr_id == $id} {
+        if {$attr_id == $id || [string equal -nocase $name $attr_id]} {
             return $name
         }
     }
-    return $attr_id
+    if {[string is integer -strict $attr_id]} {
+        return $attr_id
+    }
+    error "Unknown attribute \"$attr_id\"."
 }
 
 proc iocp::bt::names::attribute_id {name} {
@@ -227,6 +230,9 @@ proc iocp::bt::names::attribute_id {name} {
     # Returns the numeric attribute identifier corresponding to
     # the passed name.
     variable attribute_names
+    if {[string is integer -strict $name]} {
+        return $name
+    }
     return [dict get $attribute_names $name]
 }
 

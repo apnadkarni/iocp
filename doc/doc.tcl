@@ -58,10 +58,10 @@ namespace eval iocp::bt {
 
         The commands are broken into the following namespaces:
 
-        [::iocp::bt]        - Core commands for Bluetooth communication.
-        [::iocp::bt::sdr]   - Commands for handling Bluetooth service
+        ::iocp::bt        - Core commands for Bluetooth communication.
+        ::iocp::bt::sdr   - Commands for handling Bluetooth service
                               discovery records.
-        [::iocp::bt::names] - Commands for mapping Bluetooth UUIDs and names.
+        ::iocp::bt::names - Commands for mapping Bluetooth UUIDs and names.
 
         Note the current limitations:
 
@@ -79,7 +79,7 @@ namespace eval iocp::bt {
         Remote Bluetooth devices are discovered through [devices] command. It is
         generally recommended that a new device inquiry be initiated with the
         `-inquire` option when using this command as otherwise newly reachable
-        devices will not be discovered. The [print_devices] command will print
+        devices will not be discovered. The [device printn] command will print
         the information related to each device in human-readable form.
 
         Bluetooth radios on the local system can be enumerated with the
@@ -88,7 +88,7 @@ namespace eval iocp::bt {
 
         ## Service discovery
 
-        A device will generally host multiple services. The [services] commands
+        A device will generally host multiple services. The [device services] commands
         will retrieve information about the services advertised by the device.
         This information is in the form of *service discovery records*. Commands
         for parsing these records are contained in the [sdr] namespace.
@@ -105,7 +105,7 @@ namespace eval iocp::bt {
 
         First, the device name has to be mapped to its physical address. Unlike
         the TCP sockets in Tcl, Bluetooth sockets require physical addresses to
-        be specified as device names are ambiguous. The [device_address] command
+        be specified as device names are ambiguous. The [device address] command
         can be used to obtain the physical addresses corresponding to a name.
         Note that there can be multiple devices with the same name so the
         command returns a list of addresses, one per device. When the list
@@ -119,7 +119,7 @@ namespace eval iocp::bt {
         ``````
 
         Next, the port the service is listening on needs to be resolved with the
-        [service_port] command. In the example below, `OBEXObjectPush` is
+        [device port] command. In the example below, `OBEXObjectPush` is
         the service of interest.
 
         ``````
@@ -166,7 +166,8 @@ namespace eval iocp::bt::sdr {
     variable _ruff_preamble {
         The `iocp::bt::sdr` namespace contains commands for parsing Bluetooth
         **Service Discovery Records** (SDR) as returned by the
-        [::iocp::bt::services] and [::iocp::bt::service_references]
+        [::iocp::bt::device services] and
+        [::iocp::bt::device service_references]
         commands. These return a list of binary records which must be
         first parsed with the [decode] command. Individual service attributes
         can then be retrieved from the decoded records using the other
