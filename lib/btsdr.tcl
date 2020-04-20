@@ -203,7 +203,7 @@ proc iocp::bt::sdr::language_offsets {sdr {varname {}}} {
         # langid is ISO 639 language code
         set langid [lindex $langid 1]
         set langid "[format %c [expr {$langid >> 8}]][format %c [expr {$langid &0xff}]]"
-        dict set langs $langid Encoding [encoding_name [lindex $enc 1]]
+        dict set langs $langid Encoding [EncodingTclName [lindex $enc 1]]
         dict set langs $langid BaseOffset [lindex $offset 1]
     }
     if {$varname eq ""} {
@@ -691,7 +691,7 @@ proc iocp::bt::sdr::TextAttribute {sdr attr_offset lang {varname {}}} {
     # Otherwise get the offset from the base index 256
     if {$lang ne "primary"} {
         # See if the specified language has an entry in the languages table
-        if {[sdr_language_offsets $sdr base_offsets] &&
+        if {[language_offsets $sdr base_offsets] &&
             [dict exists $base_offsets $lang]} {
             # Yes, so the language-specific text will be at an offset
             # from the base attribute index
@@ -897,7 +897,7 @@ proc iocp::bt::sdr::ExtractFirstElement {bin} {
 proc iocp::bt::sdr::printn {recs {attrfilter *}} {
     # Prints a SDP record to a more human readable form.
     # recs - a list of binary SDP records in the form returned by
-    #        [browse_services] or [get_service_references].
+    #        [services] or [service_references].
     # attrfilter - If specified, only attribute names matching the filter
     #       using `string match` are printed.
     #
@@ -911,8 +911,8 @@ proc iocp::bt::sdr::printn {recs {attrfilter *}} {
 
 proc iocp::bt::sdr::print {rec {attrfilter *}} {
     # Prints a SDP record to a more human readable form.
-    # rec - a binary SDP record in the form returned by [browse_services] or
-    #       [get_service_references].
+    # rec - a binary SDP record in the form returned by [services] or
+    #       [service_references].
     # attrfilter - If specified, only attribute names matching the filter
     #       using `string match` are printed.
     #

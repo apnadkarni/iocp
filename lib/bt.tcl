@@ -101,7 +101,7 @@ proc iocp::bt::devices {args} {
     return $devices
 }
 
-proc iocp::bt::resolve_device {name args} {
+proc iocp::bt::device_address {name args} {
     # Returns a list of Bluetooth addresses for a given name.
     # name - name of device of interest
     # args - Options to control device enquiry. See [devices].
@@ -121,7 +121,7 @@ proc iocp::bt::resolve_device {name args} {
     return $addresses
 }
 
-proc iocp::bt::resolve_port {device service} {
+proc iocp::bt::service_port {device service} {
     # Resolve the port for a Bluetooth service running over RFCOMM.
     #  device - Bluetooth address or name of a device. If specified as a name,
     #           it must resolve to a single address.
@@ -160,7 +160,7 @@ proc iocp::bt::remove_device {device} {
     RemoveDevice [ResolveDeviceUnique $device]
 }
 
-proc iocp::bt::get_service_references {device service} {
+proc iocp::bt::service_references {device service} {
     # Retrieve service discovery records that refer to a specified service.
     #  device - Bluetooth address or name of a device. If specified as a name,
     #           it must resolve to a single address.
@@ -187,7 +187,7 @@ proc iocp::bt::get_service_references {device service} {
     return $recs
 }
 
-proc iocp::bt::browse_services {device} {
+proc iocp::bt::services {device} {
     # Retrieve the service discovery records for top level services.
     # advertised by a device.
     #  device - Bluetooth address or name of a device. If specified as a name,
@@ -204,17 +204,17 @@ proc iocp::bt::browse_services {device} {
     # TBD - add a browse group parameter
     # TBD - perhaps check that the sdr acually refernces browse group in
     # the appropriate attribute
-    return [get_service_references $device 00001002-0000-1000-8000-00805f9b34fb]
+    return [service_references $device 00001002-0000-1000-8000-00805f9b34fb]
 }
 
-# TBD - is this needed? Less functional version of browse_services
-proc iocp::bt::device_services {device} {
+# TBD - is this needed? Less functional version of services
+proc iocp::bt::services {device} {
     # Get installed services on a device.
     #  device - Bluetooth address or name of device. If specified as a name,
     #           it must resolve to a single address.
     # Returns a list of service UUID's.
     if {![IsAddress $device]} {
-        set addrs [resolve_device $device]
+        set addrs [device_address $device]
         if {[llength $addrs] == 1} {
             set device [lindex $addrs 0]
         } elseif {[llength $addrs] == 0} {
@@ -228,6 +228,12 @@ proc iocp::bt::device_services {device} {
 }
 
 proc iocp::bt::print_devices {devices {detailed false}} {
+    # Prints device information in human-readable form to stdout.
+    #  devices - A list of device information records as returned by
+    #            the [devices] command.
+    #  detailed - If a true value, detailed information about the device
+    #             is printed. If false (default), only the address and
+    #             name are printed in compact form.
     set sep ""
     foreach device $devices {
         dict with device {
@@ -259,7 +265,7 @@ proc iocp::bt::IsAddress {addr} {
 
 }
 
-proc iocp::bt::uuid16 {uuid16} {
+proc iocp::bt::Uuid16 {uuid16} {
     if {![regexp {^[[:xdigit:]]{4}$} $uuid16]} {
         error "Not a valid 16 bit UUID"
     }
@@ -288,7 +294,7 @@ proc iocp::bt::BinToHex {bin {start 0} {end end}} {
     regexp -inline -all .. [binary encode hex [string range $bin $start $end]]
 }
 
-proc iocp::bt::encoding_name {mibenum} {
+proc iocp::bt::EncodingTclName {mibenum} {
     set encoding_map {
         3 ascii
         2026 big5
@@ -481,7 +487,7 @@ proc iocp::bt::ResolveDeviceUnique {device} {
     if {[IsAddress $device]} {
         return $device
     }
-    set addrs [resolve_device $device]
+    set addrs [device_address $device]
     if {[llength $addrs] == 0} {
         error "Could not resolve Bluetooth device name \"$device.\""
     } elseif {[llength $addrs] > 1} {

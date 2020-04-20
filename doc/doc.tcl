@@ -7,21 +7,20 @@ package require iocp_bt
 
 namespace eval iocp {
     variable _preamble {
-        The `iocp` package implements channels and related utility
+        The `iocp` set of packages implements channels and related utility
         commands on Windows platforms. The package requires Windows 7
         or later.
 
-        The implementation uses I/O Completion Ports (IOCP) and affords
-        greatly improved performance over equivalent functionality in
-        the Tcl core. In addition, new channel types are supported.
+        The base `iocp` package implements the core functionality, based on
+        Windows I/O Completion Ports (IOCP), that is used by the other packages.
+        The `iocp` namespace itself does not contain any exported commands.
 
-        The package commands are broken up into the following namespaces
-        based on functional areas:
+        The `iocp_inet` package implements the [::iocp::inet::socket] command which has
+        the same functionality as the Tcl `socket` command but with several
+        times the performance.
 
-        [::iocp::inet] - Commands for TCP/IP channels
-        [::iocp::bt]   - Core commands for Bluetooth communication
-        [::iocp::bt::sdr] - Commands for Bluetooth service discovery records
-        [::iocp::bt::names] - Commands for mapping Bluetooth UUIDs to names
+        The `iocp_bt` package implements Bluetooth channels (currently client-only)
+        along with supporting commands for device and service discovery.
     }
 }
 
@@ -55,20 +54,98 @@ namespace eval iocp::bt {
 
     variable _ruff_preamble {
         The `iocp::bt` namespace implements commands for communicating
-        over Bluetooth. In addition, it provides commands for
-        device and service discovery. The related child namespaces
-        [sdr] and [names] provide additional utilities.
+        over Bluetooth. 
 
-        *Note: currently only client-side communication is implemented.*
+        The commands are broken into the following namespaces:
+
+        [::iocp::bt]        - Core commands for Bluetooth communication.
+        [::iocp::bt::sdr]   - Commands for handling Bluetooth service
+                              discovery records.
+        [::iocp::bt::names] - Commands for mapping Bluetooth UUIDs and names.
+
+        Note the current limitations:
+
+        * Only client-side communication is implemented in this release.
+        Server-side functionality will be added in some future release
+        based on demand.
+
+        * Only RFCOMM channels are supported. There is no support for L2CAP
+        or other protocols as these are not exposed at the Win32 API level.
+
+        * Bluetooth LE is not supported for the same reason.
+
+        ## Device discovery
+
+        Remote Bluetooth devices are discovered through [devices] command. It is
+        generally recommended that a new device inquiry be initiated with the
+        `-inquire` option when using this command as otherwise newly reachable
+        devices will not be discovered. The [print_devices] command will print
+        the information related to each device in human-readable form.
+
+        Bluetooth radios on the local system can be enumerated with the
+        [radios] command. There is however rarely a need to do this as it
+        is not required for a establishing a Bluetooth connection.
+
+        ## Service discovery
+
+        A device will generally host multiple services. The [services] commands
+        will retrieve information about the services advertised by the device.
+        This information is in the form of *service discovery records*. Commands
+        for parsing these records are contained in the [sdr] namespace.
+
+        Services and service classes are identified with UUID's. Most commands
+        will however accept mnemonics for services defined in the standard as
+        they are easier to remember than the UUID's. The
+        [names::print] command will print the list of mnemonics
+        and the corresponding UUID's.
+
+        ## Connection establishment
+
+        Establishing a Bluetooth connection involves the following steps.
+
+        First, the device name has to be mapped to its physical address. Unlike
+        the TCP sockets in Tcl, Bluetooth sockets require physical addresses to
+        be specified as device names are ambiguous. The [device_address] command
+        can be used to obtain the physical addresses corresponding to a name.
+        Note that there can be multiple devices with the same name so the
+        command returns a list of addresses, one per device. When the list
+        contains more than one address, generally the user needs to be prompted
+        to pick one though below we just assume there is a single address in the
+        list.
+
+        ``````
+        set addrs [iocp::bt::device_address "APN Phone"]
+        set addr  [lindex $addrs 0]
+        ``````
+
+        Next, the port the service is listening on needs to be resolved with the
+        [service_port] command. In the example below, `OBEXObjectPush` is
+        the service of interest.
+
+        ``````
+        set port [iocp::bt::service_port $addr OBEXObjectPush]
+        ``````
+
+        Finally, a connection is established to the service using the
+        [socket] command.
+
+        ``````
+        set so [iocp::bt::socket $addr $port]
+        ``````
+
+        Other commands in the namespace provide supporting functions such
+        as device and service discovery.
+
     }
 
-    
     # Dummy procs to document C commands
     proc socket {args} {
         # Returns a client Bluetooth RFCOMM channel.
         #   args - see below.
         # The command takes the form
-        #    socket ?-async? device port
+        #
+        #     socket ?-async? device port
+        #
         # where `device` is the Bluetooth hardware address of the
         # remote device and `port` is the RFCOMM port (channel).
         # The `-async` option has the same effect as in the Tcl
@@ -89,11 +166,18 @@ namespace eval iocp::bt::sdr {
     variable _ruff_preamble {
         The `iocp::bt::sdr` namespace contains commands for parsing Bluetooth
         **Service Discovery Records** (SDR) as returned by the
-        [iocp::bt::browse_services] and [iocp::bt::get_service_references]
+        [::iocp::bt::services] and [::iocp::bt::service_references]
         commands. These return a list of binary records which must be
-        first parsed with the [parse] commands. Individual service attributes
-        can then be retrieved from the parsed commands using the other
+        first parsed with the [decode] command. Individual service attributes
+        can then be retrieved from the decoded records using the other
         commands in the namespace.
+
+        ``````
+        set dev  [iocp::bt::device_address "APN Phone"]
+        set recs [iocp::bt::services $dev]
+        set sdr  [iocp::bt::sdr::decode [lindex $recs 0]]
+        set service_classes [iocp::bt::sdr::service_classes $sdr]
+        ``````
     }
 }
 
@@ -117,7 +201,7 @@ proc iocp::Document {outfile args} {
     variable _preamble
 
     set ns [namespace current]
-    set namespaces [list $ns ${ns}::inet ${ns}::bt ${ns}::bt::sdr ${ns}::bt::names]
+    set namespaces [list ${ns}::inet ${ns}::bt ${ns}::bt::sdr ${ns}::bt::names]
     ruff::document $namespaces -autopunctuate 1 -excludeprocs {^[_A-Z]} \
         -recurse 0 -preamble $_preamble -pagesplit namespace \
         -output $outfile -includesource 1 \

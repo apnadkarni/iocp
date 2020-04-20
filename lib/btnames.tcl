@@ -230,6 +230,14 @@ proc iocp::bt::names::attribute_id {name} {
     return [dict get $attribute_names $name]
 }
 
+proc iocp::bt::names::print {} {
+    # Prints known UUID's and their mapped mnemonics.
+    variable service_class_names
+    dict for {uuid16 name} $service_class_names {
+        puts "[Uuid16 $uuid16] $name"
+    }
+}
+
 proc iocp::bt::names::MapUuidToName {uuid dictvar} {
     upvar 1 $dictvar names
 
@@ -240,10 +248,12 @@ proc iocp::bt::names::MapUuidToName {uuid dictvar} {
             return [dict get $names $uuid16]
         }
     }
-    if {![IsUuid $uuid]} {
-        error "Invalid UUID \"$uuid\""
+    if {[IsUuid $uuid]} {
+        return $uuid
     }
-    return $uuid
+
+    # Retry as a 16-but UUID. tailcall so upvar works right.
+    tailcall MapUuidToName [Uuid16 $uuid] $dictvar
 }
 
 proc iocp::bt::names::MapNameToUuid {name dictvar} {
