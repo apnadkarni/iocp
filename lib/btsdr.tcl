@@ -12,10 +12,6 @@ namespace eval iocp::bt::sdr {
         namespace path [list [namespace parent] [namespace parent [namespace parent]]]
         namespace export exists get raw text
         namespace ensemble create
-
-        namespace eval universal {
-            namespace path [list [namespace parent] [namespace parent [namespace parent]]]
-        }
     }
 }
 
@@ -187,7 +183,28 @@ proc iocp::bt::sdr::attribute::get {sdr attr_id {varname {}}} {
     # Returns a boolean or the decoded attribute value.
 
     set attr_name [names::attribute_name $attr_id]
+    set attr_id   [names::attribute_id $attr_id]
     switch -exact -- $attr_name {
+        BrowseGroupList -
+        ServiceClassIDList {
+            tailcall Uuids $sdr $attr_id $varname
+        }
+        BluetoothProfileDescriptorList -
+        ProtocolDescriptorList -
+        AdditionalProtocolDescriptorList -
+        LanguageBaseAttributeIDList {
+            tailcall $attr_name $sdr $varname
+        }
+        DocumentationURL -
+        ClientExecutableURL -
+        IconURL -
+        ServiceAvailability -
+        ServiceInfoTimeToLive -
+        ServiceID -
+        ServiceRecordState -
+        ServiceRecordHandle {
+            tailcall AttributeValue $sdr $attr_id $varname
+        }
         ServiceName -
         ServiceDescription -
         ProviderName {
@@ -235,59 +252,8 @@ proc iocp::bt::sdr::attribute::text {sdr attr_id lang {varname {}}} {
     tailcall TextAttribute $sdr $lang_offset $lang $varname
 }
 
-proc iocp::bt::sdr::attribute::universal::ServiceRecordHandle {sdr {varname {}}} {
-    # Retrieve the handle for a service discovery record.
-    #  sdr - decoded service discovery record
-    #  varname - optional name of variable in caller's context.
-    #
-    # The service record handle corresponds to the ServiceRecordHandle
-    # universal attribute in the Bluetooth Core specification.
-    #
-    # If $varname is not the empty string, it should be the name of
-    # a variable in the caller's context.
-    #  - If the attribute is present, the command returns `1` and
-    #    stores the attribute value in the variable.
-    #  - If the attribute is not present, the command returns 0.
-    #
-    # If $varname is an empty string,
-    #  - If the attribute is present, the command returns its value.
-    #  - If the attribute is not present, the command raises an error.
-    #
-    # Returns a boolean or the service record handle.
 
-    # Tailcall so varname context is correct
-    tailcall AttributeValue $sdr 0 $varname
-}
-
-proc iocp::bt::sdr::attribute::universal::ServiceClassIDList {sdr {varname {}}} {
-    # Retrieve the service classes in a service discovery record.
-    #  sdr - decoded service discovery record
-    #  varname - optional name of variable in caller's context.
-    #
-    # The retrieved value is a list of service class descriptors
-    # corresponding to the ServiceClassIDList
-    # universal attribute in the Bluetooth Core specification.
-    # Each descriptor is a dictionary with keys `Uuid` and `Name` containing
-    # the UUID of the service class and its mnemonic. If the latter
-    # is not known, the `Name` key will contain the UUID as well.
-    #
-    # If $varname is not the empty string, it should be the name of
-    # a variable in the caller's context.
-    #  - If the attribute is present, the command returns `1` and
-    #    stores the attribute value in the variable.
-    #  - If the attribute is not present, the command returns 0.
-    #
-    # If $varname is an empty string,
-    #  - If the attribute is present, the command returns its value.
-    #  - If the attribute is not present, the command raises an error.
-    #
-    # Returns a boolean or the list of service class descriptors.
-
-    # Tailcall so varname context is correct
-    tailcall Uuids $sdr 1 $varname
-}
-
-proc iocp::bt::sdr::attribute::universal::LanguageBaseAttributeIDList {sdr {varname {}}} {
+proc iocp::bt::sdr::attribute::LanguageBaseAttributeIDList {sdr {varname {}}} {
     # Retrieve the language base attributes in a service discovery record.
     #  sdr - decoded service discovery record
     #  varname - optional name of variable in caller's context.
@@ -341,133 +307,8 @@ proc iocp::bt::sdr::attribute::universal::LanguageBaseAttributeIDList {sdr {varn
     }
 }
 
-proc iocp::bt::sdr::attribute::universal::ServiceName {sdr lang {varname {}}} {
-    # Returns the service name from a service discovery record.
-    #  sdr - decoded service discovery record
-    #  lang - language identifier as specified in iso639, e.g. `en` for
-    #         english, `fr` for french etc. or the keyword `primary`.
-    #  varname - optional name of variable in caller's context.
-    #
-    # The service name corresponds to the ServiceRecordHandle
-    # universal attribute in the Bluetooth Core specification.
-    #
-    # If $varname is not the empty string, it should be the name of
-    # a variable in the caller's context.
-    #  - If the attribute is present, the command returns `1` and
-    #    stores the attribute value in the variable.
-    #  - If the attribute is not present, the command returns 0.
-    #
-    # If $varname is an empty string,
-    #  - If the attribute is present, the command returns its value.
-    #  - If the attribute is not present, the command raises an error.
-    #
 
-    # tailcall so upvar works in caller's context
-     tailcall TextAttribute $sdr 0 $lang $varname
-}
-
-proc iocp::bt::sdr::attribute::universal::ServiceDescription {sdr lang {varname {}}} {
-    # Returns the service description from a service discovery record.
-    #  sdr - decoded service discovery record
-    #  lang - language identifier as specified in iso639, e.g. `en` for
-    #         english, `fr` for french etc. or the keyword `primary`.
-    #  varname - optional name of variable in caller's context.
-    #
-    # The service description corresponds to the ServiceDescription
-    # universal attribute in the Bluetooth Core specification.
-    #
-    # If $varname is not the empty string, it should be the name of
-    # a variable in the caller's context.
-    #  - If the attribute is present, the command returns `1` and
-    #    stores the attribute value in the variable.
-    #  - If the attribute is not present, the command returns 0.
-    #
-    # If $varname is an empty string,
-    #  - If the attribute is present, the command returns its value.
-    #  - If the attribute is not present, the command raises an error.
-    #
-
-    # tailcall so upvar works in caller's context
-    tailcall TextAttribute $sdr 1 $lang $varname
-}
-
-proc iocp::bt::sdr::attribute::universal::ProviderName {sdr lang {varname {}}} {
-    # Returns the provider name from a service discovery record.
-    #  sdr - decoded service discovery record
-    #  lang - language identifier as specified in iso639, e.g. `en` for
-    #         english, `fr` for french etc. or the keyword `primary`.
-    #  varname - optional name of variable in caller's context.
-    #
-    # The provider name corresponds to the ProviderName
-    # universal attribute in the Bluetooth Core specification.
-    #
-    # If $varname is not the empty string, it should be the name of
-    # a variable in the caller's context.
-    #  - If the attribute is present, the command returns `1` and
-    #    stores the attribute value in the variable.
-    #  - If the attribute is not present, the command returns 0.
-    #
-    # If $varname is an empty string,
-    #  - If the attribute is present, the command returns its value.
-    #  - If the attribute is not present, the command raises an error.
-    #
-
-    # tailcall so upvar works in caller's context
-    tailcall TextAttribute $sdr 2 $lang $varname
-}
-
-proc iocp::bt::sdr::attribute::universal::ServiceRecordState {sdr {varname {}}} {
-    # Retrieve the state indicator for a service discovery record.
-    #  sdr - decoded service discovery record
-    #  varname - optional name of variable in caller's context.
-    #
-    # The state indicator corresponds to the ServiceRecordState universal
-    # attribute in the Bluetooth Core specification. If present, its value
-    # changes every time the service record is changed in any manner. See
-    # the Bluetooth specification for more details.
-    #
-    # If $varname is not the empty string, it should be the name of
-    # a variable in the caller's context.
-    #  - If the attribute is present, the command returns `1` and
-    #    stores the attribute value in the variable.
-    #  - If the attribute is not present, the command returns 0.
-    #
-    # If $varname is an empty string,
-    #  - If the attribute is present, the command returns its value.
-    #  - If the attribute is not present, the command raises an error.
-    #
-    # Returns a boolean or the service record handle.
-
-    # Tailcall so varname context is correct
-    tailcall AttributeValue $sdr 2 $varname
-}
-
-proc iocp::bt::sdr::attribute::universal::ServiceID {sdr {varname {}}} {
-    # Retrieve the service id for a service discovery record.
-    #  sdr - decoded service discovery record
-    #  varname - optional name of variable in caller's context.
-    #
-    # The service id is a UUID and corresponds to the ServiceId universal
-    # attribute in the Bluetooth Core specification. If present, it
-    # universally and uniquely identifies a particular service instance.
-    #
-    # If $varname is not the empty string, it should be the name of
-    # a variable in the caller's context.
-    #  - If the attribute is present, the command returns `1` and
-    #    stores the attribute value in the variable.
-    #  - If the attribute is not present, the command returns 0.
-    #
-    # If $varname is an empty string,
-    #  - If the attribute is present, the command returns its value.
-    #  - If the attribute is not present, the command raises an error.
-    #
-    # Returns a boolean or the service id.
-
-    # Tailcall so varname context is correct
-    tailcall AttributeValue $sdr 3 $varname
-}
-
-proc iocp::bt::sdr::attribute::universal::ProtocolDescriptorList {sdr {varname {}}} {
+proc iocp::bt::sdr::attribute::ProtocolDescriptorList {sdr {varname {}}} {
     # Retrieve the protocol information from a service discovery record.
     #  sdr - decoded service discovery record
     #  varname - optional name of variable in caller's context.
@@ -516,35 +357,7 @@ proc iocp::bt::sdr::attribute::universal::ProtocolDescriptorList {sdr {varname {
     }
 }
 
-proc iocp::bt::sdr::attribute::universal::BrowseGroupList {sdr {varname {}}} {
-    # Retrieve the browse groups attribute in a service discovery record.
-    #  sdr - decoded service discovery record
-    #  varname - optional name of variable in caller's context.
-    #
-    # The retrieved value is a list of browse descriptors
-    # corresponding to the BrowseGroupList
-    # universal attribute in the Bluetooth Core specification.
-    # Each descriptor is a dictionary with keys `Uuid` and `Name` containing
-    # the UUID of the browse group and its mnemonic. If the latter
-    # is not known, the `Name` key will contain the UUID as well.
-    #
-    # If $varname is not the empty string, it should be the name of
-    # a variable in the caller's context.
-    #  - If the attribute is present, the command returns `1` and
-    #    stores the attribute value in the variable.
-    #  - If the attribute is not present, the command returns 0.
-    #
-    # If $varname is an empty string,
-    #  - If the attribute is present, the command returns its value.
-    #  - If the attribute is not present, the command raises an error.
-    #
-    # Returns a boolean or the list of browse group UUID descriptors.
-
-    # Tailcall so varname context is correct
-    tailcall Uuids $sdr 5 $varname
-}
-
-proc iocp::bt::sdr::attribute::universal::BluetoothProfileDescriptorList {sdr {varname {}}} {
+proc iocp::bt::sdr::attribute::BluetoothProfileDescriptorList {sdr {varname {}}} {
     # Retrieve the service classes in a service discovery record.
     #  sdr - decoded service discovery record
     #  varname - optional name of variable in caller's context.
@@ -603,7 +416,7 @@ proc iocp::bt::sdr::attribute::universal::BluetoothProfileDescriptorList {sdr {v
 
 }
 
-proc iocp::bt::sdr::attribute::universal::AdditionalProtocolDescriptorList {sdr {varname {}}} {
+proc iocp::bt::sdr::attribute::AdditionalProtocolDescriptorList {sdr {varname {}}} {
     # Returns protocol information from the additional protocols field
     # in a service discovery record.
     #  sdr - decoded service discovery record
@@ -636,131 +449,6 @@ proc iocp::bt::sdr::attribute::universal::AdditionalProtocolDescriptorList {sdr 
     }
 }
 
-proc iocp::bt::sdr::attribute::universal::ServiceInfoTimeToLive {sdr {varname {}}} {
-    # Retrieve the time-to-live attribute for a service discovery record.
-    #  sdr - decoded service discovery record
-    #  varname - optional name of variable in caller's context.
-    #
-    # The returned value corresponds to the ServiceInfoTimeToLive
-    # universal attribute in the Bluetooth Core specification. It is
-    # a hint as to the number of seconds from the time of reception the
-    # information # in the service discovery record is expected to be valid.
-    #
-    # If $varname is not the empty string, it should be the name of
-    # a variable in the caller's context.
-    #  - If the attribute is present, the command returns `1` and
-    #    stores the attribute value in the variable.
-    #  - If the attribute is not present, the command returns 0.
-    #
-    # If $varname is an empty string,
-    #  - If the attribute is present, the command returns its value.
-    #  - If the attribute is not present, the command raises an error.
-    #
-    # Returns a boolean or the integer time-to-live value.
-
-    # Tailcall so varname context is correct
-    tailcall AttributeValue $sdr 7 $varname
-}
-
-proc iocp::bt::sdr::attribute::universal::ServiceAvailability {sdr {varname {}}} {
-    # Retrieve the service availability attribute from a service
-    # discovery record.
-    #  sdr - decoded service discovery record
-    #  varname - optional name of variable in caller's context.
-    #
-    # The service availability corresponds to the ServiceAvailability
-    # universal attribute in the Bluetooth Core specification. It
-    # is a value in the range 0-255 that indicates the relative
-    # availability of the service in terms of the number of additional
-    # clients it can accept.
-    #
-    # If $varname is not the empty string, it should be the name of
-    # a variable in the caller's context.
-    #  - If the attribute is present, the command returns `1` and
-    #    stores the attribute value in the variable.
-    #  - If the attribute is not present, the command returns 0.
-    #
-    # If $varname is an empty string,
-    #  - If the attribute is present, the command returns its value.
-    #  - If the attribute is not present, the command raises an error.
-    #
-    # Returns a boolean or the service availability value.
-
-    # Tailcall so varname context is correct
-    tailcall AttributeValue $sdr 8 $varname
-}
-
-proc iocp::bt::sdr::attribute::universal::DocumentationURL {sdr {varname {}}} {
-    # Retrieve the documentation url from a service discovery record.
-    #  sdr - decoded service discovery record
-    #  varname - optional name of variable in caller's context.
-    #
-    # The service record handle corresponds to the DocumentationURL
-    # universal attribute in the Bluetooth Core specification.
-    #
-    # If $varname is not the empty string, it should be the name of
-    # a variable in the caller's context.
-    #  - If the attribute is present, the command returns `1` and
-    #    stores the attribute value in the variable.
-    #  - If the attribute is not present, the command returns 0.
-    #
-    # If $varname is an empty string,
-    #  - If the attribute is present, the command returns its value.
-    #  - If the attribute is not present, the command raises an error.
-    #
-    # Returns a boolean or the documentation url.
-
-    # Tailcall so varname context is correct
-    tailcall AttributeValue $sdr 10 $varname
-}
-
-proc iocp::bt::sdr::attribute::universal::ClientExecutableURL {sdr {varname {}}} {
-    # Retrieve the client executable URL from a service discovery record.
-    #  sdr - decoded service discovery record
-    #  varname - optional name of variable in caller's context.
-    #
-    # The service record handle corresponds to the ClientExecutableURL
-    # universal attribute in the Bluetooth Core specification.
-    #
-    # If $varname is not the empty string, it should be the name of
-    # a variable in the caller's context.
-    #  - If the attribute is present, the command returns `1` and
-    #    stores the attribute value in the variable.
-    #  - If the attribute is not present, the command returns 0.
-    #
-    # If $varname is an empty string,
-    #  - If the attribute is present, the command returns its value.
-    #  - If the attribute is not present, the command raises an error.
-    #
-    # Returns a boolean or the client executable URL.
-
-    # Tailcall so varname context is correct
-    tailcall AttributeValue $sdr 11 $varname
-}
-
-proc iocp::bt::sdr::attribute::universal::IconURL {sdr {varname {}}} {
-    # Retrieve the icon URL from a service discovery record.
-    #  sdr - decoded service discovery record
-    #  varname - optional name of variable in caller's context.
-    #
-    # The service record handle corresponds to the IconURL
-    # universal attribute in the Bluetooth Core specification.
-    #
-    # If $varname is not the empty string, it should be the name of
-    # a variable in the caller's context.
-    #  - If the attribute is present, the command returns `1` and
-    #    stores the attribute value in the variable.
-    #  - If the attribute is not present, the command returns 0.
-    #
-    # If $varname is an empty string,
-    #  - If the attribute is present, the command returns its value.
-    #  - If the attribute is not present, the command raises an error.
-    #
-    # Returns a boolean or the icon URL.
-
-    # Tailcall so varname context is correct
-    tailcall AttributeValue $sdr 12 $varname
-}
 
 proc iocp::bt::sdr::Uuids {sdr attr_id {varname {}}} {
     if {! [attribute exists $sdr $attr_id attrval]} {
