@@ -597,7 +597,7 @@ BT_RadioStatusObjCmd (
 
     radioHandle = NULL;
     if (objc > 1) {
-        tclResult = PointerObjVerify(interp, objv[2], &radioHandle, "HRADIO");
+        tclResult = PointerObjVerify(interp, objv[1], &radioHandle, "HRADIO");
         if (tclResult != TCL_OK)
             return tclResult;
     }
