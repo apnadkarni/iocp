@@ -60,6 +60,9 @@ PKG_HEADERS	= @PKG_HEADERS@
 PKG_LIB_FILE	= @PKG_LIB_FILE@
 PKG_STUB_LIB_FILE = @PKG_STUB_LIB_FILE@
 
+# IOCP-specific to install into architecture-specific subdirectories
+PLATFORM_IDENTIFY = @PLATFORM_IDENTIFY@
+
 lib_BINARIES	= $(PKG_LIB_FILE)
 BINARIES	= $(lib_BINARIES)
 
@@ -360,22 +363,22 @@ install-lib-binaries: binaries
 	@mkdir -p $(DESTDIR)$(pkglibdir)
 	@list='$(lib_BINARIES)'; for p in $$list; do \
 	  if test -f $$p; then \
-	    echo " $(INSTALL_LIBRARY) $$p $(DESTDIR)$(pkglibdir)/$$p"; \
-	    $(INSTALL_LIBRARY) $$p $(DESTDIR)$(pkglibdir)/$$p; \
+	    echo " $(INSTALL_LIBRARY) $$p $(DESTDIR)$(pkglibdir)/$(PLATFORM_IDENTIFY)/$$p"; \
+	    $(INSTALL_LIBRARY) $$p $(DESTDIR)$(pkglibdir)/$(PLATFORM_IDENTIFY)/$$p; \
 	    stub=`echo $$p|sed -e "s/.*\(stub\).*/\1/"`; \
 	    if test "x$$stub" = "xstub"; then \
-		echo " $(RANLIB_STUB) $(DESTDIR)$(pkglibdir)/$$p"; \
-		$(RANLIB_STUB) $(DESTDIR)$(pkglibdir)/$$p; \
+		echo " $(RANLIB_STUB) $(DESTDIR)$(pkglibdir)/$(PLATFORM_IDENTIFY)/$$p"; \
+		$(RANLIB_STUB) $(DESTDIR)$(pkglibdir)/$(PLATFORM_IDENTIFY)/$$p; \
 	    else \
-		echo " $(RANLIB) $(DESTDIR)$(pkglibdir)/$$p"; \
-		$(RANLIB) $(DESTDIR)$(pkglibdir)/$$p; \
+		echo " $(RANLIB) $(DESTDIR)$(pkglibdir)/$(PLATFORM_IDENTIFY)/$$p"; \
+		$(RANLIB) $(DESTDIR)$(pkglibdir)/$(PLATFORM_IDENTIFY)/$$p; \
 	    fi; \
 	    ext=`echo $$p|sed -e "s/.*\.//"`; \
 	    if test "x$$ext" = "xdll"; then \
 		lib=`basename $$p|sed -e 's/.[^.]*$$//'`.lib; \
 		if test -f $$lib; then \
-		    echo " $(INSTALL_DATA) $$lib $(DESTDIR)$(pkglibdir)/$$lib"; \
-	            $(INSTALL_DATA) $$lib $(DESTDIR)$(pkglibdir)/$$lib; \
+		    echo " $(INSTALL_DATA) $$lib $(DESTDIR)$(pkglibdir)/$(PLATFORM_IDENTIFY)/$$lib"; \
+	            $(INSTALL_DATA) $$lib $(DESTDIR)$(pkglibdir)/$(PLATFORM_IDENTIFY)/$$lib; \
 		fi; \
 	    fi; \
 	  fi; \
