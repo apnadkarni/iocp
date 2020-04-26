@@ -15,9 +15,7 @@ namespace eval iocp {
         Windows I/O Completion Ports (IOCP), that is used by the other packages.
         The `iocp` namespace itself does not contain any exported commands.
 
-        The `iocp_inet` package implements the [::iocp::inet::socket] command which has
-        the same functionality as the Tcl `socket` command but with several
-        times the performance.
+        The `iocp_inet` package implements communication channels over TCP/IP.
 
         The `iocp_bt` package implements Bluetooth channels (currently client-only)
         along with supporting commands for device and service discovery.

@@ -21,6 +21,7 @@
 #include <BluetoothAPIs.h>
 
 #include "tcl.h"
+#include <errno.h>
 
 #include "tclhPointer.h"
 #include "tclhUuid.h"

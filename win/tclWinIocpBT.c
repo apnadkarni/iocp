@@ -786,10 +786,14 @@ static IocpTclCode ObjToBLUETOOTH_ADDRESS(
     BLUETOOTH_ADDRESS *btAddrPtr)
 {
     /*
-     * Use temp storage for two reasons:
-     *  - so as to not modify btAddrPtr[] on error
+     * Use temp storage so as to not modify btAddrPtr[] on error
      */
     unsigned char bytes[6];
+
+#if 0
+    /* Works with VS2017 but breaks with some versions of Mingw that have
+       trouble with hhx.
+    */
     unsigned char trailer; /* Used to ensure no trailing characters */
     if (sscanf_s(Tcl_GetString(objP),
                "%2hhx:%2hhx:%2hhx:%2hhx:%2hhx:%2hhx%c",
@@ -802,6 +806,61 @@ static IocpTclCode ObjToBLUETOOTH_ADDRESS(
         Tcl_AppendResult(interp, "Invalid Bluetooth address ", Tcl_GetString(objP), ".", NULL);
         return TCL_ERROR;
     }
+#else
+
+    int i;
+    char ch;
+    char *s = Tcl_GetString(objP);
+    for (i = 5; i >= 0; --i) {
+        unsigned int byte;
+        ch = *s++;
+
+        /* Get high nibble */
+        if (ch >= '0' && ch <= '9') {
+            byte = (ch - '0') << 4;
+        } else if (ch >= 'A' && ch <= 'F') {
+            byte = (ch - 'A' + 10) << 4;
+        } else if (ch >= 'a' && ch <= 'f') {
+            byte = (ch - 'a' + 10) << 4;
+        } else {
+            /* \0 or some some other char */
+            goto bad_address;
+        }
+
+        /* Get low nibble */
+        ch = *s++;
+        if (ch >= '0' && ch <= '9') {
+            byte |= (ch - '0');
+        } else if (ch >= 'A' && ch <= 'F') {
+            byte |= (ch - 'A' + 10);
+        } else if (ch >= 'a' && ch <= 'f') {
+            byte |= (ch - 'a' + 10);
+        } else {
+            /* \0 or some some other char */
+            goto bad_address;
+        }
+        /* Point to ":" separator or last \0 */
+        ch = *s++;
+        if (ch != ':' && ch != '-' && ch != 0)
+            goto bad_address;
+        bytes[i] = byte;
+    }
+
+    /* All 6 bytes filled and no leftover chars in string -> OK */
+    if (i < 0 && ch == '\0') {
+        for (i = 0; i < 6; ++i)
+            btAddrPtr->rgBytes[i] = bytes[i];
+        return TCL_OK;
+    }
+
+bad_address:
+    Tcl_AppendResult(interp, "Invalid Bluetooth address ", Tcl_GetString(objP), ".", NULL);
+    return TCL_ERROR;
+
+#endif
+
+
+
 }
 
 static Tcl_Obj *ObjFromSOCKADDR_BTH(const SOCKADDR_BTH *sockAddr)
