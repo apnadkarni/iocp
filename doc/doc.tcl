@@ -29,8 +29,12 @@ namespace eval iocp::inet {
 
     variable _ruff_preamble {
         The `iocp::inet` namespace implements communication over
-        TCP/IP. It provides the same interfaces as the Tcl core `socket`
+        TCP/IP. It provides the same interface as the Tcl core `socket`
         command but with greater performance.
+
+        The package is loaded as
+
+            package require iocp_inet
     }
 
     proc socket args {
@@ -53,8 +57,9 @@ namespace eval iocp::inet {
 namespace eval iocp::bt {
 
     variable _ruff_preamble {
-        The `iocp::bt` namespace implements commands for communicating
-        over Bluetooth. 
+        The `iocp_bt` package implements Bluetooth support and is loaded as
+
+            package require iocp_bt
 
         The commands are broken into the following namespaces:
 

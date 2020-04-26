@@ -556,6 +556,10 @@ proc iocp::bt::sdr::TextAttribute {sdr attr_offset lang {varname {}}} {
         # SDR specified an encoding but not one that Tcl knows about
         set text [binary encode hex $name]
     } else {
+        # The string may be null terminated. TBD - always?
+        if {[string index $name end] eq "\0"} {
+            set name [string range $name 0 end-1]
+        }
         set text [encoding convertfrom $enc $name]
     }
 

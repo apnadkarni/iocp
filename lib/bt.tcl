@@ -649,7 +649,7 @@ proc iocp::bt::ResolveDeviceUnique {device} {
     if {[IsAddress $device]} {
         return $device
     }
-    set addrs [device_address $device]
+    set addrs [device address $device]
     if {[llength $addrs] == 0} {
         error "Could not resolve Bluetooth device name \"$device.\""
     } elseif {[llength $addrs] > 1} {
