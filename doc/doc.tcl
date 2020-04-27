@@ -22,8 +22,7 @@ namespace eval iocp {
         ## Downloads
 
         The extension may be downloaded from
-        <https://sf.net/p/magicsplat/files/iocp>.
-
+        <https://sourceforge.net/projects/magicsplat/files/iocp/>.
     }
 }
 

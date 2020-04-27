@@ -2058,7 +2058,6 @@ test socket-14.7.0 {pending [iocp::inet::socket -async] and blocking [gets], ser
 	vwait x
     }
     makeFile $server_code script
-    file copy -force -- script  script.sav
     set fd [open |[list [interpreter] script] RDWR]
     set port [gets $fd]
 } -constraints {supported_inet localhost_v4 notOSX} -body {
