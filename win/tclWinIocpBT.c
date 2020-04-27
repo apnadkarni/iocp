@@ -799,6 +799,7 @@ static IocpTclCode ObjToBLUETOOTH_ADDRESS(
                "%2hhx:%2hhx:%2hhx:%2hhx:%2hhx:%2hhx%c",
                  &bytes[5], &bytes[4], &bytes[3], &bytes[2], &bytes[1], &bytes[0], &trailer, 1) == 6) {
         int i;
+        btAddrPtr->ullLong = 0;
         for (i = 0; i < 6; ++i)
             btAddrPtr->rgBytes[i] = bytes[i];
         return TCL_OK;
@@ -848,6 +849,12 @@ static IocpTclCode ObjToBLUETOOTH_ADDRESS(
 
     /* All 6 bytes filled and no leftover chars in string -> OK */
     if (i < 0 && ch == '\0') {
+        /*
+         * Need to clear out high 2 bytes even though they are unused.
+         * Else fails on x86
+         */
+        btAddrPtr->ullLong = 0;
+        /* Copy the remaining 6 bytes into lower bytes of ullLong */
         for (i = 0; i < 6; ++i)
             btAddrPtr->rgBytes[i] = bytes[i];
         return TCL_OK;
