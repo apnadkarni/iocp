@@ -13,6 +13,7 @@
 
 #if defined(BUILD_iocp)
 # define IOCP_INET_NAME_PREFIX   "tcp"
+# define PACKAGE_NAME_INET PACKAGE_NAME "_inet"
 #else
 # define IOCP_INET_NAME_PREFIX   "sock"
 #endif
@@ -1706,5 +1707,6 @@ Tcp_SocketObjCmd (
 IocpTclCode Tcp_ModuleInitialize (Tcl_Interp *interp)
 {
     Tcl_CreateObjCommand(interp, "iocp::inet::socket", Tcp_SocketObjCmd, 0L, 0L);
+    Tcl_PkgProvide(interp, PACKAGE_NAME_INET, PACKAGE_VERSION);
     return TCL_OK;
 }

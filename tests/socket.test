@@ -1,6 +1,12 @@
 set iocp_load_command {
     load ../win/Release_AMD64_VC1916/iocp01t.dll
 }
+set iocp_load_command {
+    apply {{} {
+        lappend ::auto_path d:/tcl/lib
+        package require iocp_inet
+    }}
+}
 {*}$iocp_load_command
 #rename socket {}
 # Commands tested in this file: socket.

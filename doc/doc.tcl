@@ -7,18 +7,23 @@ package require iocp_bt
 
 namespace eval iocp {
     variable _preamble {
-        The `iocp` set of packages implements channels and related utility
-        commands on Windows platforms. The package requires Windows 7
-        or later.
 
-        The base `iocp` package implements the core functionality, based on
-        Windows I/O Completion Ports (IOCP), that is used by the other packages.
-        The `iocp` namespace itself does not contain any exported commands.
+        The `iocp` Tcl extension implements channels and related utility
+        commands on Windows platforms based on Windows I/O Completion Ports
+        (IOCP). The extension requires Windows 7 or later.
 
-        The `iocp_inet` package implements communication channels over TCP/IP.
+        The extension includes the following packages:
 
-        The `iocp_bt` package implements Bluetooth channels (currently client-only)
+        * The `iocp_inet` package implements communication channels over TCP/IP.
+
+        * The `iocp_bt` package implements Bluetooth channels (currently client-only)
         along with supporting commands for device and service discovery.
+
+        ## Downloads
+
+        The extension may be downloaded from
+        <https://sf.net/p/magicsplat/files/iocp>.
+
     }
 }
 
@@ -38,7 +43,7 @@ namespace eval iocp::inet {
     proc socket args {
         # Returns a client or server TCP/IP channel.
         #   args - see the Tcl core `socket` command
-        # The command provides the same interface as the Tcl core 
+        # The command provides the same interface as the Tcl core
         # [socket](http://www.tcl-lang.org/man/tcl8.6/TclCmd/socket.htm)
         # command. Refer to the Tcl 
         # [documentation](http://www.tcl-lang.org/man/tcl8.6/TclCmd/socket.htm)
