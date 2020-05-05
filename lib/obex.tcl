@@ -205,13 +205,60 @@ proc obex::packet_length {packet} {
 }
 
 
-proc obex::header::encode {args} {
+proc obex::header::encode {header_name header_value} {
+    set hi [Id $header_name]
+    # Top 2 bits encode data type
+    switch -exact -- [expr {$hi >> 6}] {
+        0 {
+            # Encode as big-endian unicode
+            set unicode_be [ToUnicodeBE $header_value]
+            # Add a length field where the length includes 3 bytes for Header byte
+            # and 2 bytes for length, and the 2 bytes for terminating Unicode null.
+            set hlen [expr {3+[string length $unicode_be]+2}]
+            append encoded [binary format cS $hi $hlen] $unicode_be "\0\0"
+            return $encoded
+        }
+        1 {
+            # Just an array of bytes. Caller has to ensure that is what it  is.
+            set hlen [expr {3 + [string length $header_value]}]
+            append encoded [binary format cS $hi $hlen] $header_value
+            return $encoded
+        }
+        2 {
+            # Single byte. Always room since space_left check at top
+            return [binary format cc $hi $header_value]
+        }
+        3 {
+            # Big endian 4 bytes
+            return [binary format cI $hi $header_value]
+        }
+    }
+}
+
+proc obex::header::encoden {args} {
+    if {[llength $args] == 1} {
+        set args [lindex $args 0]
+    }
+    set headers {}
+    foreach {name value} {
+        lappend headers [encode $name $value]
+    }
+    return $headers
+}
+
+proc obex::header::TBDencoden {maxlen args} {
     if {[llength $args] == 1} {
         set args [lindex $args 0]
     }
 
-    set encoded ""
+    set encoded {}
+    set unencoded_headers {}
+    set space_left $maxlen
     foreach {header_name header_value} $args {
+        if {$space_left == 0} {
+            lappend unencoded_headers $header_name $header_value
+            continue
+        }
         set hi [Id $header_name]
         # Top 2 bits encode data type
         switch -exact -- [expr {$hi >> 6}] {
@@ -220,28 +267,47 @@ proc obex::header::encode {args} {
                 set unicode_be [ToUnicodeBE $header_value]
                 # Add a length field where the length includes 3 bytes for Header byte
                 # and 2 bytes for length, and the 2 bytes for terminating Unicode null.
-                append encoded \
-                    [binary format cS $hi [expr {3+[string length $unicode_be]+2}]] \
-                    $unicode_be "\0\0"
+                set hlen [expr {3+[string length $unicode_be]+2}]
+                if {$hlen > $space_left} {
+                    lappend unencoded_headers $header_name $header_value
+                    set space_left 0; # So remaining headers are ignored as well
+                } else {
+                    lappend encoded \
+                        [binary format cS $hi $hlen] $unicode_be "\0\0"
+                    set space_left [expr {$space_left - hlen}]
+                }
             }
             1 {
                 # Just an array of bytes. Caller has to ensure that is what it  is.
-                append encoded \
-                    [binary format cS $hi [expr {3 + [string length $header_value]}]] \
-                    $header_value
+                set hlen [expr {3 + [string length $header_value]}]
+                if {$hlen > $space_left} {
+                    lappend unencoded_headers $header_name $header_value
+                    set space_left 0; # So remaining headers are ignored as well
+                } else {
+                    lappend encoded \
+                        [binary format cS $hi $hlen] $header_value
+                    set space_left [expr {$space_left - hlen}]
+                }
             }
             2 {
-                # Single byte
-                append encoded [binary format cc $hi $header_value]
+                # Single byte. Always room since space_left check at top
+                lappend encoded [binary format cc $hi $header_value]
+                incr space_left -1
             }
             3 {
                 # Big endian 4 bytes
-                append encoded [binary format cI $hi $header_value]
+                if {4 > $space_left} {
+                    lappend unencoded_headers $header_name $header_value
+                    set space_left 0; # So remaining headers are ignored as well
+                } else {
+                    lappend encoded [binary format cI $hi $header_value]
+                    incr space_left -4
+                }
             }
         }
     }
 
-    return $encoded
+    return [list $encoded $unencoded_headers]
 }
 
 proc obex::header::DecodeFirst {bytes start} {
@@ -581,13 +647,18 @@ oo::class create obex::Client {
     #  state - IDLE, BUSY, ERROR
     #  max_packet_len - max negotiated length of packet
     #  connection_id - ConnectionId as sent by remote. May not be present.
+    #  connection_header - Binary connection header corresponding to $connection_id
     #  target - Target header sent, if any
     #  who    - Who header sent, if any
     # Per request:
     #  input - input buffer for received data
-    #  request - current request. Only valid in BUSY or ERROR states.
+    #  request - current request.
+    #  request_headers - headers to send in current request in encoded binary form
+    #  request_body - content to send in request. If not present for a PUT,
+    #   it is a PUT-DELETE request.
+    #  request_body_offset - offset into request_body of next byte to send
     #  response - latest response
-    #  headers - headers received for latest request
+    #  response_headers - accumulated headers received in responses to request
     variable state
 
     constructor args {
@@ -606,6 +677,7 @@ oo::class create obex::Client {
         # Connection specific state
         set state(state)  IDLE
         unset -nocomplain state(connection_id)
+        unset -nocomplain state(connection_header)
         unset -nocomplain state(target)
         unset -nocomplain state(who)
         set state(max_packet_len) 255; # Assume min unless remote tells otherwise
@@ -614,56 +686,31 @@ oo::class create obex::Client {
         my ResetRequest
     }
 
-    method connect {args} {
-        # Generates a Obex connect request.
-        #  args - If a single argument, it must be a dictionary mapping names
-        #   of <Obex headers> to their values. Otherwise, it must be
-        #   a list of alternating header names and values.
-        #
-        # It is the caller's responsibility to ensure the value associated
-        # with the header is formatted as described in <Obex headers> and
-        # that the supplied headers if any are acceptable in `connect` request.
-        # The following headers are commonly used in connects:
-        # `Target`, `Who`, `Count`, `Length` and `Description`.
-        if {[info exists state(connection_id)]} {
-            error "Already connected."
-        }
-        my BeginRequest connect
-        return [request encode connect {*}$args]
-    }
-
-    method disconnect {args} {
-        # Generates a Obex disconnect request.
-        #  args - If a single argument, it must be a dictionary mapping names
-        #   of <Obex headers> to their values. Otherwise, it must be
-        #   a list of alternating header names and values.
-        #
-        # It is the caller's responsibility to ensure the value associated
-        # with the header is formatted as described in <Obex headers> and
-        # that the supplied headers if valid for `disconnect` requests.
-        # The `ConnectionId` header is automatically generated as needed
-        # and shoould not be included by the caller.
-        if {![info exists state(connection_id)]} {
-            error "Not connected."
-        }
-        my BeginRequest disconnect
-        return [request encode disconnect [my Headers {*}$args]]
-    }
-
     method input {data} {
         # Process data from the remote server.
         #   data - Binary data as received from remote server.
         # The method takes as input data received from the server as part of
-        # the response to a request. The return value from the method is one
-        # of the following:
-        #   `complete`   - The full response has been received. The application
+        # the response to a request. The return value from the method is a list
+        # of one or two elements. The first element is one of the following:
+        #   `done`   - The full response has been received. The application
         #                  can then call any of the retrieval methods or initiate
-        #                  another request.
-        #   `incomplete` - The response has only been partially received. The
-        #                  application should read more data from the server and
-        #                  invoke the method again.
+        #                  another request. If the second element is present and
+        #                  and not empty, it is data to be sent to the server.
+        #                  The application can call other methods to retrieve
+        #                  the result of the request. The application may also
+        #                  call methods to initiate the next request.
+        #   `continue` - The response has only been partially received. If
+        #                  the second element is present and not empty, it is
+        #                  data to be sent to the server. In either case, the
+        #                  application should read more data from the server
+        #                  and invoke the `input` method again passing it the
+        #                  read data.
         #   `failed`     - The request has failed. See <Error handling> for
-        #                  dealing with errors and failures.
+        #                  dealing with errors and failures. If
+        #                  the second element is present and not empty, it is
+        #                  data to be sent to the server. In either case, the
+        #                  application must not invoke additional requests without
+        #                  first calling the <reset> method.
         #
         # This method will raise an exception if no request is currently
         # outstanding.
@@ -678,7 +725,7 @@ oo::class create obex::Client {
         set response_length [packet_length $inbuf]
         # response_length == 0 => even length field not received yet.
         if {$response_length == 0 || $response_length > $input_length} {
-            return incomplete
+            return continue
         }
 
         set response [response decode $inbuf $pending_request]
@@ -698,7 +745,7 @@ oo::class create obex::Client {
         set state(response) $response
 
         # For multipart responses, collect headers
-        lappend state(headers) {*}[dict get $response Headers]
+        lappend state(response_headers) {*}[dict get $response Headers]
 
         # Assume we are now free for more requests
         set state(state) IDLE
@@ -750,11 +797,283 @@ oo::class create obex::Client {
         return $status
     }
 
+    method connect {args} {
+        # Generates a Obex connect request.
+        #  args - If a single argument, it must be a dictionary mapping names
+        #   of <Obex headers> to their values. Otherwise, it must be
+        #   a list of alternating header names and values.
+        #
+        # It is the caller's responsibility to ensure the value associated
+        # with the header is formatted as described in <Obex headers> and
+        # that the supplied headers if any are acceptable in `connect` request.
+        # The following headers are commonly used in connects:
+        # `Target`, `Who`, `Count`, `Length` and `Description`.
+        if {[info exists state(connection_id)]} {
+            error "Already connected."
+        }
+        set state(request_headers) [header encoden {*}$args]
+        # 7 bytes for fixed fields -> 255-7 = 248 for headers
+        lassign [my PopHeaders 248] len headers
+        if {[llength $state(request_headers)]} {
+            # Not all headers fit. Connect request must be a single packet
+            my RaiseError "Headers too long for connect request."
+        }
+        incr len 7;             # Fixed fields
+        # Packet is opcode 0x80, 2 bytes length, version (1.0->0x10),
+        # flags (0), 2 bytes max len (proposed)
+        append packet [binary format cuSucucuSu 0x80 $len 0x10 0 65535] {*}$headers
+        my BeginRequest connect
+        return [list continue $packet]
+    }
+
+    method ConnectResponse {} {
+        dict with state(response) {
+            if {$StatusCode != 0xA0} {
+                # As per Obex 1.3 sec 3.3.1.8 any other code is failure
+                set state(state) ERROR
+                return failed
+            }
+            # Store connection id if it exists
+            if {[header find $Headers ConnectionId state(connection_id)]} {
+                set state(connection_header) \
+                    [header encode ConnectionId $state(connection_id)]
+            }
+            # On init we assume worst case of 255 byte packets. If
+            # remote is willing to go higher, use that.
+            if {$MaxLength > 255} {
+                set state(max_packet_len) $MaxLength
+            }
+            # TBD - all other headers - Target, Who etc.
+        }
+        set state(state) IDLE
+        return done
+    }
+
+    method disconnect {args} {
+        # Generates a Obex disconnect request.
+        #  args - If a single argument, it must be a dictionary mapping names
+        #   of <Obex headers> to their values. Otherwise, it must be
+        #   a list of alternating header names and values.
+        #
+        # It is the caller's responsibility to ensure the value associated
+        # with the header is formatted as described in <Obex headers> and
+        # that the supplied headers if valid for `disconnect` requests.
+        # The `ConnectionId` header is automatically generated as needed
+        # and shoould not be included by the caller.
+        if {![info exists state(connection_id)]} {
+            error "Not connected."
+        }
+        set state(request_headers) [header encoden {*}$args]
+        # Header space is max packet minus packet header of 3 bytes
+        lassign [my PopHeaders [expr {$state(max_packet_len) - 3}]] len headers
+        if {[llength $state(request_headers)]} {
+            # Not all headers fit. Disconnect request must be a single packet
+            my RaiseError "Headers too long for disconnect request."
+        }
+        incr len 3;             # Fixed fields
+        append packet [binary format cuSu 0x81 $len] {*}$headers
+        my BeginRequest disconnect
+        return [list continue $packet]
+    }
+
+    method DisconnectResponse {} {
+        if {[dict get $state(response) StatusCode] != 0xA0} {
+            # As per Obex 1.3 sec 3.3.1.8 any other code is failure
+            set state(state) ERROR
+            return failed
+        } else {
+            set state(state) IDLE
+            return done
+        }
+    }
+
+    method put {content args} {
+        # Generates a Obex `PUT` request.
+        #  content - Content to be sent to server as-is. This must be formatted
+        #   appropriately based on the `Type` header, `Http` or `ObjectClass`
+        #   headers passed in. If none of these are present,
+        #   the server may interpret $content in any
+        #   manner it chooses, possibly looking at the `Name` header if present,
+        #   some default handling or even rejecting the request.
+        #  args - If a single argument, it must be a dictionary mapping names
+        #   of <Obex headers> to their values. Otherwise, it must be
+        #   a list of alternating header names and values.
+        #
+        # It is the caller's responsibility to ensure the value associated
+        # with the header is formatted as described in <Obex headers> and
+        # that the supplied headers if any are acceptable in `put` request.
+        # The following headers are commonly used in put operations:
+        # `Name`, `Type`, `Http`, `Timestamp` and `Description`.
+        # The headers `Body`, `EndOfBody`, `Length` and `ConnectionId`
+        # are automatically generated and should not be passed in.
+        if {[info exists state(connection_id)]} {
+            error "Already connected."
+        }
+        # TBD - maybe break up content into body headers assuming body space
+        #  is packet size - packet header - connection id header. That would
+        # simplify Put method
+        my BeginRequest put
+        set state(request_headers) [header encoden {*}$args Length [string length $content]]
+        set state(request_body) $content
+        set state(request_body_offset) 0
+        return [my Put]
+    }
+
+    method put_delete {args} {
+        # Generates a Obex `PUT` request to delete an object.
+        #  args - If a single argument, it must be a dictionary mapping names
+        #   of <Obex headers> to their values. Otherwise, it must be
+        #   a list of alternating header names and values.
+        #
+        # It is the caller's responsibility to ensure the value associated
+        # with the header is formatted as described in <Obex headers> and
+        # that the supplied headers if any are acceptable in `put` request.
+        # The following headers are commonly used in put operations:
+        # `Name`, `Type`, `Http`, `Timestamp` and `Description`.
+        # The headers `Body`, `EndOfBody`, `Length` should not be present
+        # in a delete operation and should not be passed in. Moreover,
+        # `ConnectionId` header is automatically generated and should not
+        # be passed in.
+        if {[info exists state(connection_id)]} {
+            error "Already connected."
+        }
+        my BeginRequest put
+        set state(request_headers) [header encoden {*}$args Length [string length $content]]
+        return [my Put]
+    }
+
+    method Put {} {
+        # Put opcode+len occupies 3 bytes
+        set space [expr {$state(max_packet_len)-3}]
+
+        lassign [my PopHeaders $space] len headers
+        incr len 3;         # For opcode fields
+        set space [expr {$space - $len}]
+        # If we still have more headers to send or remaining space is not
+        # enough for even one byte of content body, or there is no body to
+        # send (put-delete) send off what we have.
+        if {[llength $state(request_headers)] ||
+            $space < 4 ||
+            ![info exists state(request_body)]
+        } {
+            # This is not strictly needed but preferable in most cases
+            # that Body headers come last.
+            # 0x02 -> PUT without FINAL bit
+            append packet [binary format cuSu 0x02 $len] {*}$headers
+            return [list continue $packet]
+        }
+
+        # We can send at least one byte
+        set body_len [expr {
+                            [string length $state(request_body)]
+                            - $state(request_body_offset)
+                        }]
+        incr space -3;          # Body header
+        if {$space >= $body_len} {
+            # We can send the entire body.
+            set op 0x82;        # FINAL + PUT
+            set hdrop EndOfBody
+        } else {
+            set body_len $space
+            set op 0x02;        # PUT only
+            set hdrop Body
+        }
+        set body_header [header encode $hdrop \
+                             [string range $state(request_body) \
+                                  $state(request_body_offset) \
+                                  [expr {$state(request_body_offset) + $body_len - 1}] \
+                                 ]]
+        incr state(request_body_offset) $body_len
+        incr len [string length $body_header]
+        append packet [binary format cuSu $op $len] {*}$headers $body_header
+        return [list continue $packet]
+    }
+
+    method PutResponse {} {
+        set status_code [dict get $state(response) StatusCode]
+        if {$status_code == 0xA0} {
+            # Success. Double check that all data was sent.
+            if {[info exists state(request_body)] &&
+                $state(request_body_offset) < [string length $state(request_body)]} {
+                set state(state) ERROR
+                # TBD - set status, error message to protocol error.
+                return failed
+            } else {
+                # Ready to accept more requests.
+                set state(state) IDLE
+                return done
+            }
+        } elseif {$status_code == 0x90} {
+            # Send the next packet in the request
+            return [my Put]
+        } else {
+            # Any other response is an error
+            ## TBD - send an abort?
+            set state(state) ERROR
+            return failed
+        }
+    }
+
+    method get {args} {
+        # Generates a Obex `GET` request.
+        #  args - If a single argument, it must be a dictionary mapping names
+        #   of <Obex headers> to their values. Otherwise, it must be
+        #   a list of alternating header names and values.
+        #
+        # It is the caller's responsibility to ensure the value associated
+        # with the header is formatted as described in <Obex headers> and
+        # that the supplied headers if any are acceptable in `put` request.
+        # The following headers are commonly used in put operations:
+        # `Name`, `Type`, `Http`, `Timestamp` and `Description`.
+        if {[info exists state(connection_id)]} {
+            error "Already connected."
+        }
+        my BeginRequest get
+        set state(request_headers) [header encoden {*}$args]
+        return [my Get]
+    }
+
+    method Get {} {
+        # Get opcode+len occupies 3 bytes
+        set space [expr {$state(max_packet_len)-3}]
+
+        lassign [my PopHeaders $space] len headers
+        incr len 3;         # For opcode fields
+
+        if {[llength $state(request_headers)]} {
+            # Still have headers to send
+            set op 0x03;        # GET
+        } else {
+            set op 0x83;        # GET+FINAL
+        }
+        append packet [binary format cuSu $op $len] {*}$headers
+        return [list continue $packet]
+    }
+
+    method GetResponse {} {
+        set status_code [dict get $state(response) StatusCode]
+        if {$status_code == 0xA0} {
+            set state(state) IDLE
+            return done
+        } elseif {$status_code == 0x90} {
+            # Send the next packet in the request
+            return [my Get]
+        } else {
+            # Any other response is an error
+            ## TBD - send an abort?
+            set state(state) ERROR
+            return failed
+        }
+    }
+
     method ResetRequest {} {
         set state(request) ""
-        unset -nocomplain state(response)
         set state(input) ""
-        set state(headers) {}
+        set state(request_headers) {}
+        unset -nocomplain state(request_body)
+        set state(request_body_offset) 0
+        set state(response_headers) {}
+        unset -nocomplain state(response)
     }
 
     method BeginRequest {request} {
@@ -770,49 +1089,54 @@ oo::class create obex::Client {
         }
     }
 
-    method Headers {args} {
-        # Inserts any automatic headers into the passed headers.
-        if {[llength $args] == 1} {
-            set headers [lindex $args 0]
-        } else {
-            set headers $args
+    method PopHeaders {space} {
+        set headers [list ]
+        set total_len 0;        # Track total length of headers
+        if {[info exists state(connection_header)]} {
+            set hdrlen [string length $state(connection_header)]
+            if {$space < $hdrlen} {
+                # Should not happen
+                error "No room for connection id header."
+            }
+            lappend headers $state(connection_header)
+            set space [expr {$space - $hdrlen}]
+            incr total_len $hdrlen
         }
-        if {[info exists state(connection_id)]} {
-            return [linsert $headers 0 ConnectionId $state(connection_id)]
+        # Add additional headers
+        set i 0
+        foreach $header $state(request_headers) {
+            set hdrlen [string length $header]
+            if {$space < $hdrlen} {
+                break
+            }
+            lappend headers $header
+            incr i
+            set space [expr {$space - $hdrlen}]
+            incr total_len $hdrlen
         }
-        return $headers
+
+        if {$i == 0} {
+            # Could not even fit one header other than connection id which
+            # must be sent in every packet if present. This is bad.
+            # TBD - how to report headers
+            my RaiseError "A packet header exceeds connection packet size limit."
+        }
+
+        # Update state to reflect headers still to be sent.
+        set state(request_headers) [lrange $state(request_headers) $i end]
+
+        return [list $total_len $headers]
     }
 
-
-    method ConnectResponse {} {
-        dict with state(response) {
-            if {$StatusCode != 0xA0} {
-                # As per Obex 1.3 sec 3.3.1.8 any other code is failure
-                set state(state) ERROR
-                return failed
-            }
-            # Store connection id if it exists
-            header find $Headers ConnectionId state(connection_id)
-            # On init we assume worst case of 255 byte packets. If
-            # remote is willing to go higher, use that.
-            if {$MaxLength > 255} {
-                set state(max_packet_len) $MaxLength
-            }
-            # TBD - all other headers - Target, Who etc.
+    method AssertOutgoingPacketLength {packet maxlen} {
+        if {[string length $packet] > $maxlen} {
+            my RaiseError "Outgoing packet length [string length $packet] exceeds max allowed packet length $maxlen."
         }
-        set state(state) IDLE
-        return complete
     }
 
-    method DisconnectResponse {} {
-        if {[dict get $state(response) StatusCode] != 0xA0} {
-            # As per Obex 1.3 sec 3.3.1.8 any other code is failure
-            set state(state) ERROR
-            return failed
-        } else {
-            set state(state) IDLE
-            return complete
-        }
+    method RaiseError {message} {
+        set state(state) ERROR
+        return -level 1 -code error $message
     }
 }
 
