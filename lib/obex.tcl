@@ -36,7 +36,7 @@ namespace eval obex {
 
     namespace eval header {
         namespace path [namespace parent]
-        namespace export encode encoden decode find
+        namespace export encode encoden decode find findall
         namespace ensemble create
 
         variable Ids
@@ -345,10 +345,6 @@ proc obex::header::decode {bytes start} {
 }
 
 proc obex::header::find {headers key outvar} {
-    if {[llength $headers] == 1} {
-        set headers [lindex $headers 0]
-    }
-    set key [Name $key]
     foreach {name val} $headers {
         if {[string equal -nocase $key $name]} {
             upvar 1 $outvar v
@@ -358,6 +354,17 @@ proc obex::header::find {headers key outvar} {
     }
     return 0
 }
+
+proc obex::header::findall {headers key} {
+    set values {}
+    foreach {name val} $headers {
+        if {[string equal -nocase $key $name]} {
+            lappend values $val
+        }
+    }
+    return $values
+}
+
 
 if {$::tcl_platform(byteOrder) eq "littleEndian"} {
     proc obex::ToUnicodeBE {s} {
@@ -500,7 +507,7 @@ proc obex::response::StatusName {op} {
     }
     proc StatusName {op} {
         variable StatusNames
-        set op [expr {$op & ~0x80}]; # Knock off final bit
+        set op [expr {$op & 0x7f}]; # Knock off final bit
         set op [format 0x%2.2X $op]
         if {[info exists StatusNames($op)]} {
             return $StatusNames($op)
@@ -534,6 +541,7 @@ proc obex::response::StatusCode {name} {
 }
 
 proc obex::response::StatusCategory {status} {
+    set status [expr {$status & 0x7f}]
     if {$status < 0x10} {
         return protocolerror
     } elseif {$status < 0x20} {
@@ -606,6 +614,37 @@ proc obex::header::Name {hid} {
 
 oo::class create obex::Util::Helpers {
     variable state; # Should be defined in containing class
+
+    method headers {name} {
+        # Retrieves the content of headers of a given type.
+        #  name - name of the header
+        # Returns a list each element of which is the value of a header
+        #
+        return [header findall $state(headers_in)]
+    }
+
+    method bodies {} {
+        # Get the data content in a request or response
+        #
+        # The data content is transferred in Obex through headers of type `Body`
+        # and `EndOfBody`. This method returns the values received through these
+        # headers as a list. The content is in binary form and needs to be
+        # appropriately interpreted depending on the application specifics. Note
+        # the content may be fragmented at arbitrary boundaries during
+        # transmission and so the returned values may need to be concatenated
+        # before operations like UTF-8 decoding.
+        #
+        # Returns list of binary strings received through `Body` and `EndOfBody`
+        # headers.
+
+        set bodies {}
+        foreach {name val} $state(headers_in) {
+            if {$name in {Body EndOfBody}} {
+                lappend bodies $val
+            }
+        }
+        return $bodies
+    }
 
     method OutgoingPacket {op is_response {extra_fields {}}} {
         # Constructs a outgoing packet from the queued outgoing headers.
@@ -687,9 +726,37 @@ oo::class create obex::Util::Helpers {
         return [list $total_len $headers]
     }
 
+    method SplitContent {content} {
+        # Splits content into fragments based on maximum packet size.
+
+        # Max length of a body excluding its header is
+        # max packet size minus size of packet header (3) minus size of
+        # connection id header (5) if any, minus size of body header (3)
+        set fragment_len [expr {$state(max_packet_len) - 3 - 3}]
+        if {[info exists state(connection_header)]} {
+            set fragment_len [expr {$fragment_len - [string length $state(connection_header)]}]
+        }
+        set content_len [string length $content]
+        set start 0
+        set end [expr {$start + $fragment_len - 1}]
+        set headers {}
+        while {$start < $content_len} {
+            lappend headers Body [string range $content $start $end]
+            incr start $fragment_len
+            incr end $fragment_len
+        }
+        return $headers
+    }
+
     method AssertState {required_state} {
         if {$state(state) ne $required_state} {
             error "Method not allowed in state $state(state)."
+        }
+    }
+
+    method AssertNotState {not_state} {
+        if {$state(state) eq $not_state} {
+            error "Method not allowed in state $not_state."
         }
     }
 
@@ -758,6 +825,17 @@ oo::class create obex::Client {
         my ResetRequest
     }
 
+    method clear {} {
+        # Clears error state if any.
+        #
+        # The object is restored to an idle state readying it for another
+        # request. The command will raise an error if called while a request
+        # is in progress.
+        my ResetRequest
+        set state(state) IDLE
+        return
+    }
+
     method input {data} {
         # Process data from the remote server.
         #   data - Binary data as received from remote server.
@@ -819,17 +897,21 @@ oo::class create obex::Client {
 
         # Do request-specific processing
         return [switch -exact -- $state(op) {
-            connect    { my ConnectResponse }
-            disconnect { my DisconnectResponse }
-            put        { my PutResponse }
-            get        { my GetResponse }
-            setpath    { my SetPathResponse }
-            session    { my SessionResponse }
-            abort      { my AbortResponse }
+            connect    { my ConnectResponseHandler }
+            disconnect { my DisconnectResponseHandler }
+            put        { my PutResponseHandler }
+            get        { my GetResponseHandler }
+            setpath    { my SetPathResponseHandler }
+            session    { my SessionResponseHandler }
+            abort      { my AbortResponseHandler }
             default {
                 error "Unexpected request opcode $state(op)."
             }
         }]
+    }
+
+    method get_response {} {
+        return $state(response)
     }
 
     method idle {} {
@@ -860,7 +942,7 @@ oo::class create obex::Client {
         dict with state(response) {
             lappend status Status $Status \
                 StatusCode $StatusCode \
-                StatusName [response::StatusName $Status]
+                StatusName [response::StatusName $StatusCode]
             if {[info exists ErrorMessage]} {
                 lappend status ErrorMessage $ErrorMessage
             }
@@ -894,7 +976,7 @@ oo::class create obex::Client {
         return [list continue $packet]
     }
 
-    method ConnectResponse {} {
+    method ConnectResponseHandler {} {
         dict with state(response) {
             if {$StatusCode != 0xA0} {
                 # As per Obex 1.3 sec 3.3.1.8 any other code is failure
@@ -940,7 +1022,7 @@ oo::class create obex::Client {
         return [list continue $packet]
     }
 
-    method DisconnectResponse {} {
+    method DisconnectResponseHandler {} {
         if {[dict get $state(response) StatusCode] != 0xA0} {
             # As per Obex 1.3 sec 3.3.1.8 any other code is failure
             set state(state) ERROR
@@ -968,16 +1050,13 @@ oo::class create obex::Client {
         # `Name`, `Type`, `Http`, `Timestamp` and `Description`.
         # The headers `Body`, `EndOfBody`, `Length` and `ConnectionId`
         # are automatically generated and should not be passed in.
-        if {[info exists state(connection_id)]} {
-            error "Already connected."
-        }
 
         # TBD - maybe break up content into body headers assuming body space
         #  is packet size - packet header - connection id header. That would
         # simplify Put method
-        my BeginRequest put
 
-        lappend headers Length [string length $content] {*}[my SplitBody $content]
+        my BeginRequest put
+        lappend headers Length [string length $content] {*}[my SplitContent $content]
         set state(headers_out) [header encoden $headers]
         return [list continue [my OutgoingPacket 0x02 0]]
     }
@@ -995,15 +1074,13 @@ oo::class create obex::Client {
         # in a delete operation and should not be passed in. Moreover,
         # `ConnectionId` header is automatically generated and should not
         # be passed in.
-        if {[info exists state(connection_id)]} {
-            error "Already connected."
-        }
+
         my BeginRequest put
         set state(headers_out) [header encoden $headers]
         return [list continue [my OutgoingPacket 0x02 0]]
     }
 
-    method PutResponse {} {
+    method PutResponseHandler {} {
         set status_code [dict get $state(response) StatusCode]
         if {$status_code == 0xA0} {
             # Success. Double check that all data was sent.
@@ -1028,28 +1105,6 @@ oo::class create obex::Client {
         }
     }
 
-    method SplitContent {content} {
-        # Splits content into fragments based on maximum packet size.
-
-        # Max length of a body excluding its header is
-        # max packet size minus size of packet header (3) minus size of
-        # connection id header (5) if any, minus size of body header (3)
-        set fragment_len [expr {$state(max_packet_len) - 3 - 3}]
-        if {[info exists state(connection_header)]} {
-            set fragment_len [expr {$fragment_length - [string length $state(connection_header)]}]
-        }
-        set content_len [string length $content]
-        set start 0
-        set end [expr {$start + $fragment_length - 1}]
-        set headers {}
-        while {$start < $content_len} {
-            lappend headers Body [string range $content $start $end]
-            incr start $fragment_len
-            incr end $fragment_len
-        }
-        return $headers
-    }
-
     method get {{headers {}}} {
         # Generates a Obex `GET` request.
         #  headers - List of alternating header names and values.
@@ -1059,12 +1114,13 @@ oo::class create obex::Client {
         # that the supplied headers if any are acceptable in `put` request.
         # The following headers are commonly used in put operations:
         # `Name`, `Type`, `Http`, `Timestamp` and `Description`.
+
         my BeginRequest get
         set state(headers_out) [header encoden $headers]
         return [list continue [my OutgoingPacket 0x03 0]]
     }
 
-    method GetResponse {} {
+    method GetResponseHandler {} {
         set status_code [dict get $state(response) StatusCode]
         if {$status_code == 0xA0} {
             set state(state) IDLE
@@ -1089,9 +1145,7 @@ oo::class create obex::Client {
         # that the supplied headers if valid for `ABORT` requests.
         # The `ConnectionId` header is automatically generated as needed
         # and shoould not be included by the caller.
-        if {![info exists state(connection_id)]} {
-            error "Not connected."
-        }
+
         my BeginRequest abort
         set state(headers_out) [header encoden $headers]
         set packet [my OutgoingPacket 0xff 0]
@@ -1103,7 +1157,7 @@ oo::class create obex::Client {
         return [list continue $packet]
     }
 
-    method AbortResponse {} {
+    method AbortResponseHandler {} {
         if {[dict get $state(response) StatusCode] != 0xA0} {
             # As per Obex 1.3 sec 3.3.1.8 any other code is failure
             set state(state) ERROR
@@ -1149,7 +1203,7 @@ oo::class create obex::Client {
         return [list continue $packet]
     }
 
-    method SetpathResponse {} {
+    method SetpathResponseHandler {} {
         # Note Setpath responses also have to be single packet only
         if {[dict get $state(response) StatusCode] != 0xA0} {
             set state(state) ERROR
@@ -1382,7 +1436,7 @@ oo::class create obex::Server {
         #  headers - List of alternating header names and values.
         #
         my AssertState RESPOND
-        lappend headers Length [string length $content] {*}[my SplitBody $content]
+        lappend headers Length [string length $content] {*}[my SplitContent $content]
         set state(headers_out) [header encoden $headers]
         set state(response_code) $status
         set packet [my OutgoingPacket $state(response_code) 1]
