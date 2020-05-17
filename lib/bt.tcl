@@ -221,6 +221,7 @@ proc iocp::bt::devices {args} {
     # -timeout MS    - timeout for the inquiry in milliseconds. Defaults to 10240ms.
     #                  Ignored if `-inquire` is not specified.
     # -unknown       - filter for unknown devices
+    #
     # Each device information element is returned as a dictionary with
     # the following keys:
     # Authenticated - Boolean value indicating whether the device has

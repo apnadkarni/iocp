@@ -785,6 +785,8 @@ proc iocp::bt::sdr::print {rec {attrfilter *}} {
                 puts "$attrname: sequence"
                 foreach elem [attribute get $rec $attrname] {
                     dict with elem {
+                        # We use this for printing service-specific attributes
+                        lappend service_class_uuids $Uuid
                         if {$Name eq $Uuid} {
                             puts "    $Uuid"
                         } else {
@@ -867,12 +869,54 @@ proc iocp::bt::sdr::print {rec {attrfilter *}} {
                 }
             }
             default {
-                # TBD - special handling for 0x100-0x1ff attributes by
-                # looking up languages table
-                puts "$attrname: [PrintableElement [attribute raw $rec $attr]]"
+                if {$attr >= 0x100 && $attr <= 0x1ff} {
+                    # TBD - special handling for 0x100-0x1ff attributes by
+                    # looking up languages table
+                    puts "$attrname: [PrintableElement [attribute raw $rec $attr]]"
+                } else {
+                    lassign [PrintableServiceSpecificAttribute \
+                                 $service_class_uuids $rec $attr] attrname attrval
+                    puts "$attrname: $attrval"
+                }
             }
         }
     }
+}
+
+proc iocp::bt::sdr::PrintableServiceSpecificAttribute {service_class_uuids rec attr} {
+    # Returns pair of human readable attribute name and value
+    set attrname $attr
+    set attrval [PrintableElement [attribute raw $rec $attr]]
+
+    # Maybe we know about attributes for one of these services
+    foreach uuid $service_class_uuids {
+        switch -exact -- $uuid {
+            00001105-0000-1000-8000-00805f9b34fb {
+                # ObjectPush
+                if {$attr == 0x200} {
+                    set attrname GoepL2CapPsm
+                    break
+                } elseif {$attr == 0x303} {
+                    set attrname SupportedFormats
+                    set attrval [lmap val [lindex [attribute raw $rec $attr] 1] {
+                        # Val is a sequence of {type value} where type is int
+                        set val [lindex $val 1]
+                        if {$val == 255} {
+                            set val any
+                        } else {
+                            set formats {unknown vcard-2.1 vcard-3.0 vcal-1.0 ical-2.0 vnote vmessage}
+                            if {$val < [llength $formats]} {
+                                set val [lindex $formats $val]
+                            }
+                        }
+                        set val
+                    }]
+                    break 
+                }
+            }
+        }
+    }
+    return [list $attrname $attrval]
 }
 
 proc iocp::bt::sdr::PrintableElement {delem {parent_indent {}}} {
