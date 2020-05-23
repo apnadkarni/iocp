@@ -284,21 +284,30 @@ proc iocp::bt::device::address {name args} {
     return $addresses
 }
 
-proc iocp::bt::device::port {device service} {
+proc iocp::bt::device::port {device service_class} {
     # Resolve the port for a Bluetooth service running over RFCOMM.
     #  device - Bluetooth address or name of a device. If specified as a name,
     #           it must resolve to a single address.
-    #  service - UUID or name of service of interest.
+    #  service_class - UUID or name of service class of interest. Note the
+    #           service **name** cannot be used for lookup.
+    #
+    # In case multiple services of the same service class are available on the
+    # device, the port for the first one discovered is returned.
+    #
     # Returns the port number for the service or raises an error if it
     # cannot be resolved.
 
+    #TBD - maybe use device::services and loop through so we can match service_class
+    #against service name as well
+
     set h [LookupServiceBegin \
                [ResolveDeviceUnique $device] \
-               [names::service_class_uuid $service]]
+               [names::service_class_uuid $service_class]]
     try {
         while {1} {
             # 0x100 -> LUP_RETURN_ADDR
             set rec [LookupServiceNext $h 0x100]
+            puts $rec
             if {[dict exists $rec RemoteAddress] &&
                 [dict get $rec RemoteAddress AddressFamily] == 32} {
                 # 32 -> AF_BTH (Bluetooth)
@@ -312,7 +321,7 @@ proc iocp::bt::device::port {device service} {
     } finally {
         LookupServiceEnd $h
     }
-    error "Could not resolve service \"$service\" to a port on device \"$device\"."
+    error "Could not resolve service \"$service_class\" to a port on device \"$device\"."
 }
 
 proc iocp::bt::device::remove {device} {
@@ -337,7 +346,7 @@ proc iocp::bt::device::service_references {device service} {
 
     set h [LookupServiceBegin \
                [ResolveDeviceUnique $device] \
-               [names::service_class_uuid $service]]
+               [names::to_uuid $service]]
     set recs {}
     try {
         while {1} {
@@ -357,7 +366,9 @@ proc iocp::bt::device::services {device} {
     #           it must resolve to a single address.
     #
     # The command will return all service discovery records that reference
-    # the `PublicBrowseRoot` service class.
+    # the `PublicBrowseRoot` service class. This is not necessarily all the
+    # services on the device, only those the device advertises as the
+    # top-level services.
     #
     # The returned service discovery records should be treated as
     # opaque and accessed through the service record decoding commands.

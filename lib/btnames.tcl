@@ -6,80 +6,83 @@
 
 namespace eval iocp::bt::names {
     namespace path [namespace parent]
-    # Maps 16bit hex UUID to Service class name
+    # Maps UUID to Service class name
     # https://www.bluetooth.com/specifications/assigned-numbers/service-discovery/
+    # UUID may be either 16-bit Bluetooth universal UUID as or the full UUID
+    # Uses lower case hex.
    variable service_class_names {
-        1000 ServiceDiscoveryServerServiceClassID
-        1001 BrowseGroupDescriptorServiceClassID
-        1002 PublicBrowseRoot
-        1101 SerialPort
-        1102 LANAccessUsingPPP
-        1103 DialupNetworking
-        1104 IrMCSync
-        1105 OBEXObjectPush
-        1106 OBEXFileTransfer
-        1107 IrMCSyncCommand
-        1108 Headset
-        1109 CordlessTelephony
-        110A AudioSource
-        110B AudioSink
-        110C A/V_RemoteControlTarget
-        110D AdvancedAudioDistribution
-        110E A/V_RemoteControl
-        110F A/V_RemoteControlController
-        1110 Intercom
-        1111 Fax
-        1112 {Headset - Audio Gateway (AG)}
-        1115 PANU
-        1116 NAP
-        1117 GN
-        1118 DirectPrinting
-        1119 ReferencePrinting
-        111A {Basic Imaging Profile}
-        111B ImagingResponder
-        111C ImagingAutomaticArchive
-        111D ImagingReferencedObjects
-        111E Handsfree
-        111F HandsfreeAudioGateway
-        1120 DirectPrintingReferenceObjectsService
-        1121 ReflectedUI
-        1122 BasicPrinting
-        1123 PrintingStatus
-        1124 HumanInterfaceDeviceService
-        1125 HardcopyCableReplacement
-        1126 HCR_Print
-        1127 HCR_Scan
-        1128 Common_ISDN_Access
-        112D SIM_Access
-        112E {Phonebook Access - PCE}
-        112F {Phonebook Access - PSE}
-        1130 {Phonebook Access}
-        1131 {Headset - HS}
-        1132 {Message Access Server}
-        1133 {Message Notification Server}
-        1134 {Message Access Profile}
-        1135 GNSS
-        1136 GNSS_Server
-        1137 {3D Display}
-        1138 {3D Glasses}
-        1139 {3D Synchronization}
-        113A {MPS Profile UUID}
-        113B {MPS SC UUID}
-        113C {CTN Access Service}
-        113D {CTN Notification Service}
-        113E {CTN Profile}
-        1200 PnPInformation
-        1201 GenericNetworking
-        1202 GenericFileTransfer
-        1203 GenericAudio
-        1204 GenericTelephony
-        1303 VideoSource
-        1304 VideoSink
-        1305 VideoDistribution
-        1400 HDP
-        1401 {HDP Source}
-        1402 {HDP Sink}
-    }
+       1000 ServiceDiscoveryServerServiceClassID
+       1001 BrowseGroupDescriptorServiceClassID
+       1002 PublicBrowseRoot
+       1101 SerialPort
+       1102 LANAccessUsingPPP
+       1103 DialupNetworking
+       1104 IrMCSync
+       1105 OBEXObjectPush
+       1106 OBEXFileTransfer
+       1107 IrMCSyncCommand
+       1108 Headset
+       1109 CordlessTelephony
+       110a AudioSource
+       110b AudioSink
+       110c A/V_RemoteControlTarget
+       110d AdvancedAudioDistribution
+       110e A/V_RemoteControl
+       110f A/V_RemoteControlController
+       1110 Intercom
+       1111 Fax
+       1112 {Headset - Audio Gateway (AG)}
+       1115 PANU
+       1116 NAP
+       1117 GN
+       1118 DirectPrinting
+       1119 ReferencePrinting
+       111a {Basic Imaging Profile}
+       111b ImagingResponder
+       111c ImagingAutomaticArchive
+       111d ImagingReferencedObjects
+       111e Handsfree
+       111f HandsfreeAudioGateway
+       1120 DirectPrintingReferenceObjectsService
+       1121 ReflectedUI
+       1122 BasicPrinting
+       1123 PrintingStatus
+       1124 HumanInterfaceDeviceService
+       1125 HardcopyCableReplacement
+       1126 HCR_Print
+       1127 HCR_Scan
+       1128 Common_ISDN_Access
+       112d SIM_Access
+       112e {Phonebook Access - PCE}
+       112f {Phonebook Access - PSE}
+       1130 {Phonebook Access}
+       1131 {Headset - HS}
+       1132 {Message Access Server}
+       1133 {Message Notification Server}
+       1134 {Message Access Profile}
+       1135 GNSS
+       1136 GNSS_Server
+       1137 {3D Display}
+       1138 {3D Glasses}
+       1139 {3D Synchronization}
+       113a {MPS Profile UUID}
+       113b {MPS SC UUID}
+       113c {CTN Access Service}
+       113d {CTN Notification Service}
+       113e {CTN Profile}
+       1200 PnPInformation
+       1201 GenericNetworking
+       1202 GenericFileTransfer
+       1203 GenericAudio
+       1204 GenericTelephony
+       1303 VideoSource
+       1304 VideoSink
+       1305 VideoDistribution
+       1400 HDP
+       1401 {HDP Source}
+       1402 {HDP Sink}
+       02030302-1d19-415f-86f2-22a2106a0a77 {Wireless iAP v2}
+   }
 
     # https://www.bluetooth.com/specifications/assigned-numbers/service-discovery/
     variable protocol_names { 
@@ -92,10 +95,10 @@ namespace eval iocp::bt::names {
         0007 ATT
         0008 OBEX
         0009 IP
-        000A FTP
-        000C HTTP
-        000E WSP
-        000F BNEP
+        000a FTP
+        000c HTTP
+        000e WSP
+        000f BNEP
         0010 UPNP
         0011 HIDP
         0012 HardcopyControlChannel
@@ -103,9 +106,9 @@ namespace eval iocp::bt::names {
         0016 HardcopyNotification
         0017 AVCTP
         0019 AVDTP
-        001B CMTP
-        001E MCAPControlChannel
-        001F MCAPDataChannel
+        001b CMTP
+        001e MCAPControlChannel
+        001f MCAPDataChannel
         0100 L2CAP
     }
 
@@ -133,7 +136,7 @@ namespace eval iocp::bt::names {
 
 }
 
-proc iocp::bt::names::name {uuid} {
+proc iocp::bt::names::to_name {uuid} {
     # Map a UUID to a name.
     #  uuid - Bluetooth UUID
     # The command attempts to map the UUID as a service name or protocol
@@ -147,6 +150,21 @@ proc iocp::bt::names::name {uuid} {
     }
     return [protocol_name $uuid]
 }
+
+proc iocp::bt::names::to_uuid {name_or_uuid} {
+    # Map a name to a UUID.
+    #  name_or_uuid - Bluetooth UUID or name
+    # The command attempts to map the name as a service class name or protocol
+    # name in that order.
+    #
+    # Returns the mapped uuid raises an error if no mapping is possible.
+    variable service_class_names
+    if {[MapNameToUuidV $name_or_uuid service_class_names name]} {
+        return $name
+    }
+    return [protocol_uuid $name_or_uuid]
+}
+
 
 proc iocp::bt::names::service_class_name {uuid} {
     # Maps a UUID to a service class name.
@@ -247,31 +265,55 @@ proc iocp::bt::names::print {} {
 proc iocp::bt::names::MapUuidToName {uuid dictvar} {
     upvar 1 $dictvar names
 
-    if {[IsBluetoothUuid $uuid] &&
-        [string range $uuid 0 3] eq "0000"} {
-        set uuid16 [string toupper [string range $uuid 4 7]]
-        if {[dict exists $names $uuid16]} {
-            return [dict get $names $uuid16]
-        }
-    }
+    # uuid may be a full UUID or a 16-bit Bluetooth UUID
     if {[IsUuid $uuid]} {
+        # See if the exact match exists
+        set uuid [string tolower $uuid]
+        if {[dict exists $names $uuid]} {
+            return [dict get $names $uuid]
+        }
+        # Nope. Now see if it is a 16-bit Bluetooth UUID
+        if {[IsBluetoothUuid $uuid] && [string range $uuid 0 3] eq "0000"} {
+            # 16-bit UUID
+            set uuid16 [string tolower [string range $uuid 4 7]]
+            if {[dict exists $names $uuid16]} {
+                return [dict get $names $uuid16]
+            }
+        }
+        # Nope. Cannot be mapped. Return the UUID.
         return $uuid
     }
 
-    # Retry as a 16-but UUID. tailcall so upvar works right.
+    # Not a full UUID. Retry as a 16-but UUID. tailcall so upvar works right.
     tailcall MapUuidToName [Uuid16 $uuid] $dictvar
+}
+
+proc iocp::bt::names::MapNameToUuidV {name dictvar resultvar} {
+    upvar 1 $dictvar   names
+    upvar 1 $resultvar result
+
+    if {[IsUuid $name]} {
+        set result $name
+        return 1
+    }
+    dict for {uuid mapped_name} $names {
+        if {[string equal -nocase $name $mapped_name]} {
+            if {[string length $uuid] == 4} {
+                # 16-bit UUID -> full UUID
+                set result "0000${uuid}-0000-1000-8000-00805f9b34fb"
+            } else {
+                set result $uuid
+            }
+            return 1
+        }
+    }
+    return 0
 }
 
 proc iocp::bt::names::MapNameToUuid {name dictvar} {
     upvar 1 $dictvar names
-
-    if {[IsUuid $name]} {
-        return $name
-    }
-    dict for {uuid16 mapped_name} $names {
-        if {[string equal -nocase $name $mapped_name]} {
-            return "0000$uuid16-0000-1000-8000-00805f9b34fb"
-        }
+    if {[MapNameToUuidV $name names result]} {
+        return $result
     }
     error "Name \"$name\" could not be mapped to a UUID"
 }

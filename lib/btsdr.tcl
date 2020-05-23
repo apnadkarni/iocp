@@ -400,7 +400,7 @@ proc iocp::bt::sdr::attribute::BluetoothProfileDescriptorList {sdr {varname {}}}
         set version [lindex $profile 1 1 1]
         lappend profiles [dict create \
             Uuid $uuid \
-            Name [iocp::bt::names::name $uuid] \
+            Name [iocp::bt::names::to_name $uuid] \
             MajorVersion [expr {$version >> 8}] \
             MinorVersion [expr {$version & 0xff}]
         ]
@@ -461,7 +461,7 @@ proc iocp::bt::sdr::Uuids {sdr attr_id {varname {}}} {
 
     set uuids [lmap elem [lindex $attrval 1] {
         set uuid [lindex $elem 1]
-        dict create Uuid $uuid Name [names::name $uuid]
+        dict create Uuid $uuid Name [names::to_name $uuid]
     }]
 
     if {$varname eq ""} {
@@ -926,7 +926,7 @@ proc iocp::bt::sdr::PrintableElement {delem {parent_indent {}}} {
         uint -
         int { return $val }
         uuid { 
-            set name [names::name $val]
+            set name [names::to_name $val]
             if {$name eq $val} {
                 return $val
             } else {
