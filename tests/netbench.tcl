@@ -1,3 +1,55 @@
+# Copyright (c) 2019 Ashok P. Nadkarni
+# All rights reserved.
+# See LICENSE file for details.
+
+proc usage {} {
+    puts "Usage:"
+    puts "  tclsh netbench.tcl client ?OPTIONS?"
+    puts "  tclsh netbench.tcl server ?-port PORT?"
+    puts "  tclsh netbench.tcl help"
+}
+
+proc help {} {
+    set help {
+        Usage:
+            tclsh netbench.tcl client ?OPTIONS?
+            tclsh netbench.tcl server ?-port PORT?
+            tclsh netbench.tcl help
+
+        The options below may be specified when running in client mode.
+        When running in server mode, only the -port option is accepted.
+        All other options for socket configuration are passed from the
+        client side.
+
+        -server ADDR - The server address (127.0.0.1)
+        -port PORT   - The server control port (10101)
+        -provider PROVIDER - The socket implementation provider. One of
+                       tcl, iocp corresponding to native Tcl
+                       sockets or iocp_inet package (tcl)
+        -payload text|binary - specifies the payload type as text or binary.
+                       If unspecified, payload is chosen based on whether
+                       socket options (below) specify binary transfer or not.
+        -readsize N  - How many bytes / characters to read on each call (4096)
+        -writesize N - How many bytes / characters to write on each call (4096)
+        -duration N  - Number of seconds to run the test (5 seconds)
+        -count N     - Number of writes to do for the test, each of size
+                       specified by the -writesize option. Cannot be specified
+                       with -duration which is the default.
+        -print detail|summary - Print summary of results or details (summary)
+
+        In addition, the following socket options may be specified:
+        -buffering, -buffersize, -encoding, -eofchar, -translation and for
+        provider iocp only, -maxpendingreads and -maxpendingwrites. These
+        control the socket configuration for running the benchmark
+        on both server and client.
+
+        Example:
+            tclsh netbench.tcl server (on 192.168.1.2)
+            tclsh netbench.tcl client -server 192.168.1.2 -buffering none
+    }
+    puts $help
+}
+
 namespace eval client {
     # Program options
     # -provider (tcl/iocp/iocpsock)
@@ -94,7 +146,7 @@ proc client::bench {provider} {
     }
     set end [clock microseconds]
     close $so write
-    
+
     set configuration [fconfigure $so]
     set server_received [gets $so]
     close $so
@@ -149,7 +201,7 @@ proc client::run {args} {
         }
     }
 
-    foreach opt {-buffering -encoding -eofchar -translation} {
+    foreach opt {-buffering -buffersize -encoding -eofchar -translation -maxpendingreads -maxpendingwrites} {
         if {[info exists opts($opt)]} {
             set sooptions($opt) $opts($opt)
             unset opts($opt)
@@ -169,7 +221,7 @@ proc client::run {args} {
     }
 
     array set options [array get opts]
-    
+ 
     if {[info exists options(-payload)]} {
         if {$options(-payload) ni {text binary}} {
             error "Invalid -payload value \"$options(-payload)\"."
@@ -192,7 +244,7 @@ proc client::run {args} {
         }
     } else {
         if {![info exists options(-duration)]} {
-            set options(-duration) 10
+            set options(-duration) 5
         }
     }
 
@@ -272,7 +324,7 @@ proc client::run {args} {
         dict with client_result {
             set duration [expr {$End - $Start}]
             set mbps [format %.2f [expr {double($Sent)/$duration}]]
-            puts "$mbps Mbps (Sent $Sent bytes in $Duration usecs)"
+            puts "$mbps Mbps (Sent $Sent bytes in $duration usecs)"
         }
     }
 }
@@ -408,12 +460,8 @@ proc server::accept_data {so addr port} {
     variable sockets
     variable clients
 
-    set opts [list -blocking 0]
-    foreach opt {-buffering -translation -encoding} {
-        if {[info exists soconfig($opt)]} {
-            lappend opts $opt $soconfig($opt)
-        }
-    }
+    set opts [array get soconfig]
+    lappend opts -blocking 0
     puts stdout "Data connection from $addr/$port. Setting socket to $opts."
     fconfigure $so {*}$opts
 
@@ -454,7 +502,7 @@ proc server::read_data {so} {
 
 if {[string equal -nocase [file normalize [info script]/...] [file normalize $argv0/...]]} {
     if {[llength $argv] == 0} {
-        server::run
+        usage
     } else {
         switch -exact -- [lindex $argv 0] {
             client {
@@ -462,6 +510,9 @@ if {[string equal -nocase [file normalize [info script]/...] [file normalize $ar
             }
             server {
                 server::run {*}[lrange $argv 1 end]
+            }
+            help {
+                help
             }
             default {
                 usage
