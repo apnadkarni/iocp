@@ -2,11 +2,13 @@ namespace eval client {
     # Program options
     # -provider (tcl/iocp/iocpsock)
     # -writesize
+    # -readsize
     # -server
     # -port
     # -payload
     # -count
     # -duration
+    # -print (detail/summary)
 
     variable options
     array set options {
@@ -84,19 +86,22 @@ proc client::bench {provider} {
     } else {
         set sent 0
         set duration [expr {$options(-duration) * 1000000}]
-        while {$duration > 0} {
+        while {([clock microseconds]-$start) < $duration} {
             puts -nonewline $so $payload
-            set duration [expr {$duration - ([clock microseconds] - $start)}]
-            puts $duration
+            set now [clock microseconds]
             incr sent $options(-writesize)
         }
     }
     set end [clock microseconds]
-
+    close $so write
+    
     set configuration [fconfigure $so]
+    set server_received [gets $so]
     close $so
     return [list Sent $sent \
-                Duration [expr {$end - $start}] \
+                ServerReceived $server_received \
+                Start $start \
+                End $end \
                 Socket $configuration]
 }
 
@@ -123,7 +128,8 @@ proc client::run {args} {
         -port 10101
         -provider tcl
         -writesize 4096
-
+        -print summary
+        -readsize 4096
     } $args]
 
     if {[info exists opts(-translation)]} {
@@ -136,7 +142,7 @@ proc client::run {args} {
             }
         }
     } else {
-        # Default to -translation assuming no imcompatible options specified
+        # Default to -translation assuming no incompatible options specified
         if {(![info exists opts(-encoding)] || $opts(-encoding) eq "binary") &&
             (![info exists opts(-eofchar)] || $opts(-eofchar) eq "")} {
             set opts(-translation) binary
@@ -150,6 +156,18 @@ proc client::run {args} {
         }
     }
 
+    if {![string is integer -strict $opts(-readsize)] ||
+        $opts(-readsize) < 0 ||
+        $opts(-readsize) > 0x7fffffff} {
+        error "Invalid -readsize value \"$opts(-readsize)\"."
+    }
+
+    if {![string is integer -strict $opts(-writesize)] ||
+        $opts(-writesize) < 0 ||
+        $opts(-writesize) > 1000000000} {
+        error "Invalid -readsize value \"$opts(-readsize)\"."
+    }
+
     array set options [array get opts]
     
     if {[info exists options(-payload)]} {
@@ -157,7 +175,8 @@ proc client::run {args} {
             error "Invalid -payload value \"$options(-payload)\"."
         }
     } else {
-        if {$sooptions(-translation) eq "binary"} {
+        if {[info exists sooptions(-translation)] &&
+            $sooptions(-translation) eq "binary"} {
             set options(-payload) binary
         } elseif {[info exists sooptions(-encoding)] &&
                   $sooptions(-encoding) eq "binary"} {
@@ -195,31 +214,101 @@ proc client::run {args} {
         error "Server failure: $line"
     }
 
+    puts $control_channel [list IOSIZE [list -readsize $options(-readsize) -writesize $opts(-writesize)]]
+    gets $control_channel line
+    if {$line ne "OK"} {
+        error "Server failure: $line"
+    }
+
     if {![dict exists $data_ports $opts(-provider)]} {
         error "Server does not support $opts(-provider)."
     }
     set options(-dataports) $data_ports
 
-    set result [bench $opts(-provider)]
-    puts $result
-    set sockname [dict get $result Socket -sockname]
+    set client_result [bench $opts(-provider)]
+
+    set sockname [dict get $client_result Socket -sockname]
     set id [list [lindex $sockname 0] [lindex $sockname 2]]
     puts $control_channel [list FINISH $id]
-    puts stdout [gets $control_channel]
+    set server_result [gets $control_channel]
     close $control_channel
 
-    puts Result:
-    puts $result
+    lassign $server_result server_status server_result
+    if {$server_status eq "OK"} {
+        if {[dict get $client_result Sent] != [dict get $server_result Received]} {
+            puts stdout "ERROR: Client sent [dict get $client_result Sent] bytes but server received [dict get $server_result Received]."
+        }
+    }
+    if {$options(-print) eq "detail"} {
+        puts CLIENT:
+        dict with client_result {
+            set duration [expr {$End - $Start}]
+            set mbps [format %.2f [expr {double($Sent)/$duration}]]
+            puts "    $mbps Mbps (Sent $Sent bytes in $duration usecs)"
+            dict unset Socket -sockname
+            dict unset Socket -peername
+            puts "    Socket:"
+            dict for {opt val} $Socket {
+                puts "        $opt: $val"
+            }
+        }
+        if {$server_status eq "OK"} {
+            puts SERVER:
+            dict with server_result {
+                set duration [expr {$End - $Start}]
+                set mbps [format %.2f [expr {double($Received)/$duration}]]
+                puts "    $mbps Mbps (Received $Received bytes in $duration usecs)"
+                dict unset Socket -sockname
+                dict unset Socket -peername
+                puts "    Socket:"
+                dict for {opt val} $Socket {
+                    puts "        $opt: $val"
+                }
+            }
+        } else {
+            puts "Server error: $server_result"
+        }
+    } else {
+        dict with client_result {
+            set duration [expr {$End - $Start}]
+            set mbps [format %.2f [expr {double($Sent)/$duration}]]
+            puts "$mbps Mbps (Sent $Sent bytes in $Duration usecs)"
+        }
+    }
 }
 
 ################################################################
 # SERVER
 
-namespace eval server {}
+namespace eval server {
+    # Server options are as sent from client
+    variable options
+    array set options {}
+
+    # Listening socket handles indexed by provider
+    variable listeners
+    array set listeners {}
+    
+    # Listening socket ports indexed by provider
+    variable listening_ports
+    array set listening_ports {}
+
+    # Socket options for data sockets - sent by client
+    variable soconfig
+    array set soconfig {}
+
+    # Array indexed by data socket handles. Contains socket stats
+    variable sockets
+    array set sockets {}
+
+    # Dictionary containing data socket handles keyed by client address and port.
+    variable clients
+}
+
 proc server::run {args} {
-    global listeners;           # Listening sockets
-    global listening_ports;     # Corresponding ports
-    global soconfig;            # Socket config options
+    variable listeners;           # Listening sockets
+    variable listening_ports;     # Corresponding ports
+    variable soconfig;            # Socket config options
 
     set port 10101
     if {[dict exists $args -port]} {
@@ -258,9 +347,10 @@ proc server::accept_control {so addr port} {
 }
 
 proc server::read_control {so} {
-    global listeners;           # Listening sockets
-    global listening_ports
-    global soconfig;            # Socket config options
+    variable listeners
+    variable listening_ports
+    variable soconfig
+    variable options
     set status [catch {gets $so line} nchars ropts]
     if {$status} {
         close $so
@@ -273,41 +363,50 @@ proc server::read_control {so} {
         # TBD - enclose in try
         # Received a command
         lassign $line command opts
-        switch -exact -- $command {
-            PORTS {
-                puts $so [list OK [array get listening_ports]]
-            }
-            SOCONFIG {
-                set soconfig $opts
-                puts $so OK
-            }
-            FINISH {
-                global sockets
-                global clients
-                lassign $opts addr port
-                if {[dict exists $clients $addr $port]} {
-                    set dataso [dict get $clients $addr $port]
-                    set result $sockets($dataso)
-                    dict set result Socket [fconfigure $dataso]
-                    close $dataso
-                    unset sockets($dataso)
-                    puts $so [list OK $result]
-                    dict unset clients $addr $port
-                } else {
-                    puts $so [list ERROR "Unknown client: $addr/$port"]
+        try {
+            switch -exact -- $command {
+                PORTS {
+                    puts $so [list OK [array get listening_ports]]
+                }
+                SOCONFIG {
+                    array set soconfig $opts
+                    puts $so OK
+                }
+                IOSIZE {
+                    array set options $opts
+                    puts $so OK
+                }
+                FINISH {
+                    variable sockets
+                    variable clients
+                    lassign $opts addr port
+                    if {[dict exists $clients $addr $port]} {
+                        set dataso [dict get $clients $addr $port]
+                        set result $sockets($dataso)
+                        dict set result Socket [fconfigure $dataso]
+                        close $dataso
+                        unset sockets($dataso)
+                        puts $so [list OK $result]
+                        dict unset clients $addr $port
+                    } else {
+                        puts $so [list ERROR "Unknown client: $addr/$port"]
+                    }
+                }
+                default {
+                    error "Unknown command \"$command\"."
                 }
             }
-            default {
-                puts stderr "Unknown command \"$command\"."
-            }
+        } trap {} {err} {
+            puts stderr "ERROR: $err"
+            puts $so "ERROR: $err"
         }
     }
 }
 
 proc server::accept_data {so addr port} {
-    global soconfig
-    global sockets
-    global clients
+    variable soconfig
+    variable sockets
+    variable clients
 
     set opts [list -blocking 0]
     foreach opt {-buffering -translation -encoding} {
@@ -324,25 +423,27 @@ proc server::accept_data {so addr port} {
 }
 
 proc server::read_data {so} {
-    global sockets
+    variable sockets
+    variable options
 
     if {[catch {
-        read $so
+        read $so $options(-readsize)
     } data]} {
         puts stderr "Read error on socket ([dict get $sockets($so) Remote]): $data"
         # Our command protocol does not like newlines :-()
         # Note: do not close socket until client retrieves status.
+        puts stderr "Error: $data"
         dict set sockets($so) Error [string map [list \n " "] $data]
         fileevent $so readable {}
         return
     }
     set len [string length $data]
-    if {$len} {
-        dict incr sockets($so) Received $len
-    } else {
+    dict incr sockets($so) Received $len
+    if {$len < $options(-readsize)} {
         if {[eof $so]} {
             # Note: Do not close socket since we do not want port reused until
             # client collects statistics
+            puts $so [dict get $sockets($so) Received]; flush $so
             fileevent $so readable {}
             dict set sockets($so) End [clock microseconds]
         } else {
