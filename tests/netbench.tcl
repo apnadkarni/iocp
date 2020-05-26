@@ -35,6 +35,7 @@ proc help {} {
         -count N     - Number of writes to do for the test, each of size
                        specified by the -writesize option. Cannot be specified
                        with -duration which is the default.
+        -repeat N    - Number of times to run the test
         -print detail|summary - Print summary of results or details (summary)
 
         In addition, the following socket options may be specified:
@@ -49,6 +50,23 @@ proc help {} {
     }
     puts $help
 }
+
+proc socket_command {provider} {
+    if {$provider eq "tcl"} {
+        return socket
+    } elseif {$provider eq "iocp"} {
+        uplevel #0 package require iocp
+        return iocp::inet::socket
+    } elseif {$provider eq "iocpsock"} {
+        uplevel #0 package require Iocpsock
+        return socket2
+    } else {
+        error "Unknown socket provider $provider."
+    }
+}
+
+################################################################
+# Client implementation
 
 namespace eval client {
     # Program options
@@ -71,6 +89,12 @@ namespace eval client {
     # Socket configuration options
     variable sooptions
     array set sooptions {}
+
+    # Control information
+    #  so - control socket
+    #  dataports - dictionary mapping provider to data socket
+    variable control
+    array set control {}
 
     # Data payload
     #  text - text payload
@@ -115,20 +139,21 @@ proc client::payload {type} {
 proc client::bench {provider} {
     variable options
     variable sooptions
+    variable control
 
-    puts "Using $provider sockets"
     set payload [payload $options(-payload)]
 
+    set socommand [socket_command $provider]
     # IMPORTANT:
     # Do NOT do any operations on $payload other than writing it
     # since [string length] etc. will all shimmer it.
-    set so [$options(-socketcommand) $options(-server) [dict get $options(-dataports) $provider]]
+    set so [$socommand $options(-server) [dict get $control(dataports) $provider]]
     fconfigure $so {*}[array get sooptions]
 
     set start [clock microseconds]
     if {[info exists options(-count)]} {
         set i 0
-        while {$i < $count} {
+        while {$i < $options(-count)} {
             # Note: DON'T flush here because that should be controlled
             # via -buffering option
             puts -nonewline $so $payload
@@ -157,27 +182,37 @@ proc client::bench {provider} {
                 Socket $configuration]
 }
 
-proc socket_command {provider} {
-    if {$provider eq "tcl"} {
-        return socket
-    } elseif {$provider eq "iocp"} {
-        uplevel #0 package require iocp
-        return iocp::inet::socket
-    } elseif {$provider eq "iocpsock"} {
-        uplevel #0 package require Iocpsock
-        return socket2
-    } else {
-        error "Unknown socket provider $provider."
+proc client::connect {args} {
+    # Creates a control connection to the server
+    # Stores the socket and data ports in the control namespace variable.
+    variable control
+    variable options
+    foreach {opt default} {-server 127.0.0.1 -port 10101} {
+        if {[dict exists $args $opt]} {
+            set options($opt) [dict get $args $opt]
+        } else {
+            set options($opt) $default
+        }
     }
+    # Control channel always uses Tcl sockets
+    set so [socket $options(-server) $options(-port)]
+    fconfigure $so -buffering line
+    puts $so PORTS
+    lassign [gets $so] status data_ports
+    if {$status ne "OK"} {
+        close $so
+        error "Server failure: $status $data_ports"
+    }
+    set control(so) $so
+    set control(dataports) $data_ports
 }
 
-proc client::run {args} {
+proc client::runtest {args} {
     variable options
     variable sooptions
+    variable control
 
     array set opts [dict merge {
-        -server 127.0.0.1
-        -port 10101
         -provider tcl
         -writesize 4096
         -print summary
@@ -248,74 +283,121 @@ proc client::run {args} {
         }
     }
 
-    set options(-socketcommand) [socket_command $opts(-provider)]
-
-    # Control channel always uses Tcl sockets
-    set control_channel [socket $opts(-server) $opts(-port)]
-    fconfigure $control_channel -buffering line
-    puts $control_channel PORTS
-    lassign [gets $control_channel] status data_ports
-    if {$status ne "OK"} {
-        error "Server failure: $status $data_ports"
-    }
-    puts stdout "Server data ports: $data_ports"
-
-    puts $control_channel [list SOCONFIG [array get sooptions]]
-    gets $control_channel line
+    puts $control(so) [list SOCONFIG [array get sooptions]]
+    gets $control(so) line
     if {$line ne "OK"} {
         error "Server failure: $line"
     }
 
-    puts $control_channel [list IOSIZE [list -readsize $options(-readsize) -writesize $opts(-writesize)]]
-    gets $control_channel line
+    puts $control(so) [list IOSIZE [list -readsize $options(-readsize) -writesize $opts(-writesize)]]
+    gets $control(so) line
     if {$line ne "OK"} {
         error "Server failure: $line"
     }
 
-    if {![dict exists $data_ports $opts(-provider)]} {
+    if {![dict exists $control(dataports) $opts(-provider)] ||
+        [dict get $control(dataports) $opts(-provider)] == 0} {
         error "Server does not support $opts(-provider)."
     }
-    set options(-dataports) $data_ports
 
     set client_result [bench $opts(-provider)]
 
     set sockname [dict get $client_result Socket -sockname]
     set id [list [lindex $sockname 0] [lindex $sockname 2]]
-    puts $control_channel [list FINISH $id]
-    set server_result [gets $control_channel]
-    close $control_channel
+    puts $control(so) [list FINISH $id]
+    set server_result [gets $control(so)]
 
-    lassign $server_result server_status server_result
+    return [list Client $client_result Server $server_result]
+}
+
+proc client::format_duration {duration} {
+    if {$duration < 1000} {
+        return [format %.6f [expr {double($duration)/1000000}]]
+    } elseif {$duration < 1000000} {
+        return [format %.3f [expr {double($duration)/1000000}]]
+    } else {
+        return [format %.2f [expr {double($duration)/1000000}]]
+    }
+}
+
+proc client::print_2cols {d {indent {    }}} {
+    # Prints dictionary two elements on each line
+    set keys [lsort -dictionary [dict keys $d]]
+    set k1len 0
+    set k2len 0
+    set e1len 0
+    set e2len 0
+    foreach {k1 k2} $keys {
+        if {[string length $k1] > $k1len} {
+            set k1len [string length $k1]
+        }
+        set e1 [dict get $d $k1]
+        if {$e1 eq ""} {
+            # Show empty strings as ""
+            set e1 "\"\""
+            dict set d $k1 $e1
+        }
+        if {[string length $e1] > $e1len} {
+            set e1len [string length $e1]
+        }
+        if {$k2 ne ""} {
+            set e2 [dict get $d $k2]
+            if {$e2 eq ""} {
+                # Show empty strings as ""
+                set e2 "\"\""
+                dict set d $k2 $e2
+            }
+            if {[string length $k2] > $k2len} {
+                set k2len [string length $k2]
+            }
+        }
+    }
+    incr k1len;                 # For the ":"
+    incr k2len
+    foreach {k1 k2} $keys {
+        if {$k2 eq ""} {
+            puts [format "$indent%-*s %-*s" \
+                      $k1len $k1: $e1len [dict get $d $k1]]
+        } else {
+            puts [format "$indent%-*s %-*s    %-*s %s" \
+                      $k1len $k1: $e1len [dict get $d $k1] \
+                      $k2len $k2: [dict get $d $k2]]
+        }
+    }
+}
+
+proc client::print {result} {
+    variable options
+    lassign [dict get $result Server] server_status server_result
+    set client_result [dict get $result Client]
     if {$server_status eq "OK"} {
         if {[dict get $client_result Sent] != [dict get $server_result Received]} {
             puts stdout "ERROR: Client sent [dict get $client_result Sent] bytes but server received [dict get $server_result Received]."
         }
     }
     if {$options(-print) eq "detail"} {
-        puts CLIENT:
         dict with client_result {
             set duration [expr {$End - $Start}]
             set mbps [format %.2f [expr {double($Sent)/$duration}]]
-            puts "    $mbps Mbps (Sent $Sent bytes in $duration usecs)"
+            puts "CLIENT: $mbps Mbps (Sent $Sent bytes in $duration usecs)"
             dict unset Socket -sockname
             dict unset Socket -peername
-            puts "    Socket:"
-            dict for {opt val} $Socket {
-                puts "        $opt: $val"
-            }
+            dict unset Socket -error
+            dict unset Socket -connecting
+            dict unset Socket -maxpendingaccepts
+            print_2cols $Socket "        "
         }
         if {$server_status eq "OK"} {
-            puts SERVER:
             dict with server_result {
                 set duration [expr {$End - $Start}]
                 set mbps [format %.2f [expr {double($Received)/$duration}]]
-                puts "    $mbps Mbps (Received $Received bytes in $duration usecs)"
+                puts "SERVER: $mbps Mbps (Rcvd $Received bytes in $duration usecs)"
                 dict unset Socket -sockname
                 dict unset Socket -peername
-                puts "    Socket:"
-                dict for {opt val} $Socket {
-                    puts "        $opt: $val"
-                }
+                dict unset Socket -error
+                dict unset Socket -connecting
+                dict unset Socket -maxpendingaccepts
+                print_2cols $Socket "        "
             }
         } else {
             puts "Server error: $server_result"
@@ -324,9 +406,31 @@ proc client::run {args} {
         dict with client_result {
             set duration [expr {$End - $Start}]
             set mbps [format %.2f [expr {double($Sent)/$duration}]]
-            puts "$mbps Mbps (Sent $Sent bytes in $duration usecs)"
+            #puts "$mbps Mbps (Sent $Sent bytes in $duration usecs)"
+            puts "$mbps $Sent [format_duration $duration] $options(-provider)"
         }
     }
+    
+}
+proc client::run {args} {
+    variable control
+
+    set repeat 1
+    if {[dict exists $args -repeat]} {
+        set repeat [dict get $args -repeat]
+        if {[incr repeat 0] < 0} {
+            error "Invalid repeat count \"$repeat\"."
+        }
+    }
+    set options(-print) summary
+    if {[dict exists $args -print]} {
+        set options(-print) [dict get $args -print]
+    }
+    connect $args
+    for {set i 0} {$i < $repeat} {incr i} {
+        print [runtest {*}$args]
+    }
+    close $control(so)
 }
 
 ################################################################
