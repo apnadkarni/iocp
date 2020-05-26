@@ -1,28 +1,50 @@
 # Copyright (c) 2019 Ashok P. Nadkarni
 # All rights reserved.
 # See LICENSE file for details.
+# For instructions:
+#   tclsh netbench.tcl help
+#
 
 proc usage {} {
     puts "Usage:"
-    puts "  tclsh netbench.tcl client ?OPTIONS?"
-    puts "  tclsh netbench.tcl server ?-port PORT?"
     puts "  tclsh netbench.tcl help"
+    puts "  tclsh netbench.tcl server ?-port PORT?"
+    puts "  tclsh netbench.tcl client ?OPTIONS?"
+    puts "  tclsh netbench.tcl batch ?OPTIONS?"
 }
 
 proc help {} {
     set help {
-        Usage:
-            tclsh netbench.tcl client ?OPTIONS?
-            tclsh netbench.tcl server ?-port PORT?
-            tclsh netbench.tcl help
+        SERVER
 
-        The options below may be specified when running in client mode.
-        When running in server mode, only the -port option is accepted.
-        All other options for socket configuration are passed from the
-        client side.
+        To start the server,
+            tclsh netbench.tcl server ?-port PORT?
+        where PORT is the port for control connections. Data connections
+        are automatically allocated. All other options are passed
+        from the client side. To exit the server press Ctrl-C.
+
+        CLIENT
+
+        To start the client:
+            tclsh netbench.tcl client ?OPTIONS?
+            tclsh netbench.tcl batch  ?OPTIONS?
+
+        The client command runs one test one or more times using the
+        configuration specified by the options. The batch command runs
+        multiple tests with different configurations either reading from
+        standard input or a test script.
+
+        The following options are accepted by both client and batch commands
+        on the command line but ignored if present in the test script.
+        (Defaults shown in parenthesis.)
 
         -server ADDR - The server address (127.0.0.1)
         -port PORT   - The server control port (10101)
+
+        The following options related to test configuration
+        are accepted on the command line by both client
+        and batch commands as well as within test scripts by the batch command.
+        
         -provider PROVIDER - The socket implementation provider. One of
                        tcl, iocp corresponding to native Tcl
                        sockets or iocp_inet package (tcl)
@@ -35,18 +57,39 @@ proc help {} {
         -count N     - Number of writes to do for the test, each of size
                        specified by the -writesize option. Cannot be specified
                        with -duration which is the default.
-        -repeat N    - Number of times to run the test
+        -repeat N    - Run each test N number of times.
         -print detail|summary - Print summary of results or details (summary)
 
         In addition, the following socket options may be specified:
         -buffering, -buffersize, -encoding, -eofchar, -translation and for
         provider iocp only, -maxpendingreads and -maxpendingwrites. These
         control the socket configuration for running the benchmark
-        on both server and client.
+        on both server and client and may be specified either on the
+        command line or in batch scripts.
 
-        Example:
-            tclsh netbench.tcl server (on 192.168.1.2)
-            tclsh netbench.tcl client -server 192.168.1.2 -buffering none
+        The batch command accepts an additional option:
+        -script FILE - Path of file from which to read test configurations.
+                       Defaults to standard input.
+
+        Each line of the test configuration script corresponds to a single test.
+        It contains any of the test configuration options above. These are
+        combined with, and override if necessary, the options specified on the
+        command line to form the test configuration case. Empty lines and lines
+        beginning with # are skipped. If the -script option is not specified the
+        test configuration lines are read from standard input.
+
+        EXAMPLES
+
+        tclsh netbench.tcl server (on 192.168.1.2)
+
+        tclsh netbench.tcl client -server 192.168.1.2 -port 12345 -buffering none
+
+        tclsh netbench.tcl batch -script netbench.test (will use localhost)
+
+        Script netbench.test:
+            -provider tcl -writesize 1 -buffering full
+            -provider iocp -writesize 1000 -duration 2
+            -count 1000 -readsize 4000 
     }
     puts $help
 }
@@ -73,18 +116,29 @@ namespace eval client {
     # -provider (tcl/iocp/iocpsock)
     # -writesize
     # -readsize
-    # -server
-    # -port
     # -payload
     # -count
     # -duration
     # -print (detail/summary)
-
     variable options
-    array set options {
-        -writesize 4096
-        -provider tcl
+    proc reset_options {} {
+        variable options
+        unset -nocomplain options
+        array set options {
+            -writesize 4096
+            -provider tcl
+        }
     }
+
+    # Server info
+    #  addr - ip address
+    #  port - listening control port
+    variable server
+    array set server {
+        -addr 127.0.0.1
+        -port 10101
+    }
+
 
     # Socket configuration options
     variable sooptions
@@ -97,49 +151,55 @@ namespace eval client {
     array set control {}
 
     # Data payload
-    #  text - text payload
-    #  binary - binary payload
+    # Nested dictionary, first level text/binary, second level data and size
     variable payload
-    array set payload {}
+    set payload [dict create]
 }
 
 proc client::payload {type} {
     variable options
     variable payload
 
+    if {$type ni {text binary}} {
+        error "Unknown payload type \"$type\"."
+    }
+
+    if {[dict exists $payload $type data] &&
+        [dict get $payload $type size] == $options(-writesize)} {
+        return [dict get $payload $type data]
+    }
+
+    # Need to reconstruct payload of that type
+    dict unset payload $type
+
     set chars "0123456789"
     set nchars [string length $chars]
     set nrepeat [expr {$options(-writesize) / [string length $chars]}]
-    set payload(text) [string repeat $chars $nrepeat]
+    set data [string repeat $chars $nrepeat]
     set leftover [expr {$options(-writesize) - ($nrepeat * $nchars)}]
     if {$leftover} {
-        append payload(text) [string range $chars 0 $leftover-1]
+        append data [string range $chars 0 $leftover-1]
     }
 
-    # Shimmer to a binary string. Note we cannot construct separately
-    # using string repeat as that shimmers to a string.
-    set payload(binary) [encoding convertto ascii $payload(text)]
-    if {![regexp {^value is a bytearray.*no string representation$} \
-              [tcl::unsupported::representation $payload(binary)]]} {
-        error "Failed to generate binary payload."
-    }
-    proc payload {type} {
-        variable payload
-        if {$type eq "binary"} {
-            return $payload(binary)
-        } elseif {$type eq "text"} {
-            return $payload(text)
-        } else {
-            error "Unknown payload type \"$type\"."
+    if {$type eq "binary"} {
+        # Shimmer to a binary string. Note we cannot construct separately
+        # using string repeat as that shimmers to a string.
+        set data [encoding convertto ascii $data]
+        if {![regexp {^value is a bytearray.*no string representation$} \
+                  [tcl::unsupported::representation $data]]} {
+            error "Failed to generate binary payload."
         }
     }
-    return [payload $type]
+    dict set payload $type data $data
+    dict set payload $type size $options(-writesize)
+    return $data
 }
 
 proc client::bench {provider} {
     variable options
     variable sooptions
     variable control
+    variable server
 
     set payload [payload $options(-payload)]
 
@@ -147,7 +207,7 @@ proc client::bench {provider} {
     # IMPORTANT:
     # Do NOT do any operations on $payload other than writing it
     # since [string length] etc. will all shimmer it.
-    set so [$socommand $options(-server) [dict get $control(dataports) $provider]]
+    set so [$socommand $server(-addr) [dict get $control(dataports) $provider]]
     fconfigure $so {*}[array get sooptions]
 
     set start [clock microseconds]
@@ -187,15 +247,16 @@ proc client::connect {args} {
     # Stores the socket and data ports in the control namespace variable.
     variable control
     variable options
-    foreach {opt default} {-server 127.0.0.1 -port 10101} {
-        if {[dict exists $args $opt]} {
-            set options($opt) [dict get $args $opt]
-        } else {
-            set options($opt) $default
-        }
+    variable server
+
+    if {[dict exists $args -server]} {
+        set server(-addr) [dict get $args -server]
+    }
+    if {[dict exists $args -port]} {
+        set server(-port) [dict get $args -port]
     }
     # Control channel always uses Tcl sockets
-    set so [socket $options(-server) $options(-port)]
+    set so [socket $server(-addr) $server(-port)]
     fconfigure $so -buffering line
     puts $so PORTS
     lassign [gets $so] status data_ports
@@ -215,7 +276,6 @@ proc client::runtest {args} {
     array set opts [dict merge {
         -provider tcl
         -writesize 4096
-        -print summary
         -readsize 4096
     } $args]
 
@@ -366,7 +426,7 @@ proc client::print_2cols {d {indent {    }}} {
     }
 }
 
-proc client::print {result} {
+proc client::print {result {level summary}} {
     variable options
     lassign [dict get $result Server] server_status server_result
     set client_result [dict get $result Client]
@@ -375,7 +435,7 @@ proc client::print {result} {
             puts stdout "ERROR: Client sent [dict get $client_result Sent] bytes but server received [dict get $server_result Received]."
         }
     }
-    if {$options(-print) eq "detail"} {
+    if {$level eq "detail"} {
         dict with client_result {
             set duration [expr {$End - $Start}]
             set mbps [format %.2f [expr {double($Sent)/$duration}]]
@@ -410,10 +470,12 @@ proc client::print {result} {
             puts "$mbps $Sent [format_duration $duration] $options(-provider)"
         }
     }
-    
 }
-proc client::run {args} {
+
+proc client::client {args} {
     variable control
+
+    reset_options
 
     set repeat 1
     if {[dict exists $args -repeat]} {
@@ -422,15 +484,58 @@ proc client::run {args} {
             error "Invalid repeat count \"$repeat\"."
         }
     }
-    set options(-print) summary
     if {[dict exists $args -print]} {
-        set options(-print) [dict get $args -print]
+        set print_level [dict get $args -print]
+    } else {
+        set print_level summary
     }
     connect $args
     for {set i 0} {$i < $repeat} {incr i} {
-        print [runtest {*}$args]
+        print [runtest {*}$args] $print_level
     }
     close $control(so)
+}
+
+proc client::batch {args} {
+    variable control
+
+    if {[dict exists $args -print]} {
+        set print_level [dict get $args -print]
+    } else {
+        set print_level summary
+    }
+
+    if {[dict exists $args -repeat]} {
+        set nrepeats [dict get $args -repeat]
+    } else {
+        set nrepeats 1
+    }
+    
+    connect $args
+    if {[dict exists $args -script]} {
+        set inchan [open [dict get $args -script]]
+    } else {
+        set inchan stdin
+    }
+
+    while {[gets $inchan line] >= 0} {
+        reset_options
+        set line [string trim $line]
+        if {[string length $line] == 0 || [string index $line 0] eq "#"} {
+            continue;           # Blank or comment
+        }
+        for {set i 0} {$i < $nrepeats} {incr i} {
+            # Not kosher to mix lists and string but what the heck...
+            print [runtest {*}[concat $args $line]] $print_level
+        }
+    }
+
+    if {$inchan ne "stdin"} {
+        close $inchan
+    }
+
+    close $control(so)
+
 }
 
 ################################################################
@@ -461,7 +566,7 @@ namespace eval server {
     variable clients
 }
 
-proc server::run {args} {
+proc server::server {args} {
     variable listeners;           # Listening sockets
     variable listening_ports;     # Corresponding ports
     variable soconfig;            # Socket config options
@@ -610,10 +715,13 @@ if {[string equal -nocase [file normalize [info script]/...] [file normalize $ar
     } else {
         switch -exact -- [lindex $argv 0] {
             client {
-                client::run {*}[lrange $argv 1 end]
+                client::client {*}[lrange $argv 1 end]
+            }
+            batch {
+                client::batch {*}[lrange $argv 1 end]
             }
             server {
-                server::run {*}[lrange $argv 1 end]
+                server::server {*}[lrange $argv 1 end]
             }
             help {
                 help
