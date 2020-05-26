@@ -195,7 +195,7 @@ proc client::payload {type} {
     return $data
 }
 
-proc client::bench {provider} {
+proc client::bench {local_provider remote_provider} {
     variable options
     variable sooptions
     variable control
@@ -203,11 +203,11 @@ proc client::bench {provider} {
 
     set payload [payload $options(-payload)]
 
-    set socommand [socket_command $provider]
+    set socommand [socket_command $local_provider]
     # IMPORTANT:
     # Do NOT do any operations on $payload other than writing it
     # since [string length] etc. will all shimmer it.
-    set so [$socommand $server(-addr) [dict get $control(dataports) $provider]]
+    set so [$socommand $server(-addr) [dict get $control(dataports) $remote_provider]]
     fconfigure $so {*}[array get sooptions]
 
     set start [clock microseconds]
@@ -274,7 +274,7 @@ proc client::runtest {args} {
     variable control
 
     array set opts [dict merge {
-        -provider tcl
+        -provider {tcl tcl}
         -writesize 4096
         -readsize 4096
     } $args]
@@ -355,12 +355,17 @@ proc client::runtest {args} {
         error "Server failure: $line"
     }
 
-    if {![dict exists $control(dataports) $opts(-provider)] ||
-        [dict get $control(dataports) $opts(-provider)] == 0} {
-        error "Server does not support $opts(-provider)."
+    lassign $opts(-provider) local_provider remote_provider
+    if {$remote_provider eq ""} {
+        set remote_provider $local_provider
     }
 
-    set client_result [bench $opts(-provider)]
+    if {![dict exists $control(dataports) $remote_provider] ||
+        [dict get $control(dataports) $remote_provider] == 0} {
+        error "Server does not support $remote_provider."
+    }
+
+    set client_result [bench $local_provider $remote_provider]
 
     set sockname [dict get $client_result Socket -sockname]
     set id [list [lindex $sockname 0] [lindex $sockname 2]]
@@ -436,6 +441,8 @@ proc client::print {result {level summary}} {
         }
     }
     if {$level eq "detail"} {
+        puts "CONFIG:"
+        print_2cols [array get options] "        "
         dict with client_result {
             set duration [expr {$End - $Start}]
             set mbps [format %.2f [expr {double($Sent)/$duration}]]
@@ -467,7 +474,7 @@ proc client::print {result {level summary}} {
             set duration [expr {$End - $Start}]
             set mbps [format %.2f [expr {double($Sent)/$duration}]]
             #puts "$mbps Mbps (Sent $Sent bytes in $duration usecs)"
-            puts "$mbps $Sent [format_duration $duration] $options(-provider)"
+            puts "$mbps $Sent [format_duration $duration] [join $options(-provider) ->]"
         }
     }
 }
