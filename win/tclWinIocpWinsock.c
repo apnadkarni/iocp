@@ -699,7 +699,7 @@ WinsockClientGetOption(
  *
  * WinsockClientSetOption --
  *
- *    Returns the value of the given option.
+ *    Sets the value of the given option.
  *
  * Results:
  *    Returns TCL_OK on succes and TCL_ERROR on failure.

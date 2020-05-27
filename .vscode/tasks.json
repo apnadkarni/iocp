@@ -6,7 +6,7 @@
         {
             "label": "build",
             "type": "shell",
-            "command": "cd win && build.bat cdebug=\"-Zi -Od -DIOCP_DEBUG -DIOCP_ENABLE_TRACE -DIOCP_ENABLE_ASSERT\"",
+            "command": "win\\build.bat cdebug=\"-Zi -Od -DIOCP_DEBUG -DIOCP_ENABLE_TRACE -DIOCP_ENABLE_ASSERT\"",
             "problemMatcher": [
                 "$msCompile"
             ],
@@ -15,7 +15,7 @@
         {
             "label": "clean",
             "type": "shell",
-            "command": "cd win && build.bat clean",
+            "command": "win\\build.bat clean",
             "problemMatcher": [],
             "group": "build"
         }

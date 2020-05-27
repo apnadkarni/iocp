@@ -446,7 +446,7 @@ proc client::print {result {level summary}} {
         dict with client_result {
             set duration [expr {$End - $Start}]
             set mbps [format %.2f [expr {double($Sent)/$duration}]]
-            puts "CLIENT: $mbps Mbps (Sent $Sent bytes in $duration usecs)"
+            puts "CLIENT: $mbps MB/s (Sent $Sent bytes in $duration usecs)"
             dict unset Socket -sockname
             dict unset Socket -peername
             dict unset Socket -error
@@ -458,7 +458,7 @@ proc client::print {result {level summary}} {
             dict with server_result {
                 set duration [expr {$End - $Start}]
                 set mbps [format %.2f [expr {double($Received)/$duration}]]
-                puts "SERVER: $mbps Mbps (Rcvd $Received bytes in $duration usecs)"
+                puts "SERVER: $mbps MB/s (Rcvd $Received bytes in $duration usecs)"
                 dict unset Socket -sockname
                 dict unset Socket -peername
                 dict unset Socket -error

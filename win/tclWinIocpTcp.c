@@ -75,7 +75,8 @@ typedef struct TcpListeningSocket {
     int                       aiProtocol; /* ... passed to _AcceptEx */
     int                       pendingAcceptPosts; /* #queued accepts posts */
     int                       maxPendingAcceptPosts; /* Loose max of above */
-#define IOCP_WINSOCK_MAX_ACCEPTS 3  /* TBD */
+#define IOCP_WINSOCK_MAX_ACCEPTS 3  /* Even raising to 20 does not seem to
+                                       matter with apache benchmark */
 } TcpListeningSocket;
 
 typedef struct TcpAcceptBuffer {
@@ -98,7 +99,6 @@ typedef struct TcpListener {
     int                 numListeners;   /* Only 0..numListeners-1 elements of
                                          * listeners[] should be examined and
                                          * can have value INVALID_SOCKET */
-    int                 maxPendingAcceptPosts;
 } TcpListener;
 
 /*
@@ -118,11 +118,15 @@ static IocpWinError TcpListenerPostAccepts(TcpListener *lockedTcpPtr,
 static void         TcpListenerInit(IocpChannel *basePtr);
 static void         TcpListenerFinit(IocpChannel *chanPtr);
 static int          TcpListenerShutdown(Tcl_Interp *,
-                                      IocpChannel *chanPtr, int flags);
+                                       IocpChannel *chanPtr, int flags);
 static IocpWinError TcpListenerAccept(IocpChannel *lockedChanPtr);
 static IocpTclCode  TcpListenerGetOption (IocpChannel *lockedChanPtr,
-                                              Tcl_Interp *interp, int optIndex,
-                                              Tcl_DString *dsPtr);
+                                          Tcl_Interp *interp, int optIndex,
+                                          Tcl_DString *dsPtr);
+static IocpTclCode  TcpListenerSetOption(IocpChannel *lockedChanPtr,
+                                         Tcl_Interp  *interp,
+                                         int          opt,
+                                         const char  *valuePtr);
 static IocpChannelVtbl tcpListenerVtbl = {
     /* "Virtual" functions */
     TcpListenerInit,
@@ -137,7 +141,7 @@ static IocpChannelVtbl tcpListenerVtbl = {
     NULL, /* PostWrite */
     NULL, // TBD TcpListenerGetHandle,
     TcpListenerGetOption,
-    NULL,                       /* SetOption */
+    TcpListenerSetOption,
     NULL,                       /* translateerror */
     /* Data members */
     iocpWinsockOptionNames,
@@ -1305,7 +1309,7 @@ IocpTclCode TcpListenerGetOption(
         return TCL_OK;
     case IOCP_WINSOCK_OPT_MAXPENDINGACCEPTS:
         sprintf_s(integerSpace, sizeof(integerSpace),
-                  "%d", lockedTcpPtr->maxPendingAcceptPosts);
+                  "%d", lockedTcpPtr->listeners[0].maxPendingAcceptPosts);
         Tcl_DStringAppend(dsPtr, integerSpace, -1);
         return TCL_OK;
     default:
@@ -1313,6 +1317,68 @@ IocpTclCode TcpListenerGetOption(
         return TCL_ERROR;
     }
 }
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * TcpListenerSetOption --
+ *
+ *    Returns the value of the given option.
+ *
+ * Results:
+ *    Returns TCL_OK on succes and TCL_ERROR on failure.
+ *
+ * Side effects:
+ *    On success the value of the option is stored in *dsPtr.
+ *
+ *------------------------------------------------------------------------
+ */
+static IocpTclCode TcpListenerSetOption(
+    IocpChannel *lockedChanPtr, /* Locked on entry, locked on exit */
+    Tcl_Interp  *interp,        /* For error reporting. May be NULL */
+    int          opt,           /* Index into option table for option of interest */
+    const char  *valuePtr)      /* Option value */
+{
+    TcpListener *lockedTcpPtr  = IocpChannelToTcpListener(lockedChanPtr);
+    int        intValue;
+    int        listenerIndex;
+
+    if (lockedTcpPtr->numListeners == 0) {
+        if (interp)
+            Tcl_SetResult(interp, "No socket associated with channel.", TCL_STATIC);
+        return TCL_ERROR;
+    }
+
+    switch (opt) {
+    case IOCP_WINSOCK_OPT_MAXPENDINGACCEPTS:
+        if (Tcl_GetInt(interp, valuePtr, &intValue) != TCL_OK) {
+            Tcl_SetErrno(EINVAL);
+            return TCL_ERROR;
+        }
+        if (intValue <= 0 || intValue > 20) {
+            if (interp)
+                Tcl_SetObjResult(interp, Tcl_ObjPrintf("Integer value %d out of range.", intValue));
+            Tcl_SetErrno(EINVAL);
+            return TCL_ERROR;
+        }
+        for (listenerIndex = 0; listenerIndex < lockedTcpPtr->numListeners; ++listenerIndex) {
+            lockedTcpPtr->listeners[listenerIndex].maxPendingAcceptPosts = intValue;
+        }
+        return TCL_OK;
+    case IOCP_WINSOCK_OPT_CONNECTING:
+    case IOCP_WINSOCK_OPT_ERROR:
+    case IOCP_WINSOCK_OPT_PEERNAME:
+    case IOCP_WINSOCK_OPT_SOCKNAME:
+    case IOCP_WINSOCK_OPT_MAXPENDINGREADS:
+    case IOCP_WINSOCK_OPT_MAXPENDINGWRITES:
+        return Tcl_BadChannelOption(interp, iocpWinsockOptionNames[opt], "-maxpendingaccepts");
+    default:
+        Tcl_SetObjResult(interp, Tcl_ObjPrintf("Internal error: invalid socket option index %d", opt));
+        Tcl_SetErrno(EINVAL);
+        return TCL_ERROR;
+    }
+}
+
 
 /*
  *----------------------------------------------------------------------
