@@ -89,7 +89,7 @@ if test "${TEA_PLATFORM}" = "windows" ; then
     TEA_ADD_CFLAGS([-DUNICODE -D_UNICODE -D_WIN32_WINNT=_WIN32_WINNT_WIN7])
 
     TEA_ADD_SOURCES([
-                       win/iocp.c
+                       win/tclWinIocp.c
                        win/tclPolyfill.c
                        win/tclWinIocpWinsock.c
                        win/tclWinIocpTcp.c

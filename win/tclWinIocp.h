@@ -195,26 +195,25 @@ enum IocpBufferOp {
  * associated with a specific channel as indicated by its channel field and
  * also a data area that holds the actual I/O bytes.
  *
- * As such, the IocpBuffer may be referenced from the Tcl thread via
- * the IocpChannel structure, the Windows kernel within the overlapped I/O
- * execution, and the completion thread but only from one of these at
- * any instant.
+ * As such, the IocpBuffer may be referenced from one of the following
+ * contexts:
+ *   * the Tcl thread via the IocpChannel structure, 
+ *   * the Windows kernel within the overlapped I/O execution, and
+ *   * the completion thread after the I/O completes
  *
- * During I/O, it is passed to the Windows function (WSASend etc.) as
- * the OVERLAP parameter. On completion of the I/O, it is recovered by the
- * I/O completion thread.
- *
- * There is no need for explicit locking of the structure. When a IocpBuffer is
- * allocated, it is only accessible from the allocating thread. Once passed to
- * the Win32 I/O routines, it is only accessed from the kernel. The Tcl and IOCP
- * completion thread do not access and in fact do not even hold a pointer to it
- * from any other structure. When the I/O call completes, it is retrieved by the
- * completion thread at which point that is the only thread that has access to
- * it. Finally, the completion thread frees the buffer or enqueues to the
- * channel input queue under the channel lock after which point it is only
- * accessed from the Tcl thread owning the channel under the control of the
- * channel lock. Then the cycle (potentially) repeats. Since only one thread at
- * any point has access to it, there is no need for a lock.
+ * Key point to note: it is only accessed from one context at a time and
+ * there is **no need for explicit locking of the structure**. When a
+ * IocpBuffer is allocated, it is only accessible from the allocating
+ * thread. Once passed to the Win32 I/O routines, it is only accessed from
+ * the kernel. The Tcl and IOCP completion thread do not access and in fact
+ * do not even hold a pointer to it. When the I/O call completes, it is
+ * retrieved by the completion thread at which point that is the only thread
+ * that has access to it. Finally, the completion thread either frees the
+ * buffer or enqueues to the channel input queue under the channel lock
+ * after which point it is only accessed from the Tcl thread owning the
+ * channel under the control of the channel lock. Then the cycle
+ * (potentially) repeats. Since only one thread at any point has access to
+ * it, there is no need for a lock.
  *
  * For the same reason, there is no reason for a reference count. Only one
  * component holds a reference to it at a time:
@@ -240,8 +239,8 @@ typedef struct IocpBuffer {
         HANDLE h;
         SOCKET so;
         void * ptr;
-    } context[2];                  /* For buffer users. Not initialized and not
-                                    * used by buffer functions */
+    } context[2];                  /* For buffer users. Not initialized and
+                                    * not used by buffer functions */
     enum IocpBufferOp operation;   /* I/O operation */
     int               flags;
 #define IOCP_BUFFER_F_WINSOCK 0x1 /* Buffer used for a Winsock operation.
@@ -268,8 +267,7 @@ IOCP_INLINE int IocpStateConnectionInProgress(enum IocpState state) {
 /*
  * IocpChannel contains the generic portion of Tcl IOCP channels that is
  * common to all IocpChannel implementations. Its primary purpose is to
- * encapsulate state and functions that is common to all IOCP channel types
- * including
+ * encapsulate state and functions common to all IOCP channel types including
  *  - state pertaining to Tcl's channel layer.
  *  - functions interfacing to the IOCP threads
  *  - buffer queueing
@@ -277,40 +275,50 @@ IOCP_INLINE int IocpStateConnectionInProgress(enum IocpState state) {
  * from this structure (by inclusion).
  *
  * General working and lifetime:
- * - A IocpChannel is allocated through the iocp::socket (or similar) call.
- * It starts with a reference count of 1 corresponding to the reference from
- * the Tcl channel subsystem. The corresponding reference decrement will happen
- * when the channel is closed through IocpCloseProc.
+ * 
+ * - A IocpChannel is allocated through the socket (or similar) call. It
+ *   starts with a reference count of 1 corresponding to the reference from
+ *   the Tcl channel subsystem. The corresponding reference decrement will
+ *   happen when the channel is closed through IocpCloseProc.
+ * 
  * - The Tcl channel layer then calls the IocpThreadActionProc function
- * which attaches it to a thread. The thread id is stored in IocpChannel.threadId
- * and completion notifications are sent to that thread.
+ *   which attaches it to a thread. The thread id is stored in
+ *   IocpChannel.threadId and completion notifications are sent to that
+ *   thread.
+ * 
  * - For I/O, IocpBuffer's are allocated and posted to the Win32 I/O API.
- * The IocpBuffer points back to the associated IocpChannel and thus increments
- * the latter's reference count. The corresponding reference decrement happens
- * when the IocpBuffer is freed.
+ *   The IocpBuffer points back to the associated IocpChannel and thus
+ *   increments the latter's reference count. The corresponding reference
+ *   decrement happens when the IocpBuffer is freed.
+ * 
  * - When a read I/O completes, the IOCP completion thread retrieves the
- * IocpBuffer and places it on the IocpChannel's inputBuffers queue.
+ *   IocpBuffer and places it on the IocpChannel's inputBuffers queue.
+ * 
  * - The completion thread then sends a Tcl_Event notification referencing
- * the IocpChannel to the thread owning the channel. The IocpChannel reference
- * count is incremented accordingly.
- * - The notified Tcl thread receives the event and processes the completion.
- * The IocpChannel reference count is decremented as it is no longer referenced
- * from the Tcl event queue.
+ *   the IocpChannel to the thread owning the channel. The IocpChannel
+ *   reference count is incremented corresponding to this reference.
+ * 
+ * - The notified Tcl thread receives the event and processes the
+ *   completion. The IocpChannel reference count is decremented as it is no
+ *   longer referenced from the Tcl event queue.
+ * 
  * - The IocpBuffer's on the IocpChannel inputBuffers queue are processed
- * when the Tcl channel layer calls IocpInputProc to read data.
+ *   when the Tcl channel layer calls IocpInputProc to read data.
+ * 
  * - Before closing the Tcl channel layer calls the IocpThreadActionProc to
- * detach the channel.
- * - On the actual close, the IocpCloseProc function is called which decrements
- * the IocpChannel reference count corresponding to the initial allocation
- * reference. NOTE this does not mean the IocpChannel structure itself is freed
- * since its reference count may not have reached 0 due to existing references
- * from IocpBuffer's queued for I/O. When those buffers complete, they will be
- * freed at which point the IocpChannel reference count will also drop to 0
- * resulting in it being freed.
+ *   detach the channel.
+ * 
+ * - On the actual close, the IocpCloseProc function is called which
+ *   decrements the IocpChannel reference count corresponding to the initial
+ *   allocation reference. NOTE this does not mean the IocpChannel structure
+ *   itself is freed since its reference count may not have reached 0 due to
+ *   existing references from IocpBuffer's queued for I/O. When those
+ *   buffers complete, they will be freed at which point the IocpChannel
+ *   reference count will also drop to 0 resulting in it being freed.
  *
- * For blocked operations, e.g. a blocking connect or read, the Tcl thread will
- * wait on the cv condition variable which will be triggered by the I/O
- * completion thread when the operation completes.
+ * For blocked operations, e.g. a blocking connect or read, the Tcl thread
+ * will wait on the IocpChannel.cv condition variable which will be
+ * triggered by the I/O completion thread when the operation completes.
  *
  * Access to the structure is synchronized through the
  * IocpChannelLock/IocpChannelUnlock functions.
@@ -364,7 +372,7 @@ IOCP_INLINE void IocpChannelCVWait(IocpChannel *lockedChanPtr) {
 }
 
 /*
- * IocpChannelVtbl serves as a poor man's C++ virtual table dispatcher.
+ * IocpChannelVtbl serves as a poor man's virtual table dispatcher.
  * Concrete Iocp channel types define their own tables to handle type-specific
  * functionality which is called from common IocpChannel code.
  */

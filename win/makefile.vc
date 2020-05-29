@@ -22,7 +22,7 @@ PROJECT	= iocp
 
 PRJ_DEFINES = /D_WIN32_WINNT=_WIN32_WINNT_WIN7 /DTCLH_SHORTNAMES
 PRJ_OBJS = \
-	$(TMP_DIR)\iocp.obj \
+    $(TMP_DIR)\tclWinIocp.obj \
     $(TMP_DIR)\tclPolyfill.obj \
     $(TMP_DIR)\tclWinIocpWinsock.obj \
     $(TMP_DIR)\tclWinIocpTcp.obj \
