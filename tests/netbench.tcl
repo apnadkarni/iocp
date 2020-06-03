@@ -1,4 +1,4 @@
-# Copyright (c) 2019 Ashok P. Nadkarni
+# Copyright (c) 2020 Ashok P. Nadkarni
 # All rights reserved.
 # See LICENSE file for details.
 # For instructions:
@@ -628,7 +628,6 @@ proc server::read_control {so} {
             close $so
         }
     } else {
-        # TBD - enclose in try
         # Received a command
         lassign $line command opts
         try {

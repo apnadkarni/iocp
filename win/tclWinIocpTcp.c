@@ -75,7 +75,7 @@ typedef struct TcpListeningSocket {
     int                       aiProtocol; /* ... passed to _AcceptEx */
     int                       pendingAcceptPosts; /* #queued accepts posts */
     int                       maxPendingAcceptPosts; /* Loose max of above */
-#define IOCP_WINSOCK_MAX_ACCEPTS 3  /* Even raising to 20 does not seem to
+#define IOCP_WINSOCK_MAX_ACCEPTS 5  /* Even raising to 20 does not seem to
                                        matter with apache benchmark */
 } TcpListeningSocket;
 

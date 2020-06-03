@@ -1,3 +1,4 @@
+# Demo for bug https://core.tcl-lang.org/tcl/tktview/75d525d37c931812e9b0
 package require Thread
 
 proc accept args {}
