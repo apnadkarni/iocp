@@ -18,7 +18,8 @@
                 "PACKAGE_NAME=\"iocp\"",
                 "PACKAGE_VERSION=\"0.0\"",
                 "TCLH_IMPL",
-                "TCLH_EMBEDDER=\"IOCP\""
+                "TCLH_EMBEDDER=\"IOCP\"",
+                "IOCP_REUSE_SOCKETS"
             ],
             "windowsSdkVersion": "10.0.17763.0",
             "compilerPath": "C:/Program Files (x86)/Microsoft Visual Studio/2017/Community/VC/Tools/MSVC/14.16.27023/bin/Hostx64/x64/cl.exe",
