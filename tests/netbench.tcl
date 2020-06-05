@@ -45,9 +45,11 @@ proc help {} {
         are accepted on the command line by both client
         and batch commands as well as within test scripts by the batch command.
         
-        -provider PROVIDER - The socket implementation provider. One of
+        -provider PROVIDER - The socket implementation providers. A pair from
                        tcl, iocp corresponding to native Tcl
-                       sockets or iocp_inet package (tcl)
+                       sockets or iocp_inet package (tcl) as the socket
+                       provider to use for the client and server
+                       If only one is given, it is used for both.
         -payload text|binary - specifies the payload type as text or binary.
                        If unspecified, payload is chosen based on whether
                        socket options (below) specify binary transfer or not.
@@ -59,6 +61,8 @@ proc help {} {
                        with -duration which is the default.
         -repeat N    - Run each test N number of times.
         -print detail|summary - Print summary of results or details (summary)
+        -nbwrites true|false - If true, writes are non-blocking event driven
+                       otherwise blocking (false).
 
         In addition, the following socket options may be specified:
         -buffering, -buffersize, -encoding, -eofchar, -translation and for
@@ -195,6 +199,71 @@ proc client::payload {type} {
     return $data
 }
 
+proc client::nonblocking_write_counted {so max_count payload} {
+    variable nonblocking_write_count
+    variable nonblocking_write_gate
+    if {$nonblocking_write_count >= $max_count} {
+        fileevent $so writable {}
+        set nonblocking_write_gate done
+    } else {
+        puts -nonewline $so $payload
+        incr nonblocking_write_count
+    }
+    #puts $nonblocking_write_count
+}
+
+proc client::nonblocking_write {so payload} {
+    variable nonblocking_write_count
+    puts -nonewline $so $payload
+    incr nonblocking_write_count
+}
+
+proc client::nonblocking_write_timer {} {
+    variable nonblocking_write_gate
+    set nonblocking_write_gate done
+}
+
+proc client::bench_nonblocking {local_provider remote_provider} {
+    variable options
+    variable sooptions
+    variable control
+    variable server
+    variable nonblocking_write_count
+    variable nonblocking_write_gate
+
+    set payload [payload $options(-payload)]
+
+    set socommand [socket_command $local_provider]
+    # IMPORTANT:
+    # Do NOT do any operations on $payload other than writing it
+    # since [string length] etc. will all shimmer it.
+    set so [$socommand $server(-addr) [dict get $control(dataports) $remote_provider]]
+    fconfigure $so {*}[array get sooptions] -blocking 0
+
+    set nonblocking_write_count 0
+    if {[info exists options(-count)]} {
+        fileevent $so writable [list [namespace current]::nonblocking_write_counted $so $options(-count) $payload]
+    } else {
+        fileevent $so writable [list [namespace current]::nonblocking_write $so $payload]
+        after [expr {$options(-duration) * 1000}] [namespace current]::nonblocking_write_timer
+    }
+
+    set start [clock microseconds]
+    vwait     [namespace current]::nonblocking_write_gate
+
+    set sent [expr {$nonblocking_write_count * $options(-writesize)}]
+    set end  [clock microseconds]
+    close $so write
+    set configuration [fconfigure $so]
+    set server_received [gets $so]
+    close $so
+    return [list Sent $sent \
+                ServerReceived $server_received \
+                Start $start \
+                End $end \
+                Socket $configuration]
+}
+
 proc client::bench {local_provider remote_provider} {
     variable options
     variable sooptions
@@ -277,6 +346,7 @@ proc client::runtest {args} {
         -provider {tcl tcl}
         -writesize 4096
         -readsize 4096
+        -nbwrites 0
     } $args]
 
     if {[info exists opts(-translation)]} {
@@ -365,7 +435,11 @@ proc client::runtest {args} {
         error "Server does not support $remote_provider."
     }
 
-    set client_result [bench $local_provider $remote_provider]
+    if {$options(-nbwrites)} {
+        set client_result [bench_nonblocking $local_provider $remote_provider]
+    } else {
+        set client_result [bench $local_provider $remote_provider]
+    }
 
     set sockname [dict get $client_result Socket -sockname]
     set id [list [lindex $sockname 0] [lindex $sockname 2]]
@@ -614,6 +688,22 @@ proc server::accept_control {so addr port} {
     fconfigure $so -buffering line
 }
 
+proc server::end_test {controlso dataso} {
+    # Send back test end response to client on control socket
+    #  controlso - control socket
+    #  dataso - data socket
+    variable sockets
+    variable clients
+puts end_test
+    set result $sockets($dataso)
+    dict set result Socket [fconfigure $dataso]
+    close $dataso
+    unset sockets($dataso)
+    puts $controlso [list OK $result]
+    set peer [dict get $result Socket -peername]
+    dict unset clients [lindex $peer 0] [lindex $peer 2]
+}
+
 proc server::read_control {so} {
     variable listeners
     variable listening_ports
@@ -649,12 +739,14 @@ proc server::read_control {so} {
                     lassign $opts addr port
                     if {[dict exists $clients $addr $port]} {
                         set dataso [dict get $clients $addr $port]
-                        set result $sockets($dataso)
-                        dict set result Socket [fconfigure $dataso]
-                        close $dataso
-                        unset sockets($dataso)
-                        puts $so [list OK $result]
-                        dict unset clients $addr $port
+                        if {[dict exists $sockets($dataso) End]} {
+                            end_test $so $dataso
+                            puts clients:$clients
+                        } else {
+                            # Have not finished reading data yet. Leave marker
+                            # for read handler to respond to client when done.
+                            dict set sockets($dataso) Control $so
+                        }
                     } else {
                         puts $so [list ERROR "Unknown client: $addr/$port"]
                     }
@@ -709,6 +801,10 @@ proc server::read_data {so} {
             puts $so [dict get $sockets($so) Received]; flush $so
             fileevent $so readable {}
             dict set sockets($so) End [clock microseconds]
+            # If we have to respond to client, do so
+            if {[dict exists $sockets($so) Control]} {
+                end_test [dict get $sockets($so) Control] $so
+            }
         } else {
             # No data available
         }
