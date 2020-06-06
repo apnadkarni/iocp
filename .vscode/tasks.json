@@ -4,6 +4,24 @@
     "version": "2.0.0",
     "tasks": [
         {
+            "label": "debug",
+            "type": "shell",
+            "command": "win\\build.bat INSTALLDIR=D:\\tcl\\debug\\x64 cdebug=\"-Zi -Od -DIOCP_DEBUG -DIOCP_ENABLE_TRACE -DIOCP_ENABLE_ASSERT\"",
+            "problemMatcher": [
+                "$msCompile"
+            ],
+            "group": "build"
+        },
+        {
+            "label": "debug-install",
+            "type": "shell",
+            "command": "win\\build.bat INSTALLDIR=D:\\tcl\\debug\\x64 cdebug=\"-Zi -Od -DIOCP_DEBUG -DIOCP_ENABLE_TRACE -DIOCP_ENABLE_ASSERT\" install",
+            "problemMatcher": [
+                "$msCompile"
+            ],
+            "group": "build"
+        },
+        {
             "label": "release",
             "type": "shell",
             "command": "win\\build.bat INSTALLDIR=D:\\tcl\\magic",
@@ -13,9 +31,9 @@
             "group": "build"
         },
         {
-            "label": "debug",
+            "label": "release-install",
             "type": "shell",
-            "command": "win\\build.bat INSTALLDIR=D:\\tcl\\debug\\x64 cdebug=\"-Zi -Od -DIOCP_DEBUG -DIOCP_ENABLE_TRACE -DIOCP_ENABLE_ASSERT\"",
+            "command": "win\\build.bat INSTALLDIR=D:\\tcl\\magic install",
             "problemMatcher": [
                 "$msCompile"
             ],

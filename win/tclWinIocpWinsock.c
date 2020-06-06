@@ -17,6 +17,8 @@ const char *iocpWinsockOptionNames[] = {
     "-maxpendingreads",
     "-maxpendingwrites",
     "-maxpendingaccepts",
+    "-sosndbuf",
+    "-sorcvbuf",
     NULL
 };
 
@@ -620,6 +622,7 @@ WinsockClientGetOption(
     char integerSpace[TCL_INTEGER_SPACE];
     int  noRDNS = 0;
 #define SUPPRESS_RDNS_VAR "::tcl::unsupported::noReverseDNS"
+    DWORD dw;
 
     switch (opt) {
     case IOCP_WINSOCK_OPT_CONNECTING:
@@ -688,8 +691,30 @@ WinsockClientGetOption(
     case IOCP_WINSOCK_OPT_MAXPENDINGACCEPTS:
         Tcl_DStringAppend(dsPtr, "0", 1);
         return TCL_OK;
+    case IOCP_WINSOCK_OPT_SOSNDBUF:
+    case IOCP_WINSOCK_OPT_SORCVBUF:
+        if (lockedWsPtr->so == INVALID_SOCKET) {
+            if (interp)
+                Tcl_SetResult(interp, "No socket associated with channel.", TCL_STATIC);
+            return TCL_ERROR;
+        }
+        addrSize = sizeof(dw);
+        if (getsockopt(lockedWsPtr->so,
+                       SOL_SOCKET,
+                       opt == IOCP_WINSOCK_OPT_SOSNDBUF ? SO_SNDBUF : SO_RCVBUF,
+                       (char *)&dw,
+                       &addrSize)) {
+            return Iocp_ReportLastWindowsError(interp, "getsockopt failed: ");
+        }
+        sprintf_s(integerSpace, sizeof(integerSpace), "%u", dw);
+        Tcl_DStringAppend(dsPtr, integerSpace, -1);
+        return TCL_OK;
+
     default:
-        Tcl_SetObjResult(interp, Tcl_ObjPrintf("Internal error: invalid socket option index %d", opt));
+        Tcl_SetObjResult(
+            interp,
+            Tcl_ObjPrintf("Internal error: invalid socket option index %d",
+                          opt));
         return TCL_ERROR;
     }
 }
@@ -742,14 +767,45 @@ IocpTclCode WinsockClientSetOption(
         else
             lockedChanPtr->maxPendingWrites = intValue;
         return TCL_OK;
+    case IOCP_WINSOCK_OPT_SOSNDBUF:
+    case IOCP_WINSOCK_OPT_SORCVBUF:
+        if (Tcl_GetInt(interp, valuePtr, &intValue) != TCL_OK) {
+            Tcl_SetErrno(EINVAL);
+            return TCL_ERROR;
+        }
+        if (intValue < 0) {
+            if (interp)
+                Tcl_SetObjResult(
+                    interp,
+                    Tcl_ObjPrintf("Negative buffer space %d specified.",
+                                  intValue));
+            Tcl_SetErrno(EINVAL);
+            return TCL_ERROR;
+        }
+        if (setsockopt(lockedWsPtr->so,
+                       SOL_SOCKET,
+                       opt == IOCP_WINSOCK_OPT_SOSNDBUF ? SO_SNDBUF : SO_RCVBUF,
+                       (char *)&intValue,
+                       sizeof(intValue))) {
+            Tcl_SetErrno(EINVAL);
+            return Iocp_ReportLastWindowsError(interp, "setsockopt failed: ");
+        }
+        return TCL_OK;
+
     case IOCP_WINSOCK_OPT_CONNECTING:
     case IOCP_WINSOCK_OPT_ERROR:
     case IOCP_WINSOCK_OPT_PEERNAME:
     case IOCP_WINSOCK_OPT_SOCKNAME:
     case IOCP_WINSOCK_OPT_MAXPENDINGACCEPTS:
-        return Tcl_BadChannelOption(interp, iocpWinsockOptionNames[opt], "-maxpendingreads -maxpendingwrites");
+        return Tcl_BadChannelOption(interp,
+                                    iocpWinsockOptionNames[opt],
+                                    "-maxpendingreads -maxpendingwrites"
+                                    "-sorcvbuf -sosndbuf");
     default:
-        Tcl_SetObjResult(interp, Tcl_ObjPrintf("Internal error: invalid socket option index %d", opt));
+        Tcl_SetObjResult(
+            interp,
+            Tcl_ObjPrintf("Internal error: invalid socket option index %d",
+                          opt));
         Tcl_SetErrno(EINVAL);
         return TCL_ERROR;
     }
