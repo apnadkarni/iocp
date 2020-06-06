@@ -64,12 +64,16 @@ proc help {} {
         -nbwrites true|false - If true, writes are non-blocking event driven
                        otherwise blocking (false).
 
-        In addition, the following socket options may be specified:
-        -buffering, -buffersize, -encoding, -eofchar, -translation and for
-        provider iocp only, -maxpendingreads and -maxpendingwrites. These
-        control the socket configuration for running the benchmark
+        In addition, the following socket options may be specified for all
+        providers:
+           -buffering, -buffersize, -encoding, -eofchar, -translation
+        These control the socket configuration for running the benchmark
         on both server and client and may be specified either on the
         command line or in batch scripts.
+
+        Further, for the iocp provider only, the following options may
+        be specified:
+           -maxpendingreads, -maxpendingwrites, -sosndbuf, -sorcvbuf
 
         The batch command accepts an additional option:
         -script FILE - Path of file from which to read test configurations.
@@ -212,10 +216,16 @@ proc client::nonblocking_write_counted {so max_count payload} {
     #puts $nonblocking_write_count
 }
 
-proc client::nonblocking_write {so payload} {
+proc client::nonblocking_write_timed {so end_usec payload} {
     variable nonblocking_write_count
-    puts -nonewline $so $payload
-    incr nonblocking_write_count
+    variable nonblocking_write_gate
+    if {[clock microseconds] > $end_usec} {
+        fileevent $so writable {}
+        set nonblocking_write_gate done
+    } else {
+        puts -nonewline $so $payload
+        incr nonblocking_write_count
+    }
 }
 
 proc client::nonblocking_write_timer {} {
@@ -244,8 +254,10 @@ proc client::bench_nonblocking {local_provider remote_provider} {
     if {[info exists options(-count)]} {
         fileevent $so writable [list [namespace current]::nonblocking_write_counted $so $options(-count) $payload]
     } else {
-        fileevent $so writable [list [namespace current]::nonblocking_write $so $payload]
-        after [expr {$options(-duration) * 1000}] [namespace current]::nonblocking_write_timer
+        fileevent $so writable [list [namespace current]::nonblocking_write_timed \
+                                    $so \
+                                    [expr {[clock microseconds] + ($options(-duration) * 1000000)}] \
+                                    $payload]
     }
 
     set start [clock microseconds]
@@ -366,7 +378,8 @@ proc client::runtest {args} {
         }
     }
 
-    foreach opt {-buffering -buffersize -encoding -eofchar -translation -maxpendingreads -maxpendingwrites} {
+    foreach opt {-buffering -buffersize -encoding -eofchar -translation
+        -maxpendingreads -maxpendingwrites -sosndbuf -sorcvbuf} {
         if {[info exists opts($opt)]} {
             set sooptions($opt) $opts($opt)
             unset opts($opt)
@@ -694,7 +707,6 @@ proc server::end_test {controlso dataso} {
     #  dataso - data socket
     variable sockets
     variable clients
-puts end_test
     set result $sockets($dataso)
     dict set result Socket [fconfigure $dataso]
     close $dataso
@@ -741,7 +753,6 @@ proc server::read_control {so} {
                         set dataso [dict get $clients $addr $port]
                         if {[dict exists $sockets($dataso) End]} {
                             end_test $so $dataso
-                            puts clients:$clients
                         } else {
                             # Have not finished reading data yet. Leave marker
                             # for read handler to respond to client when done.
