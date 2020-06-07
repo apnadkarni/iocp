@@ -14,7 +14,7 @@
  *
  *------------------------------------------------------------------------
  */
-const char *Iocp_BTMapToName(
+const char *Iocp_BTMapCompanyIdToName(
     unsigned int companyId
     )
 {

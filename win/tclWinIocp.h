@@ -655,10 +655,12 @@ void         IocpChannelNudgeThread(IocpChannel *lockedChanPtr, int blockMask, i
 
 IocpTclCode IocpSetChannelDefaults(Tcl_Channel channel);
 
-/* TBD */
-const char *BT_MapToName(
+#ifdef TBD
+/* Currently not included as too much bloat */
+const char *BT_MapiCompanyIdToName(
     unsigned int companyId
     );
+#endif
 
 /* If building as an extension, polyfill internal Tcl routines. */
 #ifdef BUILD_iocp

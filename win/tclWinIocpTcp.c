@@ -1303,6 +1303,8 @@ IocpTclCode TcpListenerGetOption(
         } else {
             return TCL_OK;
         }
+    case IOCP_WINSOCK_OPT_SOSNDBUF: /* Return 0 for now since immaterial */
+    case IOCP_WINSOCK_OPT_SORCVBUF: /* Ditto */
     case IOCP_WINSOCK_OPT_MAXPENDINGREADS:
     case IOCP_WINSOCK_OPT_MAXPENDINGWRITES:
         Tcl_DStringAppend(dsPtr, "0", 1);
@@ -1371,6 +1373,8 @@ static IocpTclCode TcpListenerSetOption(
     case IOCP_WINSOCK_OPT_SOCKNAME:
     case IOCP_WINSOCK_OPT_MAXPENDINGREADS:
     case IOCP_WINSOCK_OPT_MAXPENDINGWRITES:
+    case IOCP_WINSOCK_OPT_SOSNDBUF:
+    case IOCP_WINSOCK_OPT_SORCVBUF:
         return Tcl_BadChannelOption(interp, iocpWinsockOptionNames[opt], "-maxpendingaccepts");
     default:
         Tcl_SetObjResult(interp, Tcl_ObjPrintf("Internal error: invalid socket option index %d", opt));
