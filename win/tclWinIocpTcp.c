@@ -256,11 +256,7 @@ static IocpWinError TcpClientPostConnect(
         fnConnectEx == NULL) {
         return WSAGetLastError();
     }
-
-    if (CreateIoCompletionPort((HANDLE) tcpPtr->so,
-                               iocpModuleState.completion_port,
-                               0, /* Completion key - unused */
-                               0) == NULL) {
+    if (IocpAttachDefaultPort((HANDLE) tcpPtr->so) == NULL) {
         return GetLastError(); /* NOT WSAGetLastError() ! */
     }
 
@@ -385,11 +381,7 @@ static IocpWinError TcpClientBlockingConnect(
 
                 /* Sockets should not be inherited by children */
                 SetHandleInformation((HANDLE)so, HANDLE_FLAG_INHERIT, 0);
-
-                if (CreateIoCompletionPort((HANDLE) so,
-                                           iocpModuleState.completion_port,
-                                           0, /* Completion key - unused */
-                                           0) != NULL) {
+                if (IocpAttachDefaultPort((HANDLE)so) != NULL) {
                     tcpPtr->base.state = IOCP_STATE_OPEN;
                     tcpPtr->so = so;
                     /*
@@ -400,7 +392,7 @@ static IocpWinError TcpClientBlockingConnect(
                     return ERROR_SUCCESS;
                 }
                 else
-                    winError = GetLastError();
+                    winError = GetLastError(); /* NOT WSAGetLastError */
             }
             else
                 winError = WSAGetLastError();
@@ -924,10 +916,8 @@ IocpWinError TcpListenerAccept(
         IocpBufferFree(bufPtr);
         bufPtr = NULL;
 
-        if (CreateIoCompletionPort((HANDLE) connSocket,
-                                   iocpModuleState.completion_port,
-                                   0, /* Completion key - unused */
-                                   0) == NULL) {
+ 
+    if (IocpAttachDefaultPort((HANDLE) connSocket) == NULL) {
             /* TBD - notify background error ? */
             closesocket(connSocket);
             continue;
@@ -1189,10 +1179,7 @@ static IocpWinError IocpTcpListen(
     }
 
     /* Attach to completion port */
-    if (CreateIoCompletionPort((HANDLE)so,
-                               iocpModuleState.completion_port,
-                               0, /* Completion key - unused */
-                               0) == NULL) {
+    if (IocpAttachDefaultPort((HANDLE)so) == NULL) {
         winError = GetLastError();
         closesocket(so);
         return winError;

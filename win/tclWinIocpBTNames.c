@@ -1,7 +1,7 @@
 /*
  *------------------------------------------------------------------------
  *
- * Iocp_BTMapToName --
+ * Iocp_BTMapCompanyIdToName --
  *
  *    Returns the name corresponding to a Bluetooth company identifer.
  *

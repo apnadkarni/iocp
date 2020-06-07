@@ -637,6 +637,14 @@ IOCP_INLINE void IocpBufferCopyIn(IocpBuffer *bufPtr, const char *inPtr, int len
     IocpDataBufferCopyIn(&bufPtr->data, inPtr, len);
 }
 
+/* IOCP wrappers */
+IOCP_INLINE HANDLE IocpAttachDefaultPort(HANDLE h) {
+    return CreateIoCompletionPort(h,
+                                  iocpModuleState.completion_port,
+                                  0, /* Completion key - unused */
+                                  0);
+}
+
 /* Callback utilities */
 void IocpRegisterAcceptCallbackCleanup(Tcl_Interp *, IocpAcceptCallback *);
 void IocpUnregisterAcceptCallbackCleanup(Tcl_Interp *, IocpAcceptCallback *);
@@ -654,6 +662,8 @@ DWORD        IocpChannelPostReads(IocpChannel *lockedChanPtr);
 void         IocpChannelNudgeThread(IocpChannel *lockedChanPtr, int blockMask, int force);
 
 IocpTclCode IocpSetChannelDefaults(Tcl_Channel channel);
+
+
 
 #ifdef TBD
 /* Currently not included as too much bloat */

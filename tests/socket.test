@@ -1061,7 +1061,7 @@ test socket_$af-7.3 {testing iocp::inet::socket specific options} -constraints [
     close $s
     update
     lsort [dict keys $l]
-} -result {-blocking -buffering -buffersize -connecting -encoding -eofchar -error -maxpendingaccepts -maxpendingreads -maxpendingwrites -sockname -translation}
+} -result {-blocking -buffering -buffersize -connecting -encoding -eofchar -error -maxpendingaccepts -maxpendingreads -maxpendingwrites -sockname -sorcvbuf -sosndbuf -translation}
 test socket_$af-7.4 {testing iocp::inet::socket specific options} -constraints [list supported_$af] -setup {
     set timer [after 10000 "set x timed_out"]
     set l ""

@@ -23,6 +23,11 @@ namespace eval iocp {
 
         The extension may be downloaded from
         <https://sourceforge.net/projects/magicsplat/files/iocp/>.
+
+        ## Source code
+
+        The source code is available from the Github
+        [repository](https://github.com/apnadkarni/iocp).
     }
 }
 
@@ -42,14 +47,35 @@ namespace eval iocp::inet {
     proc socket args {
         # Returns a client or server TCP/IP channel.
         #   args - see the Tcl core `socket` command
+
         # The command provides the same interface as the Tcl core
+        # [socket](http://www.tcl-lang.org/man/tcl8.6/TclCmd/socket.htm) command
+        # except for the additional socket options listed below. Refer to the
+        # documentation of the Tcl
         # [socket](http://www.tcl-lang.org/man/tcl8.6/TclCmd/socket.htm)
-        # command. Refer to the Tcl 
-        # [documentation](http://www.tcl-lang.org/man/tcl8.6/TclCmd/socket.htm)
-        # for details.
+        # command for details.
         #
-        # The only enhancement offered by this command is significantly 
-        # improved performance with reduced CPU load.
+        # The only functional enhancement offered by this command is
+        # significantly improved performance with reduced CPU load.
+        #
+        # In addition to the standard configuration options supported
+        # by the Tcl `socket` command, the following additional configuration
+        # options are supported through the Tcl `fconfigure` and
+        # `chan configure` commands. They can be read as well as set.
+        #
+        #  -maxpendingaccepts COUNT - Maximum number of pending accepts to post
+        #    on the socket (listening socket only).
+        #  -maxpendingreads COUNT - Maximum number of pending reads to post
+        #    on the socket.
+        #  -maxpendingwrites COUNT - Maximum number of pending writes to post
+        #    on the socket.
+        #  -sorcvbuf BUFSIZE - Size of Winsock socket receive buffer.
+        #  -sosndbuf BUFSIZE - Size of Winsock socket send buffer.
+        #
+        # It is recommended these be left at their default values except
+        # in cases where performance needs to be fine tuned for specific
+        # traffic patterns. The `netbench` utility may be used for the
+        # purpose.
         #
         # The returned channel must be closed with the Tcl `close`
         # or `chan close` command.
@@ -80,6 +106,9 @@ namespace eval iocp::bt {
         or other protocols as these are not exposed at the Win32 API level.
 
         * Bluetooth LE is not supported for the same reason.
+
+        This documentation is a reference for the package. For an introductory
+        guide, see the [tutorials](https://www.magicsplat.com/blog/tags/bluetooth/).
 
         ## Device discovery
 

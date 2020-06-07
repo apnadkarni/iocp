@@ -979,11 +979,7 @@ BtClientBlockingConnect(
             /* Sockets should not be inherited by children */
             SetHandleInformation((HANDLE)so, HANDLE_FLAG_INHERIT, 0);
 
-            if (CreateIoCompletionPort((HANDLE)so,
-                                       iocpModuleState.completion_port,
-                                       0, /* Completion key - unused */
-                                       0)
-                != NULL) {
+            if (IocpAttachDefaultPort((HANDLE)so) != NULL) {
                 btPtr->base.state = IOCP_STATE_OPEN;
                 btPtr->so         = so;
                 /*
@@ -1066,10 +1062,7 @@ BtClientPostConnect(
         return WSAGetLastError();
     }
 
-    if (CreateIoCompletionPort((HANDLE) btPtr->so,
-                               iocpModuleState.completion_port,
-                               0, /* Completion key - unused */
-                               0) == NULL) {
+    if (IocpAttachDefaultPort((HANDLE) btPtr->so) == NULL) {
         return GetLastError(); /* NOT WSAGetLastError() ! */
     }
 

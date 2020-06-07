@@ -1,19 +1,29 @@
-To build using VC++,
+To build using VC++ (64-bit),
 
    cd win
    "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Auxiliary\Build\vcvars64.bat" 10.0.15063.0
    nmake /s /f makefile.vc INSTALLDIR=d:\tcl\debug\x64
    nmake /s /f makefile.vc INSTALLDIR=d:\tcl\debug\x64 install
 
-To build using mingw/gcc,
+To build using mingw/gcc, 64-bits
 
-   mkdir build
-   cd build
-   ../configure --prefix=/d/tcl/868-mingw/x64 --enable-threads --enable-64bit --with-tcl=/d/tcl/868-mingw/x64/lib
+   mkdir build64
+   cd build64
+   ../configure --prefix=/d/tcl/8610-mingw/x64 --enable-threads --enable-64bit --with-tcl=/d/tcl/8610-mingw/x64/lib
+   make
+   make install
+
+To build using mingw/gcc, 32-bits
+   mkdir build32
+   cd build32
+   ../configure --prefix=/d/tcl/8610-mingw/x86 --enable-threads --with-tcl=/d/tcl/8610-mingw/x86/lib
    make
    make install
 
 Of course, change paths appropriately above.
+
+The installs place binaries in architecture-specific directories so install
+directories can be merged for distribution.
 
 To generate documentation,
 
