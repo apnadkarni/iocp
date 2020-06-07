@@ -8,13 +8,16 @@
 namespace eval client {
     variable client_code {
         namespace eval {client} {
-            variable closed_count
+            # Array -
+            #  limit - limit on number of connections
+            #  closed - number closed
+            variable counts
         }
         proc socket_command {provider} {
             if {$provider eq "tcl"} {
                 return socket
             } elseif {$provider eq "iocp"} {
-                uplevel #0 package require iocp
+                uplevel #0 package require iocp_inet
                 return iocp::inet::socket
             } elseif {$provider eq "iocpsock"} {
                 uplevel #0 package require Iocpsock
@@ -24,27 +27,32 @@ namespace eval client {
             }
         }
         proc client::on_read {so} {
-            variable closed_count
-            read $so 1
+            variable counts
+            variable done
+            set in [read $so 1]
             close $so
-            incr closed_count
+            if {[string length $in] == 0} {
+                puts "Failed"
+            }
+            if {[incr counts(closed)] >= $counts(limit)} {
+                set done 1
+            }
         }
         proc client::connect {provider addr port} {
             set so [[socket_command $provider] -async $addr $port]
             fileevent $so readable [list [namespace current]::on_read $so]
         }
         proc client::run {provider addr port count} {
-            variable closed_count
-            set closed_count 0
+            variable counts
+            set counts(limit)  $count
+            set counts(closed) 0
             set start [clock microseconds]
             for {set i 0} {$i < $count} {incr i} {
                 connect $provider $addr $port
             }
-            while {$closed_count != $count} {
-                vwait [namespace current]::closed_count
-            }
+            vwait [namespace current]::done
             set end [clock microseconds]
-            return [list $closed_count $start $end]
+            return [list $counts(closed) $start $end]
         }
     }
 }
@@ -54,7 +62,7 @@ namespace eval server {
         if {$provider eq "tcl"} {
             return socket
         } elseif {$provider eq "iocp"} {
-            uplevel #0 package require iocp
+            uplevel #0 package require iocp_inet
             return iocp::inet::socket
         } elseif {$provider eq "iocpsock"} {
             uplevel #0 package require Iocpsock
@@ -107,8 +115,6 @@ proc server::server {args} {
         set provider [dict get $args -provider]
     }
     set listener [[socket_command $provider] -server [namespace current]::accept $port]
-    fconfigure $listener 
-    puts "Listener: [fconfigure $listener]"
     vwait forever
 }
 
