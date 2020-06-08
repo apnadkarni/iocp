@@ -1,14 +1,11 @@
 set iocp_load_command {
-    load ../win/Release_AMD64_VC1916/iocp01t.dll
-}
-set iocp_load_command {
     apply {{} {
         lappend ::auto_path d:/tcl/lib
         package require iocp_inet
     }}
 }
 {*}$iocp_load_command
-#rename socket {}
+
 # Commands tested in this file: socket.
 #
 # This file contains a collection of tests for one or more of the Tcl built-in
@@ -73,10 +70,6 @@ set iocp_load_command {
 
 package require tcltest 2
 namespace import -force ::tcltest::*
-
-if {[expr {[info exists ::env(TRAVIS_OSX_IMAGE)] && [string match xcode* $::env(TRAVIS_OSX_IMAGE)]}]} {
-    return
-}
 
 # Some tests require the Thread package or exec command
 testConstraint thread [expr {0 == [catch {package require Thread 2.7-}]}]

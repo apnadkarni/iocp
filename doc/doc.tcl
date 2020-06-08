@@ -47,7 +47,7 @@ namespace eval iocp::inet {
     proc socket args {
         # Returns a client or server TCP/IP channel.
         #   args - see the Tcl core `socket` command
-
+        #
         # The command provides the same interface as the Tcl core
         # [socket](http://www.tcl-lang.org/man/tcl8.6/TclCmd/socket.htm) command
         # except for the additional socket options listed below. Refer to the
@@ -105,7 +105,7 @@ namespace eval iocp::bt {
         * Only RFCOMM channels are supported. There is no support for L2CAP
         or other protocols as these are not exposed at the Win32 API level.
 
-        * Bluetooth LE is not supported for the same reason.
+        * Bluetooth LE is not currently supported.
 
         This documentation is a reference for the package. For an introductory
         guide, see the [tutorials](https://www.magicsplat.com/blog/tags/bluetooth/).
@@ -241,7 +241,7 @@ proc iocp::Document {outfile args} {
     set namespaces [list ${ns}::inet ${ns}::bt ${ns}::bt::sdr ${ns}::bt::names]
     ruff::document $namespaces -autopunctuate 1 -excludeprocs {^[_A-Z]} \
         -recurse 0 -preamble $_preamble -pagesplit namespace \
-        -output $outfile -includesource 1 \
+        -navigation fixed -output $outfile -includesource 1 \
         -title "iocp package reference (V[package present iocp])" \
         {*}$args
 }
