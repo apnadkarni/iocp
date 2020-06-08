@@ -5405,7 +5405,6 @@ if test "${TEA_PLATFORM}" = "windows" ; then
                            lib/bt.tcl
                            lib/btnames.tcl
                            lib/btsdr.tcl
-                           lib/obex.tcl
     "
     for i in $vars; do
 	# check for existence, be strict because it is installed

@@ -106,7 +106,6 @@ if test "${TEA_PLATFORM}" = "windows" ; then
                            lib/bt.tcl
                            lib/btnames.tcl
                            lib/btsdr.tcl
-                           lib/obex.tcl
     ])
 
 else
