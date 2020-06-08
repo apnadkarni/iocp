@@ -448,6 +448,7 @@ void IocpChannelAwaitCompletion(
     lockedChanPtr->flags &= ~ IOCP_CHAN_F_BLOCKED_MASK;
     lockedChanPtr->flags |= blockType;
     IocpChannelCVWait(lockedChanPtr);
+    IOCP_TRACE(("IocpChannelAwaitCompletion Leave: lockedChanPtr=%p, blockType=%d\n", lockedChanPtr, blockType));
 }
 
 /*
@@ -1291,34 +1292,42 @@ IocpChannelOutput (
 
     /* State may have changed but no matter, handled below */
 
-    /*
-     * We loop because for blocking case we will keep retrying.
-     */
-    while (chanPtr->state == IOCP_STATE_OPEN) {
-        winError = chanPtr->vtblPtr->postwrite(chanPtr, bytes, nbytes, &written);
-        if (winError != ERROR_SUCCESS) {
-            IocpSetTclErrnoFromWin32(winError);
-            *errorCodePtr = Tcl_GetErrno();
-            written = -1;
-            break;
-        }
-        if (written != 0)
-            break;              /* Wrote some data */
+    if (nbytes == 0) {
         /*
-         * Would block. If non-blocking, advise caller to try later.
-         * If blocking socket, wait for previous writes to complete.
+         * TclTLS will do zero byte writes for whatever reason. Guard against
+         * that else loop below never stop.
          */
-        if (chanPtr->flags & IOCP_CHAN_F_NONBLOCKING) {
-            *errorCodePtr = EAGAIN;
-            written = -1;
-            break;
-        }
+        written = 0;
+    } else {
         /*
-         * Blocking socket. Wait till room opens up and retry.
-         * Completion thread will signal via condition variable when
-         * a previus write completes.
+         * We loop because for blocking case we will keep retrying.
          */
-        IocpChannelAwaitCompletion(chanPtr, IOCP_CHAN_F_BLOCKED_WRITE);
+        while (chanPtr->state == IOCP_STATE_OPEN) {
+            winError = chanPtr->vtblPtr->postwrite(chanPtr, bytes, nbytes, &written);
+            if (winError != ERROR_SUCCESS) {
+                IocpSetTclErrnoFromWin32(winError);
+                *errorCodePtr = Tcl_GetErrno();
+                written = -1;
+                break;
+            }
+            if (written != 0)
+                break;              /* Wrote some data */
+            /*
+             * Would block. If non-blocking, advise caller to try later.
+             * If blocking socket, wait for previous writes to complete.
+             */
+            if (chanPtr->flags & IOCP_CHAN_F_NONBLOCKING) {
+                *errorCodePtr = EAGAIN;
+                written = -1;
+                break;
+            }
+            /*
+             * Blocking socket. Wait till room opens up and retry.
+             * Completion thread will signal via condition variable when
+             * a previus write completes.
+             */
+            IocpChannelAwaitCompletion(chanPtr, IOCP_CHAN_F_BLOCKED_WRITE);
+        }
     }
 
     /* If nothing was written and state is not OPEN, indicate error */
