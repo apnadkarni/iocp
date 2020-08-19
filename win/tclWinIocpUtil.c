@@ -204,15 +204,14 @@ void IocpSetTclErrnoFromWin32(IocpWinError winError)
  *
  *------------------------------------------------------------------------
  */
-void IocpSetInterpPosixErrorFromWin32 (
+void IocpSetInterpPosixErrorFromWin32(
     Tcl_Interp *interp,         /* May be NULL */
     IocpWinError winError,      /* Win32 error code */
     const char *messagePrefix)  /* A message prefix if any. May be NULL */
 {
-    
     IocpSetTclErrnoFromWin32(winError);
     if (interp != NULL) {
-        const char *posixMessage = Tcl_ErrnoMsg(Tcl_GetErrno());
+        const char *posixMessage = Tcl_PosixError(interp);
         if (messagePrefix == NULL) {
             Tcl_SetResult(interp, (char *)posixMessage, TCL_STATIC);
         }
@@ -221,7 +220,6 @@ void IocpSetInterpPosixErrorFromWin32 (
         }
     }
 }
-
 
 /*
  *------------------------------------------------------------------------
