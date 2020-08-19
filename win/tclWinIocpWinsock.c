@@ -19,6 +19,8 @@ const char *iocpWinsockOptionNames[] = {
     "-maxpendingaccepts",
     "-sosndbuf",
     "-sorcvbuf",
+    "-keepalive",
+    "-nagle",
     NULL
 };
 
@@ -709,12 +711,29 @@ WinsockClientGetOption(
         sprintf_s(integerSpace, sizeof(integerSpace), "%u", dw);
         Tcl_DStringAppend(dsPtr, integerSpace, -1);
         return TCL_OK;
-
+    case IOCP_WINSOCK_OPT_KEEPALIVE:
+    case IOCP_WINSOCK_OPT_NAGLE:
+        if (lockedWsPtr->so == INVALID_SOCKET) {
+            if (interp)
+                Tcl_SetResult(interp, "No socket associated with channel.", TCL_STATIC);
+            return TCL_ERROR;
+        }
+        else {
+	    int optlen = sizeof(BOOL);
+	    BOOL optval = FALSE;
+	    getsockopt(lockedWsPtr->so, SOL_SOCKET,
+	    	opt == IOCP_WINSOCK_OPT_KEEPALIVE ? SO_KEEPALIVE : TCP_NODELAY,
+	    	(char *)&optval, &optlen);
+            Tcl_DStringAppend(dsPtr, optval ? "1" : "0", 1);
+	}
+        return TCL_OK;
     default:
-        Tcl_SetObjResult(
+        if (interp) {
+          Tcl_SetObjResult(
             interp,
             Tcl_ObjPrintf("Internal error: invalid socket option index %d",
                           opt));
+        }
         return TCL_ERROR;
     }
 }
@@ -801,6 +820,28 @@ IocpTclCode WinsockClientSetOption(
                                     iocpWinsockOptionNames[opt],
                                     "-maxpendingreads -maxpendingwrites"
                                     "-sorcvbuf -sosndbuf");
+    case IOCP_WINSOCK_OPT_KEEPALIVE:
+    case IOCP_WINSOCK_OPT_NAGLE:
+        if (1) {
+	    BOOL val = FALSE;
+
+	    if (Tcl_GetBoolean(interp, valuePtr, &intValue) != TCL_OK) {
+	        Tcl_SetErrno(EINVAL);
+	        return TCL_ERROR;
+	    }
+	    if (intValue) {
+	        val = TRUE;
+	    }
+	    if (setsockopt(lockedWsPtr->so, SOL_SOCKET,
+		  opt == IOCP_WINSOCK_OPT_KEEPALIVE ? SO_KEEPALIVE : TCP_NODELAY,
+	    	  (const char *) &val, sizeof(BOOL)) != 0
+	    ) {
+                Tcl_SetErrno(EINVAL);
+                return Iocp_ReportLastWindowsError(interp, "setsockopt failed: ");
+	    }
+	    return TCL_OK;
+	}
+        return TCL_OK;
     default:
         Tcl_SetObjResult(
             interp,
