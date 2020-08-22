@@ -1302,7 +1302,9 @@ IocpTclCode TcpListenerGetOption(
         Tcl_DStringAppend(dsPtr, integerSpace, -1);
         return TCL_OK;
     default:
-        Tcl_SetObjResult(interp, Tcl_ObjPrintf("Internal error: invalid socket option index %d", opt));
+        if (interp) {
+            Tcl_SetObjResult(interp, Tcl_ObjPrintf("Internal error: invalid socket option index %d", opt));
+        }
         return TCL_ERROR;
     }
 }

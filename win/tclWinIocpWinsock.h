@@ -85,6 +85,8 @@ enum IocpWinsockOption {
     IOCP_WINSOCK_OPT_MAXPENDINGACCEPTS,
     IOCP_WINSOCK_OPT_SOSNDBUF,
     IOCP_WINSOCK_OPT_SORCVBUF,
+    IOCP_WINSOCK_OPT_KEEPALIVE,
+    IOCP_WINSOCK_OPT_NAGLE,
     IOCP_WINSOCK_OPT_INVALID        /* Must be last */
 };
 extern const char*iocpWinsockOptionNames[];
