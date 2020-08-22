@@ -63,12 +63,14 @@ namespace eval iocp::inet {
         # options are supported through the Tcl `fconfigure` and
         # `chan configure` commands. They can be read as well as set.
         #
+        #  -keepalive BOOL - Controls the socket `SO_KEEPALIVE` option.
         #  -maxpendingaccepts COUNT - Maximum number of pending accepts to post
         #    on the socket (listening socket only).
         #  -maxpendingreads COUNT - Maximum number of pending reads to post
         #    on the socket.
         #  -maxpendingwrites COUNT - Maximum number of pending writes to post
         #    on the socket.
+        #  -nagle BOOL - Controls the socket `TCL_NODELAY` option
         #  -sorcvbuf BUFSIZE - Size of Winsock socket receive buffer.
         #  -sosndbuf BUFSIZE - Size of Winsock socket send buffer.
         #
