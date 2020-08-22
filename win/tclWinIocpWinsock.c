@@ -761,6 +761,7 @@ IocpTclCode WinsockClientSetOption(
 {
     WinsockClient *lockedWsPtr = IocpChannelToWinsockClient(lockedChanPtr);
     int        intValue;
+    BOOL       bVal;
 
     if (lockedWsPtr->so == INVALID_SOCKET) {
         if (interp)
@@ -806,8 +807,10 @@ IocpTclCode WinsockClientSetOption(
                        opt == IOCP_WINSOCK_OPT_SOSNDBUF ? SO_SNDBUF : SO_RCVBUF,
                        (char *)&intValue,
                        sizeof(intValue))) {
+            /* Note retrieve Win32 error before any other call */
+            Iocp_ReportLastWindowsError(interp, "setsockopt failed: ");
             Tcl_SetErrno(EINVAL);
-            return Iocp_ReportLastWindowsError(interp, "setsockopt failed: ");
+            return TCL_ERROR;
         }
         return TCL_OK;
 
@@ -822,25 +825,20 @@ IocpTclCode WinsockClientSetOption(
                                     "-sorcvbuf -sosndbuf");
     case IOCP_WINSOCK_OPT_KEEPALIVE:
     case IOCP_WINSOCK_OPT_NAGLE:
-        if (1) {
-	    BOOL val = FALSE;
-
-	    if (Tcl_GetBoolean(interp, valuePtr, &intValue) != TCL_OK) {
-	        Tcl_SetErrno(EINVAL);
-	        return TCL_ERROR;
-	    }
-	    if (intValue) {
-	        val = TRUE;
-	    }
-	    if (setsockopt(lockedWsPtr->so, SOL_SOCKET,
-		  opt == IOCP_WINSOCK_OPT_KEEPALIVE ? SO_KEEPALIVE : TCP_NODELAY,
-	    	  (const char *) &val, sizeof(BOOL)) != 0
-	    ) {
-                Tcl_SetErrno(EINVAL);
-                return Iocp_ReportLastWindowsError(interp, "setsockopt failed: ");
-	    }
-	    return TCL_OK;
-	}
+        if (Tcl_GetBoolean(interp, valuePtr, &intValue) != TCL_OK) {
+            Tcl_SetErrno(EINVAL);
+            return TCL_ERROR;
+        }
+        bVal = intValue ? TRUE : FALSE;
+        if (setsockopt(lockedWsPtr->so, SOL_SOCKET,
+                       opt == IOCP_WINSOCK_OPT_KEEPALIVE ? SO_KEEPALIVE : TCP_NODELAY,
+                       (const char *) &bVal, sizeof(BOOL)) != 0
+            ) {
+            /* Note retrieve Win32 error before any other call */
+            Iocp_ReportLastWindowsError(interp, "setsockopt failed: ");
+            Tcl_SetErrno(EINVAL);
+            return TCL_ERROR;
+        }
         return TCL_OK;
     default:
         Tcl_SetObjResult(
