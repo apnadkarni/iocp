@@ -1366,7 +1366,8 @@ static IocpTclCode TcpListenerSetOption(
     case IOCP_WINSOCK_OPT_SORCVBUF:
         return Tcl_BadChannelOption(interp, iocpWinsockOptionNames[opt], "-maxpendingaccepts");
     default:
-        Tcl_SetObjResult(interp, Tcl_ObjPrintf("Internal error: invalid socket option index %d", opt));
+        if (interp)
+            Tcl_SetObjResult(interp, Tcl_ObjPrintf("Internal error: invalid socket option index %d", opt));
         Tcl_SetErrno(EINVAL);
         return TCL_ERROR;
     }
