@@ -522,6 +522,7 @@ void IocpChannelEnqueueEvent(
             evPtr->reason     = reason;
             lockedChanPtr->numRefs++; /* Corresponding to above,
                                          reversed by IocpEventHandler */
+            lockedChanPtr->flags |= IOCP_CHAN_F_ON_EVENTQ;
             /* Optimization if enqueuing to current thread */
             if (Tcl_GetCurrentThread() == lockedChanPtr->owningThread) {
                 IOCP_TRACE(("IocpChannelEnqueueEvent: queuing to current thread\n"));
@@ -1817,6 +1818,9 @@ int IocpEventHandler(
 
     chanPtr = ((IocpTclEvent *)evPtr)->chanPtr;
     IocpChannelLock(chanPtr);
+
+    IOCP_ASSERT(chanPtr-flags & IOCP_CHAN_F_ON_EVENTQ); /*  TBD - is this always true? */
+    chanPtr->flags &= ~IOCP_CHAN_F_ON_EVENTQ;
 
     IOCP_TRACE(("IocpEventHandler: chanPtr=%p, chanPtr->state=0x%x\n", chanPtr, chanPtr->state));
 
