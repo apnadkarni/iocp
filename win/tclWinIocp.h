@@ -340,8 +340,8 @@ typedef struct IocpChannel {
     int pendingReads;                 /* Number of outstanding posted reads */
     int maxPendingReads;              /* Max number of outstanding posted reads */
 #define IOCP_MAX_PENDING_READS_DEFAULT 3
-    int pendingWrites;                /* Number of outstanding posted writes */
-    int maxPendingWrites;             /* Max number of outstanding posted writes */
+    int pendingWrites;                /* Number of pending posted writes */
+    int maxPendingWrites;             /* Max allowed pending posted writes */
 #define IOCP_MAX_PENDING_WRITES_DEFAULT 3
 
     int       flags;
@@ -360,6 +360,8 @@ typedef struct IocpChannel {
 #define IOCP_CHAN_F_BLOCKED_CONNECT 0x1000 /* Blocked for connect completion */
 #define IOCP_CHAN_F_BLOCKED_MASK \
     (IOCP_CHAN_F_BLOCKED_READ | IOCP_CHAN_F_BLOCKED_WRITE | IOCP_CHAN_F_BLOCKED_CONNECT)
+#define IOCP_CHAN_F_IN_EVENT_HANDLER 0x2000 /* Being processed by event handler */
+#define IOCP_CHAN_F_ON_TIMERQ 0x4000 /* Timer scheduled for event callack */
 } IocpChannel;
 IOCP_INLINE void IocpChannelLock(IocpChannel *chanPtr) {
     IocpLockAcquireExclusive(&chanPtr->lock);

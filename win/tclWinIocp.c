@@ -487,6 +487,61 @@ int IocpChannelWakeAfterCompletion(
 }
 
 /*
+ * IocpEventTimerCallback -
+ *
+ *    Called back from Tcl timer routines which is used as a trampoline to
+ *    to call into the IOCP channel event handler. See IocpChannelEnqueueEvent.
+ *
+ * Results:
+ *    None.
+ *
+ * Side effects:
+ *    Calls the channel event handler or enqueues another call through the
+ *    event loop.
+ */
+static void IocpEventTimerCallback(ClientData clientdata)
+{
+    IocpTclEvent *evPtr = (IocpTclEvent *) clientdata;
+    IocpChannel  *chanPtr;
+
+    IOCP_TRACE(("IocpEventTimerCallback: Enter\n"));
+
+    /*
+     * TBD - we could directly call IocpEventHandler here. However,
+     * we do not know if TCL_FILE_EVENTS flag was set in the event loop to
+     * allow processing of file / socket events. So we just queue back
+     * through the event loop. Not the most efficient.
+     */
+
+    /*
+     * Note evPtr->chanPtr is safe to access as it was incr-ref'ed when queued
+     */
+    chanPtr = evPtr->chanPtr;
+    IocpChannelLock(chanPtr);
+    chanPtr->flags &= ~IOCP_CHAN_F_ON_TIMERQ;
+    if ((chanPtr->flags & IOCP_CHAN_F_ON_EVENTQ) == 0) {
+        Tcl_ThreadId tid = chanPtr->owningThread;
+        chanPtr->flags |= IOCP_CHAN_F_ON_EVENTQ;
+        IocpChannelUnlock(chanPtr);
+        /* Optimization if enqueuing to current thread */
+        // TBD - what if tid is 0 (channel not attached to any thread)
+        if (Tcl_GetCurrentThread() == tid) {
+            IOCP_TRACE(("IocpEventTimerCallback: queuing to current thread\n"));
+            Tcl_QueueEvent((Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
+        }
+        else {
+            IOCP_TRACE(("IocpEventTimerCallback: queuing to another thread\n"));
+            Tcl_ThreadQueueEvent(tid,
+                                 (Tcl_Event *)evPtr, TCL_QUEUE_TAIL);
+            Tcl_ThreadAlert(tid);
+        }
+    }
+    else {
+        IocpChannelUnlock(chanPtr);
+    }
+}
+
+/*
  *------------------------------------------------------------------------
  *
  * IocpChannelEnqueueEvent --
@@ -512,7 +567,7 @@ void IocpChannelEnqueueEvent(
     int          force           /* If true, queue even if already queued. */
     )
 {
-    IOCP_TRACE(("IocpChannelEnqueueEvent Enter: lockedChanPtr=%p, reason=%d, force=%d, lockedChanPtr->owningThread=%d\n", lockedChanPtr, reason, force, lockedChanPtr->owningThread));
+    IOCP_TRACE(("IocpChannelEnqueueEvent Enter: lockedChanPtr=%p, reason=%d, force=%d, lockedChanPtr->owningThread=%d, lockedChanPtr->flags=0x%x\n", lockedChanPtr, reason, force, lockedChanPtr->owningThread, lockedChanPtr->flags));
     if (lockedChanPtr->owningThread != 0) {
         /* Unless forced, only add to thread's event queue if not present. */
         if (force || (lockedChanPtr->flags & IOCP_CHAN_F_ON_EVENTQ) == 0) {
@@ -522,19 +577,32 @@ void IocpChannelEnqueueEvent(
             evPtr->reason     = reason;
             lockedChanPtr->numRefs++; /* Corresponding to above,
                                          reversed by IocpEventHandler */
-            lockedChanPtr->flags |= IOCP_CHAN_F_ON_EVENTQ;
-            /* Optimization if enqueuing to current thread */
+            /*
+             * If called from the thread owning the channel, call back through
+             * the timer, otherwise we run the risk of continually generating
+             * events without letting code scheduled via [after] in fileevent
+             * callbacks run. See Bug 191 in twapi.
+             */
             if (Tcl_GetCurrentThread() == lockedChanPtr->owningThread) {
-                IOCP_TRACE(("IocpChannelEnqueueEvent: queuing to current thread\n"));
-                Tcl_QueueEvent((Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
+                if ((lockedChanPtr->flags & IOCP_CHAN_F_ON_TIMERQ) == 0) {
+                    lockedChanPtr->flags |= IOCP_CHAN_F_ON_TIMERQ;
+                    Tcl_CreateTimerHandler(0, IocpEventTimerCallback, evPtr);
+                }
             }
             else {
+                lockedChanPtr->flags |= IOCP_CHAN_F_ON_EVENTQ;
                 IOCP_TRACE(("IocpChannelEnqueueEvent: queuing to another thread\n"));
                 Tcl_ThreadQueueEvent(lockedChanPtr->owningThread,
                                      (Tcl_Event *)evPtr, TCL_QUEUE_TAIL);
                 Tcl_ThreadAlert(lockedChanPtr->owningThread);
             }
         }
+        else {
+            IOCP_TRACE(("IocpChannelEnqueEvent: not queueing as already queued\n"));
+        }
+    }
+    else {
+        IOCP_TRACE(("IocpChannelEnqueEvent: owningThread==0\n"));
     }
 }
 
@@ -1819,8 +1887,8 @@ int IocpEventHandler(
     chanPtr = ((IocpTclEvent *)evPtr)->chanPtr;
     IocpChannelLock(chanPtr);
 
-    IOCP_ASSERT(chanPtr-flags & IOCP_CHAN_F_ON_EVENTQ); /*  TBD - is this always true? */
     chanPtr->flags &= ~IOCP_CHAN_F_ON_EVENTQ;
+    chanPtr->flags |= IOCP_CHAN_F_IN_EVENT_HANDLER;
 
     IOCP_TRACE(("IocpEventHandler: chanPtr=%p, chanPtr->state=0x%x\n", chanPtr, chanPtr->state));
 
@@ -1844,9 +1912,11 @@ int IocpEventHandler(
         IocpNotifyChannel(chanPtr); /* May change state */
         break;
     default: /* INIT and CLOSED */
-        /* TBD - should not happen - log somewhere ? */
+        /* Late arrival */
         break;
     }
+
+    chanPtr->flags &= ~IOCP_CHAN_F_IN_EVENT_HANDLER;
 
     /* Drop the reference corresponding to queueing to the event q. */
     ((IocpTclEvent *)evPtr)->chanPtr = NULL;

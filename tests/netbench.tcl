@@ -306,6 +306,7 @@ proc client::bench {local_provider remote_provider} {
         set duration [expr {$options(-duration) * 1000000}]
         while {([clock microseconds]-$start) < $duration} {
             puts -nonewline $so $payload
+            #after 100
             set now [clock microseconds]
             incr sent $options(-writesize)
         }
@@ -686,11 +687,12 @@ proc server::server {args} {
 
     if {[catch {uplevel #0 package require Iocpsock}]} {
         set listeners_ports(iocpsock) 0
-        puts stderr "Could not load Iocpsock package."
+        puts stderr "Could not load Iocpsock package. Iocpsock will not be available."
+    } else {
+        set listeners(iocpsock) [socket2 -server [namespace current]::accept_data 0]
+        set listening_ports(iocpsock) [lindex [fconfigure $listeners(iocpsock) -sockname] 2]
+        puts stdout "Iocpsock socket listening on $listening_ports(iocpsock)."
     }
-    set listeners(iocpsock) [socket2 -server [namespace current]::accept_data 0]
-    set listening_ports(iocpsock) [lindex [fconfigure $listeners(iocpsock) -sockname] 2]
-    puts stdout "Iocpsock socket listening on $listening_ports(iocpsock)."
 
     vwait forever
 }
@@ -804,6 +806,7 @@ proc server::read_data {so} {
         return
     }
     set len [string length $data]
+    #puts "Received $len"
     dict incr sockets($so) Received $len
     if {$len < $options(-readsize)} {
         if {[eof $so]} {
