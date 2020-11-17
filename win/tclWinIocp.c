@@ -30,10 +30,10 @@ IocpSubSystem iocpModuleState;
 /* Statistics */
 IocpStats iocpStats;
 
-/* Enable/disable tracing */
-int iocpEnableTrace;
-
 #ifdef IOCP_ENABLE_TRACE
+/* Enable/disable tracing */
+int iocpEnableTrace = IOCP_ENABLE_TRACE;
+
 /*
  * GUID format for traceview
  * 3a674e76-fe96-4450-b634-24fc587b2828
@@ -1914,9 +1914,11 @@ Iocp_Init (Tcl_Interp *interp)
 
     Tcl_PkgProvide(interp, PACKAGE_NAME, PACKAGE_VERSION);
 
+#ifdef IOCP_ENABLE_TRACE
     /* Note this is globally shared across all interpreters */
     Tcl_LinkVar(interp, "::iocp::enableTrace",
                 (char *)&iocpEnableTrace, TCL_LINK_BOOLEAN);
+#endif
 
     return TCL_OK;
 }
