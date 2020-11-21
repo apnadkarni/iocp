@@ -513,31 +513,34 @@ static void IocpEventTimerCallback(ClientData clientdata)
      * through the event loop. Not the most efficient.
      */
 
+    /*  TBD - why not make use of IocpChannelEnqueueEvent here? */
+
     /*
      * Note evPtr->chanPtr is safe to access as it was incr-ref'ed when queued
      */
     chanPtr = evPtr->chanPtr;
     IocpChannelLock(chanPtr);
     chanPtr->flags &= ~IOCP_CHAN_F_ON_TIMERQ;
-    if ((chanPtr->flags & IOCP_CHAN_F_ON_EVENTQ) == 0) {
-        Tcl_ThreadId tid = chanPtr->owningThread;
+    /*
+     * It is possible that while on the timer queue, some code detached the
+     * channel from the thread and attached to some other thread. In that
+     * case we do nothing because the detach/attach code will do the needful
+     * in terms of generating any notification events.
+     *
+     * We also do nothing if channel was already on event queue.
+     */
+    if (chanPtr->owningThread == Tcl_GetCurrentThread() &&
+        ((chanPtr->flags & IOCP_CHAN_F_ON_EVENTQ) == 0) ) {
+        IOCP_TRACE(("IocpEventTimerCallback: queuing to current thread.\n"));
         chanPtr->flags |= IOCP_CHAN_F_ON_EVENTQ;
         IocpChannelUnlock(chanPtr);
-        /* Optimization if enqueuing to current thread */
-        // TBD - what if tid is 0 (channel not attached to any thread)
-        if (Tcl_GetCurrentThread() == tid) {
-            IOCP_TRACE(("IocpEventTimerCallback: queuing to current thread\n"));
-            Tcl_QueueEvent((Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
-        }
-        else {
-            IOCP_TRACE(("IocpEventTimerCallback: queuing to another thread\n"));
-            Tcl_ThreadQueueEvent(tid,
-                                 (Tcl_Event *)evPtr, TCL_QUEUE_TAIL);
-            Tcl_ThreadAlert(tid);
-        }
+        Tcl_QueueEvent((Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
     }
     else {
-        IocpChannelUnlock(chanPtr);
+        IOCP_TRACE(("IocpEventTimerCallback: channel not attached to current thread.\n"));
+        /* Drop reference added when timer was queued in IocpChannelEnqueueEvent. */
+        evPtr->chanPtr = NULL;
+        IocpChannelDrop(chanPtr);
     }
 }
 
@@ -577,16 +580,26 @@ void IocpChannelEnqueueEvent(
             evPtr->reason     = reason;
             lockedChanPtr->numRefs++; /* Corresponding to above,
                                          reversed by IocpEventHandler */
-            /*
-             * If called from the thread owning the channel, call back through
-             * the timer, otherwise we run the risk of continually generating
-             * events without letting code scheduled via [after] in fileevent
-             * callbacks run. See Bug 191 in twapi.
-             */
             if (Tcl_GetCurrentThread() == lockedChanPtr->owningThread) {
-                if ((lockedChanPtr->flags & IOCP_CHAN_F_ON_TIMERQ) == 0) {
-                    lockedChanPtr->flags |= IOCP_CHAN_F_ON_TIMERQ;
-                    Tcl_CreateTimerHandler(0, IocpEventTimerCallback, evPtr);
+                /*
+                 * If called from an event handler in the thread owning the
+                 * channel, call back through the timer, otherwise we run the
+                 * risk of continually generating events without letting code
+                 * scheduled via [after] in fileevent callbacks run. See Bug 191
+                 * in twapi.
+                 */
+                if (lockedChanPtr->flags & IOCP_CHAN_F_IN_EVENT_HANDLER) {
+                    /* Queue through timer unless already queued */
+                    if ((lockedChanPtr->flags & IOCP_CHAN_F_ON_TIMERQ) == 0) {
+                        IOCP_TRACE(("IocpChannelEnqueueEvent: queuing event through timer.\n"));
+                        lockedChanPtr->flags |= IOCP_CHAN_F_ON_TIMERQ;
+                        Tcl_CreateTimerHandler(0, IocpEventTimerCallback, evPtr);
+                    }
+                }
+                else {
+                    IOCP_TRACE(("IocpChannelEnqueueEvent: queuing event to current thread.\n"));
+                    lockedChanPtr->flags |= IOCP_CHAN_F_ON_EVENTQ;
+                    Tcl_QueueEvent((Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
                 }
             }
             else {
