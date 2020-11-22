@@ -1781,15 +1781,23 @@ void IocpChannelThreadAction(
 
     IOCP_TRACE(("IocpChannelThreadAction Enter: chanPtr=%p, action=%d, chanPtr->state=0x%x\n", chanPtr, action, chanPtr->state));
 
-    if (action == TCL_CHANNEL_THREAD_INSERT) {
+    switch (action) {
+    case TCL_CHANNEL_THREAD_INSERT:
         chanPtr->owningThread = Tcl_GetCurrentThread();
         /*
          * Notify in case any I/O completion notifications pending. No harm
-         * if there aren't
+         * if there aren't. Note we force the notification because even if
+         * one is queued, that may be going to a different thread to which
+         * the channel was previously attached.
          */
         IocpChannelEnqueueEvent(chanPtr, IOCP_EVENT_THREAD_INSERTED, 1);
-    } else {
+        break;
+    case TCL_CHANNEL_THREAD_REMOVE:
         chanPtr->owningThread = 0;
+        break;
+    default:
+        Tcl_Panic("Unknown channel thread action %d", action);
+        break;
     }
     IocpChannelUnlock(chanPtr);
 }
@@ -1899,37 +1907,46 @@ int IocpEventHandler(
 
     chanPtr = ((IocpTclEvent *)evPtr)->chanPtr;
     IocpChannelLock(chanPtr);
-
     chanPtr->flags &= ~IOCP_CHAN_F_ON_EVENTQ;
-    chanPtr->flags |= IOCP_CHAN_F_IN_EVENT_HANDLER;
 
-    IOCP_TRACE(("IocpEventHandler: chanPtr=%p, chanPtr->state=0x%x\n", chanPtr, chanPtr->state));
+    /*
+     * The channel might have been moved to another thread while this event
+     * was in the queue. Check for that and ignore the event if so. Note
+     * The channel thread attach/detach would have taken care of generating
+     * an event for the newly attached thread.
+     * TBD - should we forward the event to the newly attached thread?
+     */
+    if (chanPtr->owningThread == Tcl_GetCurrentThread()) {
+        chanPtr->flags |= IOCP_CHAN_F_IN_EVENT_HANDLER;
 
-    switch (chanPtr->state) {
-    case IOCP_STATE_LISTENING:
-        if (chanPtr->vtblPtr->accept) {
-            chanPtr->vtblPtr->accept(chanPtr);
+        IOCP_TRACE(("IocpEventHandler: chanPtr=%p, chanPtr->state=0x%x\n", chanPtr, chanPtr->state));
+
+        switch (chanPtr->state) {
+        case IOCP_STATE_LISTENING:
+            if (chanPtr->vtblPtr->accept) {
+                chanPtr->vtblPtr->accept(chanPtr);
+            }
+            break;
+
+        case IOCP_STATE_CONNECTING:
+        case IOCP_STATE_CONNECT_RETRY:
+        case IOCP_STATE_CONNECTED:
+            IocpChannelConnectionStep(chanPtr, 0); /* May change state */
+            break;
+
+        case IOCP_STATE_OPEN:
+        case IOCP_STATE_CONNECT_FAILED:
+        case IOCP_STATE_DISCONNECTED:
+            /* Notify Tcl channel subsystem if it has asked for it */
+            IocpNotifyChannel(chanPtr); /* May change state */
+            break;
+        default: /* INIT and CLOSED */
+            /* Late arrival */
+            break;
         }
-        break;
 
-    case IOCP_STATE_CONNECTING:
-    case IOCP_STATE_CONNECT_RETRY:
-    case IOCP_STATE_CONNECTED:
-        IocpChannelConnectionStep(chanPtr, 0); /* May change state */
-        break;
-
-    case IOCP_STATE_OPEN:
-    case IOCP_STATE_CONNECT_FAILED:
-    case IOCP_STATE_DISCONNECTED:
-        /* Notify Tcl channel subsystem if it has asked for it */
-        IocpNotifyChannel(chanPtr); /* May change state */
-        break;
-    default: /* INIT and CLOSED */
-        /* Late arrival */
-        break;
+        chanPtr->flags &= ~IOCP_CHAN_F_IN_EVENT_HANDLER;
     }
-
-    chanPtr->flags &= ~IOCP_CHAN_F_IN_EVENT_HANDLER;
 
     /* Drop the reference corresponding to queueing to the event q. */
     ((IocpTclEvent *)evPtr)->chanPtr = NULL;
