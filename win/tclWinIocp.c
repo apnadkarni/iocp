@@ -33,6 +33,7 @@ IocpStats iocpStats;
 #ifdef IOCP_ENABLE_TRACE
 /* Enable/disable tracing */
 int iocpEnableTrace = IOCP_ENABLE_TRACE;
+IocpLock iocpTraceLock;
 
 /*
  * GUID format for traceview
@@ -444,11 +445,11 @@ void IocpChannelAwaitCompletion(
     IocpChannel *lockedChanPtr,    /* Must be locked on entry */
     int          blockType)        /* Exactly one of IOCP_CHAN_F_BLOCKED_* values  */
 {
-    IOCP_TRACE(("IocpChannelAwaitCompletion Enter: lockedChanPtr=%p, blockType=%d\n", lockedChanPtr, blockType));
+    IOCP_TRACE(("IocpChannelAwaitCompletion Enter: lockedChanPtr=%p, blockType=0x%x\n", lockedChanPtr, blockType));
     lockedChanPtr->flags &= ~ IOCP_CHAN_F_BLOCKED_MASK;
     lockedChanPtr->flags |= blockType;
     IocpChannelCVWait(lockedChanPtr);
-    IOCP_TRACE(("IocpChannelAwaitCompletion Leave: lockedChanPtr=%p, blockType=%d\n", lockedChanPtr, blockType));
+    IOCP_TRACE(("IocpChannelAwaitCompletion Leave: lockedChanPtr=%p, blockType=0x%x\n", lockedChanPtr, blockType));
 }
 
 /*
@@ -649,7 +650,7 @@ void IocpChannelNudgeThread(
                                   * the function will not queue an event in these
                                   * cases. */
 {
-    IOCP_TRACE(("IocpChannelNudgeThread Enter: lockedChanPtr=%p, blockMask=%d, forceEvent=%d, lockedChanPtr->state=0x%x, lockedChanPtr->flags=0x%x\n", lockedChanPtr, blockMask, forceEvent, lockedChanPtr->state, lockedChanPtr->flags));
+    IOCP_TRACE(("IocpChannelNudgeThread Enter: lockedChanPtr=%p, blockMask=0x%x, forceEvent=%d, lockedChanPtr->state=0x%x, lockedChanPtr->flags=0x%x\n", lockedChanPtr, blockMask, forceEvent, lockedChanPtr->state, lockedChanPtr->flags));
     if (! IocpChannelWakeAfterCompletion(lockedChanPtr, blockMask) || forceEvent) {
         IOCP_TRACE(("IocpChannelNudgeThread: checking if EnqueueEvent to be called\n"));
         /*
@@ -688,6 +689,7 @@ static void IocpCompleteConnect(
     IocpChannel *lockedChanPtr, /* Locked channel, will be dropped */
     IocpBuffer *bufPtr)         /* I/O completion buffer */
 {
+    IOCP_TRACE(("IocpCompleteConnect Enter: lockedChanPtr=%p. state=0x%x\n", lockedChanPtr, lockedChanPtr->state));
     switch (lockedChanPtr->state) {
     case IOCP_STATE_CONNECTING:
         lockedChanPtr->winError = bufPtr->winError;
@@ -734,6 +736,7 @@ static void IocpCompleteDisconnect(
     IocpChannel *lockedChanPtr, /* Locked channel, will be dropped */
     IocpBuffer *bufPtr)         /* I/O completion buffer */
 {
+    IOCP_TRACE(("IocpCompleteDisconenct Enter: lockedChanPtr=%p. state=0x%x\n", lockedChanPtr, lockedChanPtr->state));
     if (lockedChanPtr->vtblPtr->disconnected) {
         lockedChanPtr->vtblPtr->disconnected(lockedChanPtr);
     }
@@ -821,7 +824,7 @@ static void IocpCompleteRead(
     IocpChannel *lockedChanPtr, /* Locked channel, will be dropped */
     IocpBuffer *bufPtr)         /* I/O completion buffer */
 {
-    IOCP_TRACE(("IocpCompleteRead Enter: lockedChanPtr=%p. state=0x%x\n", lockedChanPtr, lockedChanPtr->state));
+    IOCP_TRACE(("IocpCompleteRead Enter: lockedChanPtr=%p state=0x%x bufPtr=%p datalen=%d\n", lockedChanPtr, lockedChanPtr->state, bufPtr, bufPtr->data.len));
 
     IOCP_ASSERT(lockedChanPtr->pendingReads > 0);
     lockedChanPtr->pendingReads--;
@@ -830,6 +833,7 @@ static void IocpCompleteRead(
         bufPtr->chanPtr = NULL;
         IocpChannelDrop(lockedChanPtr); /* Corresponding to bufPtr->chanPtr */
         IocpBufferFree(bufPtr);
+        IOCP_TRACE(("IocpCompleteRead buffer discarded: lockedChanPtr=%p state=0x%x\n", lockedChanPtr, lockedChanPtr->state));
         return;
     }
 
@@ -944,7 +948,7 @@ IocpCompletionThread (LPVOID lpParam)
              * NOTE - it is responsibility of called completion routines
              * to dispose of both chanPtr and bufPtr respectively.
              */
-            IOCP_TRACE(("IocpCompletionThread: chanPtr=%p, chanPtr->state=0x%x, bufPtr->operation=%d, bufPtr->winError=%d\n", chanPtr, chanPtr->state, bufPtr->operation, bufPtr->winError));
+            IOCP_TRACE(("IocpCompletionThread: chanPtr=%p, chanPtr->state=0x%x, bufPtr=%p, bufPtr->operation=%d, bufPtr->winError=%d\n", chanPtr, chanPtr->state, bufPtr, bufPtr->operation, bufPtr->winError));
             switch (bufPtr->operation) {
             case IOCP_BUFFER_OP_READ:
                 IocpCompleteRead(chanPtr, bufPtr);
@@ -1052,6 +1056,7 @@ static IocpTclCode IocpProcessInit(ClientData clientdata)
     iocpModuleState.initialized = 1;
 
 #ifdef IOCP_ENABLE_TRACE
+    IocpLockInit(&iocpTraceLock);
     /* TBD - do we have to call TraceLoggingUnregister before exiting process */
     TraceLoggingRegister(iocpWinTraceProvider);
 #endif
@@ -1162,6 +1167,7 @@ IocpChannelInput (
     chanPtr->numRefs += 1;
 
     if (IocpStateConnectionInProgress(chanPtr->state)) {
+        IOCP_TRACE(("IocpChannelInput connection in progress: chanPtr=%p, state=0x%x\n", chanPtr, chanPtr->state));
         IocpChannelConnectionStep(chanPtr,
                                (chanPtr->flags & IOCP_CHAN_F_NONBLOCKING) == 0);
         if (chanPtr->state == IOCP_STATE_CONNECTING ||
@@ -1170,6 +1176,7 @@ IocpChannelInput (
             IOCP_ASSERT(chanPtr->flags & IOCP_CHAN_F_NONBLOCKING);
             *errorCodePtr = EAGAIN;
             bytesRead = -1;
+            IOCP_TRACE(("IocpChannelInput returning (EAGAIN): chanPtr=%p\n", chanPtr));
             goto vamoose;
         }
         IOCP_TRACE(("IocpChannelInput: chanPtr=%p, state=0x%x\n", chanPtr, chanPtr->state));
@@ -1185,6 +1192,7 @@ IocpChannelInput (
      * irrespective of state. TBD - is this needed or does channel ensure this?
      */
     if (chanPtr->flags & IOCP_CHAN_F_WRITEONLY) {
+        IOCP_TRACE(("IocpChannelInput returning (WRITEONLY channel): chanPtr=%p, state=0x%x\n", chanPtr, chanPtr->state));
         goto vamoose; /* bytesRead is already 0 indicating EOF */
     }
 
@@ -1199,15 +1207,15 @@ IocpChannelInput (
      * Note that a zero length input buffer signifies EOF.
      */
     if (chanPtr->inputBuffers.headPtr == NULL) {
-        IOCP_TRACE(("IocpChannelInput: No input buffers queued, chanPtr=%p\n", chanPtr));
-        /* No input buffers. */
         if (chanPtr->state != IOCP_STATE_OPEN ||
             (chanPtr->flags & IOCP_CHAN_F_REMOTE_EOF)) {
             /* No longer OPEN so no hope of further data */
+            IOCP_TRACE(("IocpChannelInput returning (no input buffers, EOF): chanPtr=%p, state=0x%x\n", chanPtr, chanPtr->state));
             goto vamoose; /* bytesRead is already 0 indicating EOF */
         }
         /* OPEN but no data available. If non-blocking, just return. */
         if (chanPtr->flags & IOCP_CHAN_F_NONBLOCKING) {
+            IOCP_TRACE(("IocpChannelInput returning (no input buffers, EAGAIN): chanPtr=%p, state=0x%x\n", chanPtr, chanPtr->state));
             *errorCodePtr = EAGAIN;
             bytesRead     = -1;
             goto vamoose;
@@ -1215,6 +1223,7 @@ IocpChannelInput (
         /* Blocking connection. Wait for incoming data or eof */
         winError = IocpChannelPostReads(chanPtr); /* Ensure read is posted */
         if (winError != 0) {
+            IOCP_TRACE(("IocpChannelInput returning (error on posting reads): chanPtr=%p, state=0x%x, winError=0x%x\n", chanPtr, chanPtr->state, winError));
             bytesRead = -1;
             IocpSetTclErrnoFromWin32(winError);
             *errorCodePtr = Tcl_GetErrno();
@@ -1240,7 +1249,9 @@ IocpChannelInput (
         int numCopied;
         winError = bufPtr->winError;
         if (winError == 0) {
+            IOCP_TRACE(("IocpChannelInput (copying from buffer): chanPtr=%p state=0x%x bufPtr=%p bufPtr->data.len=%d\n", chanPtr, chanPtr->state, bufPtr, bufPtr->data.len));
             numCopied = IocpBufferMoveOut(bufPtr, outPtr, remaining);
+            IOCP_TRACE(("IocpChannelInput (buffer copied): chanPtr=%p state=0x%x bufPtr=%p numCopied=%d\n", chanPtr, chanPtr->state, bufPtr, numCopied));
             outPtr    += numCopied;
             remaining -= numCopied;
             bytesRead += numCopied;
@@ -1274,6 +1285,7 @@ IocpChannelInput (
             /* TBD - should we try to distinguish transient errors ? */
             IocpSetTclErrnoFromWin32(winError);
             *errorCodePtr = Tcl_GetErrno();
+            IOCP_TRACE(("IocpChannelInput (buffer holds error): chanPtr=%p, state=0x%x, winError=0x%x\n", chanPtr, chanPtr->state, winError));
             goto vamoose;
         }
     }
@@ -1345,7 +1357,7 @@ IocpChannelOutput (
     IocpChannel *chanPtr = (IocpChannel *) instanceData;
     int          written = -1;
 
-    IOCP_TRACE(("IocpChannelOutput Enter: chanPtr=%p, state=0x%x\n", chanPtr, chanPtr->state));
+    IOCP_TRACE(("IocpChannelOutput Enter: chanPtr=%p, state=%d, nbytes=%d\n", chanPtr, chanPtr->state, nbytes));
 
     IocpChannelLock(chanPtr);
 
@@ -1363,6 +1375,7 @@ IocpChannelOutput (
                                   (chanPtr->flags & IOCP_CHAN_F_NONBLOCKING) == 0);
         if (chanPtr->state == IOCP_STATE_CONNECTING ||
             chanPtr->state == IOCP_STATE_CONNECT_RETRY) {
+            IOCP_TRACE(("IocpChannelOutput still connecting (EAGAIN): chanPtr=%p, state=0x%x\n", chanPtr, chanPtr->state));
             /* Only possible when above call returns for non-blocking case */
             IOCP_ASSERT(chanPtr->flags & IOCP_CHAN_F_NONBLOCKING);
             IocpChannelDrop(chanPtr);   /* Release the reference held by this function */
@@ -1385,7 +1398,9 @@ IocpChannelOutput (
          * We loop because for blocking case we will keep retrying.
          */
         while (chanPtr->state == IOCP_STATE_OPEN) {
+            IOCP_TRACE(("IocpChannelOutput Posting write: chanPtr=%p, state=%d, nbytes=%d\n", chanPtr, chanPtr->state, nbytes));
             winError = chanPtr->vtblPtr->postwrite(chanPtr, bytes, nbytes, &written);
+            IOCP_TRACE(("IocpChannelOutput Posted write returned: winError=0x%x, chanPtr=%p, state=%d, written=%d\n", winError, chanPtr, chanPtr->state, written));
             if (winError != ERROR_SUCCESS) {
                 IocpSetTclErrnoFromWin32(winError);
                 *errorCodePtr = Tcl_GetErrno();
@@ -1644,6 +1659,9 @@ IocpChannelWatch (
     IocpChannel *chanPtr = (IocpChannel*)instanceData;
 
     IocpChannelLock(chanPtr);
+
+    IOCP_TRACE(("IocpChannelWatch: chanPtr=%p state=%d mask=0x%x\n", chanPtr, chanPtr->state, mask));
+
     /*
      * At this point, Tcl channel system is holding a reference. However, if
      * any of the calls below recurse into a fileevent callback, the callback
@@ -1988,6 +2006,61 @@ DWORD IocpChannelPostReads(
     return (lockedChanPtr->pendingReads > 0) ? 0 : winError;
 }
 
+/* Outputs a string using Windows OutputDebugString */
+static IocpTclCode
+Iocp_DebugOutObjCmd (
+    ClientData notUsed,			/* Not used. */
+    Tcl_Interp *interp,			/* Current interpreter. */
+    int objc,				/* Number of arguments. */
+    Tcl_Obj *CONST objv[])		/* Argument objects. */
+{
+    if (objc > 1)
+        OutputDebugStringA(Tcl_GetString(objv[1]));
+    return TCL_OK;
+}
+
+/* Outputs a string using Windows OutputDebugString */
+static IocpTclCode
+Iocp_TraceOutObjCmd (
+    ClientData notUsed,			/* Not used. */
+    Tcl_Interp *interp,			/* Current interpreter. */
+    int objc,				/* Number of arguments. */
+    Tcl_Obj *CONST objv[])		/* Argument objects. */
+{
+    if (objc > 1)
+        IocpTraceString(Tcl_GetString(objv[1]));
+    return TCL_OK;
+}
+
+/* Returns statistics */
+static IocpTclCode
+Iocp_StatsObjCmd (
+    ClientData notUsed,			/* Not used. */
+    Tcl_Interp *interp,			/* Current interpreter. */
+    int objc,				/* Number of arguments. */
+    Tcl_Obj *CONST objv[])		/* Argument objects. */
+{
+    Tcl_Obj *stats[12];
+    int n;
+#define ADDSTATS(field_) do { \
+    stats[n++] = Tcl_NewStringObj(# field_, -1); \
+    stats[n++] = IOCP_STATS_GET(Iocp ## field_); \
+} while (0)
+
+    n = 0;
+    ADDSTATS(ChannelAllocs);
+    ADDSTATS(ChannelFrees);
+    ADDSTATS(BufferAllocs);
+    ADDSTATS(BufferFrees);
+    ADDSTATS(DataBufferAllocs);
+    ADDSTATS(DataBufferFrees);
+
+    IOCP_ASSERT(n <= sizeof(stats)/sizeof(stats[0]));
+
+    Tcl_SetObjResult(interp, Tcl_NewListObj(n, stats));
+    return TCL_OK;
+}
+
 int
 Iocp_Init (Tcl_Interp *interp)
 {
@@ -2017,53 +2090,13 @@ Iocp_Init (Tcl_Interp *interp)
 #ifdef IOCP_ENABLE_TRACE
     /* Note this is globally shared across all interpreters */
     Tcl_LinkVar(interp, "::iocp::enableTrace",
-                (char *)&iocpEnableTrace, TCL_LINK_BOOLEAN);
+                (char *)&iocpEnableTrace, TCL_LINK_INT);
+    Tcl_CreateObjCommand(interp, "iocp::traceout", Iocp_TraceOutObjCmd, 0L, 0L);
 #endif
 
     return TCL_OK;
 }
 
-/* Outputs a string using Windows OutputDebugString */
-IocpTclCode
-Iocp_DebugOutObjCmd (
-    ClientData notUsed,			/* Not used. */
-    Tcl_Interp *interp,			/* Current interpreter. */
-    int objc,				/* Number of arguments. */
-    Tcl_Obj *CONST objv[])		/* Argument objects. */
-{
-    if (objc > 1)
-        OutputDebugStringA(Tcl_GetString(objv[1]));
-    return TCL_OK;
-}
-
-/* Returns statistics */
-IocpTclCode
-Iocp_StatsObjCmd (
-    ClientData notUsed,			/* Not used. */
-    Tcl_Interp *interp,			/* Current interpreter. */
-    int objc,				/* Number of arguments. */
-    Tcl_Obj *CONST objv[])		/* Argument objects. */
-{
-    Tcl_Obj *stats[12];
-    int n;
-#define ADDSTATS(field_) do { \
-    stats[n++] = Tcl_NewStringObj(# field_, -1); \
-    stats[n++] = IOCP_STATS_GET(Iocp ## field_); \
-} while (0)
-
-    n = 0;
-    ADDSTATS(ChannelAllocs);
-    ADDSTATS(ChannelFrees);
-    ADDSTATS(BufferAllocs);
-    ADDSTATS(BufferFrees);
-    ADDSTATS(DataBufferAllocs);
-    ADDSTATS(DataBufferFrees);
-
-    IOCP_ASSERT(n <= sizeof(stats)/sizeof(stats[0]));
-
-    Tcl_SetObjResult(interp, Tcl_NewListObj(n, stats));
-    return TCL_OK;
-}
 /*
  * TBD - design change - would it be faster to post zero-byte read and then
  * copy from WSArecv to channel buffer in InputProc ? That may potentially

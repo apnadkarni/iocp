@@ -613,8 +613,10 @@ void IocpSetTclErrnoFromWin32(IocpWinError winError);
 void IocpSetInterpPosixErrorFromWin32(Tcl_Interp *interp, IocpWinError winError, const char *prefix);
 void __cdecl Iocp_Panic(const char *formatStr, ...);
 void __cdecl IocpDebuggerOut(const char *formatStr, ...);
-void __cdecl IocpTrace(const char *formatStr, ...);
 #ifdef IOCP_ENABLE_TRACE
+extern IocpLock iocpTraceLock;
+void __cdecl IocpTrace(const char *formatStr, ...);
+void IocpTraceString(const char *s);
 # define IOCP_TRACE(params_) do { if (iocpEnableTrace) {IocpTrace params_;} } while (0)
 #else
 # define IOCP_TRACE(params_) (void) 0;

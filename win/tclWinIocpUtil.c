@@ -641,6 +641,36 @@ IocpSetChannelDefaults(
 /*
  *------------------------------------------------------------------------
  *
+ * IocpTraceString --
+ *
+ *    Writes a single string to an ETW trace.
+ *
+ * Results:
+ *    None.
+ *
+ * Side effects:
+ *    As above.
+ *
+ *------------------------------------------------------------------------
+ */
+void IocpTraceString(const char *buf)
+{
+    if (iocpEnableTrace == 1000) {
+        IocpLockAcquireExclusive(&iocpTraceLock);
+        printf("[%d] %s", GetCurrentThreadId(), buf);
+        IocpLockReleaseExclusive(&iocpTraceLock);
+    } else if (iocpEnableTrace){
+        /* TraceLogging API already includes thread id, no need to add it */
+        TraceLoggingWrite(iocpWinTraceProvider,
+                          "TclIocpTrace",
+                          TraceLoggingString(buf, "Trace Message")
+            );
+    }
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
  * IocpTrace --
  *
  *    Writes a formatted string to an ETW trace.
@@ -658,7 +688,7 @@ void __cdecl IocpTrace(
     ...
     )
 {
-    char buf[1024];
+    char buf[2048];
     va_list args;
 
     va_start(args, formatStr);
@@ -666,12 +696,10 @@ void __cdecl IocpTrace(
     va_end(args);
     buf[sizeof(buf)-1] = '\0';
 
-    TraceLoggingWrite(iocpWinTraceProvider,
-                      "TclIocpTrace",
-                      TraceLoggingString(buf, "Trace Message")
-                      );
+    IocpTraceString(buf);
 }
-#endif
+
+#endif /* IOCP_ENABLE_TRACE */
 
 /*
  *------------------------------------------------------------------------
