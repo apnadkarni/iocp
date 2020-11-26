@@ -30,6 +30,7 @@ PRJ_DEFINES = $(PRJ_DEFINES) /DIOCP_ENABLE_TRACE=1
 
 PRJ_OBJS = \
     $(TMP_DIR)\tclWinIocp.obj \
+    $(TMP_DIR)\tclWinIocpThread.obj \
     $(TMP_DIR)\tclPolyfill.obj \
     $(TMP_DIR)\tclWinIocpWinsock.obj \
     $(TMP_DIR)\tclWinIocpTcp.obj \

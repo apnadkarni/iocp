@@ -667,7 +667,8 @@ void         IocpChannelNudgeThread(IocpChannel *lockedChanPtr, int blockMask, i
 
 IocpTclCode IocpSetChannelDefaults(Tcl_Channel channel);
 
-
+/* Completion thread */
+DWORD WINAPI IocpCompletionThread (LPVOID lpParam);
 
 #ifdef TBD
 /* Currently not included as too much bloat */
