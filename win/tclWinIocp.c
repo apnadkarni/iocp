@@ -25,7 +25,7 @@ Tcl_ObjCmdProc	Iocp_StatsObjCmd;
  */
 
 /* Holds global IOCP state */
-IocpSubSystem iocpModuleState;
+IocpModuleState iocpModuleState;
 
 /* Statistics */
 IocpStats iocpStats;
@@ -43,7 +43,8 @@ TRACELOGGING_DEFINE_PROVIDER(
     iocpWinTraceProvider,
     "SimpleTraceLoggingProvider",
     (0x3a674e76, 0xfe96, 0x4450, 0xb6, 0x34, 0x24, 0xfc, 0x58, 0x7b, 0x28, 0x28));
-#endif
+
+#endif /*  IOCP_ENABLE_TRACE */
 
 /*
  * Initializes a IocpDataBuffer to be able to hold capacity bytes worth of

@@ -147,12 +147,12 @@ IOCP_INLINE void IocpListInit(IocpList *listPtr) {
  * initialized once per process and referenced from both Tcl threads as well
  * as the IOCP worker threads. Should not be written to after initialization.
  */
-typedef struct IocpModuleState {
+typedef struct {
     HANDLE completion_port;   /* The completion port around which life revolves */
     HANDLE completion_thread; /* Handle of thread servicing completions */
     int    initialized;       /* Whether initialized */
-} IocpSubSystem;
-extern IocpSubSystem iocpModuleState;
+} IocpModuleState;
+extern IocpModuleState iocpModuleState;
 
 /* If true, enables trace output at runtime assuming it's enabled at compile */
 extern int iocpEnableTrace;
