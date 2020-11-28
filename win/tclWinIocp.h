@@ -150,6 +150,7 @@ IOCP_INLINE void IocpListInit(IocpList *listPtr) {
 typedef struct IocpModuleState {
     HANDLE completion_port;   /* The completion port around which life revolves */
     HANDLE completion_thread; /* Handle of thread servicing completions */
+    DWORD  tlsIndex;          /* TLS index for thread data */
     int    initialized;       /* Whether initialized */
 } IocpSubSystem;
 extern IocpSubSystem iocpModuleState;

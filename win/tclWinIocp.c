@@ -27,6 +27,22 @@ Tcl_ObjCmdProc	Iocp_StatsObjCmd;
 /* Holds global IOCP state */
 IocpSubSystem iocpModuleState;
 
+/*
+ * Ready channel queue. This holds the list of channels that (potentially) need
+ * some action to be taken with respect to Tcl, for example read/write events.
+ * Each Tcl thread has one such queue accessible via thread local storage.
+ * Channels also hold a pointer to the ready queue corresponding to their owning
+ * thread. These pointers are used by the IOCP completion thread to enqueue
+ * entries to the queue for the thread owning the channel as IOCP requests
+ * complete. Each Tcl thread dequeues and processes these entries via
+ * EventSourceSetup/EventSourceCheck.
+ */
+typedef struct {
+    Tcl_ThreadId tid;
+
+} IocpReadyQ;
+static Tcl_ThreadDataKey 
+
 /* Statistics */
 IocpStats iocpStats;
 
@@ -717,6 +733,12 @@ static IocpTclCode IocpProcessInit(ClientData clientdata)
     Tcl_Interp *interp = (Tcl_Interp *)clientdata;
 
 #define WSA_VERSION_REQUESTED    MAKEWORD(2,2)
+
+    iocpModuleState.tlsIndex = TlsAlloc();
+    if (iocpModuleState.tlsIndex == TLS_OUT_OF_INDEXES) {
+        Tcl_SetResult(interp, "Could not allocate TLS index.", TCL_STATIC);
+        return TCL_ERROR;
+    }
 
     iocpModuleState.completion_port =
         CreateIoCompletionPort(
