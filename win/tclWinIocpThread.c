@@ -63,16 +63,14 @@ static void IocpCompleteConnect(
  *
  * IocpCompleteDisconnect --
  *
- *    Handles completion of disconnect operations from IOCP.
+ *    Handles completion of disconnect operations from IOCP. The
+ *    channel-specific disconnect handler is called if specified.
  *
  * Results:
  *    None.
  *
  * Side effects:
- *    The associated socket is closed, the passed bufPtr is freed
- *    and lockedChanPtr
- *    dropped. The Tcl thread is notified via the event queue or woken
- *    up if blocked.
+ *    The channel may be dropped.
  *
  *------------------------------------------------------------------------
  */
@@ -234,7 +232,7 @@ static void IocpCompleteWrite(
     IocpBufferFree(bufPtr);
 
     if (lockedChanPtr->state != IOCP_STATE_CLOSED) {
-        lockedChanPtr->flags |= IOCP_CHAN_F_WRITE_DONE;
+        lockedChanPtr->flags |= IOCP_CHAN_F_NOTIFY_WRITES;
         /* TBD - optimize under which conditions we need to nudge thread */
         IocpChannelNudgeThread(lockedChanPtr, IOCP_CHAN_F_BLOCKED_WRITE, 0);
     }

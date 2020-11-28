@@ -108,7 +108,7 @@ IOCP_INLINE BOOL IocpConditionVariableWaitExclusive(
  * Forward declarations for structures
  */
 typedef struct IocpList        IocpList;
-typedef struct IocpTsd         IocpTsd;
+typedef struct IocpThreadData  IocpThreadData;
 typedef struct IocpChannel     IocpChannel;
 typedef struct IocpChannelVtbl IocpChannelVtbl;
 typedef struct IocpDataBuffer  IocpDataBuffer;
@@ -329,10 +329,18 @@ typedef struct IocpChannel {
     Tcl_Channel  channel;      /* Tcl channel */
     IocpList     inputBuffers; /* Input buffers whose data is to be
                                 * passed up to the Tcl channel layer. */
-    Tcl_ThreadId owningThread; /* Pointer to owning thread. */
-    IocpLock  lock;            /* Synchronization */
     CONDITION_VARIABLE cv;     /* Used to wake up blocked Tcl thread waiting
                                 * a completion */
+    IocpLock           lock;   /* Synchronization */
+    struct IocpThreadData *owningTsdPtr;    /* Thread data for owning thread */
+    Tcl_ThreadId owningThread; /* Owning thread. */
+    Tcl_ThreadId readyQThread; /* If non-0, the thread on whose ready queue the
+                                  channel is present. Possibly != owningThread
+                                  since channels can change threads. Used
+                                  as an optimization to prevent unnecessary
+                                  multiple enqueues to the same thread */
+    Tcl_ThreadId eventQThread; /* Similar to above except pertains to the
+                                  Tcl event queue */
     LONG      numRefs;         /* Reference count */
 
     enum IocpState state;      /* IOCP_STATE_* */
@@ -347,22 +355,20 @@ typedef struct IocpChannel {
 
     int       flags;
 
-#define IOCP_CHAN_F_ON_EVENTQ    0x0002 /* The channel is on the event q */
-#define IOCP_CHAN_F_WRITE_DONE   0x0004 /* One or more writes completed */
-#define IOCP_CHAN_F_WATCH_INPUT  0x0008 /* Notify Tcl on data arrival */
-#define IOCP_CHAN_F_WATCH_OUTPUT 0x0010 /* Notify Tcl on output unblocking */
-#define IOCP_CHAN_F_READONLY     0x0020 /* Channel input disabled */
-#define IOCP_CHAN_F_WRITEONLY    0x0040 /* Channel output disabled */
-#define IOCP_CHAN_F_REMOTE_EOF   0x0080 /* Remote end closed connection */
-#define IOCP_CHAN_F_NONBLOCKING  0x0100 /* Channel is in non-blocking mode */
-#define IOCP_CHAN_F_WATCH_ACCEPT 0x0200 /* Notify on connection accepts */
+#define TBD_IOCP_CHAN_F_ON_EVENTQ   0x0002 /* The channel is on the event q */
+#define IOCP_CHAN_F_NOTIFY_WRITES   0x0004 /* One or more writes notified */
+#define IOCP_CHAN_F_WATCH_INPUT     0x0008 /* Notify Tcl on data arrival */
+#define IOCP_CHAN_F_WATCH_OUTPUT    0x0010 /* Notify Tcl on output unblocking */
+#define IOCP_CHAN_F_READONLY        0x0020 /* Channel input disabled */
+#define IOCP_CHAN_F_WRITEONLY       0x0040 /* Channel output disabled */
+#define IOCP_CHAN_F_REMOTE_EOF      0x0080 /* Remote end closed connection */
+#define IOCP_CHAN_F_NONBLOCKING     0x0100 /* Channel is in non-blocking mode */
+#define IOCP_CHAN_F_WATCH_ACCEPT    0x0200 /* Notify on connection accepts */
 #define IOCP_CHAN_F_BLOCKED_READ    0x0400 /* Blocked for read completion */
 #define IOCP_CHAN_F_BLOCKED_WRITE   0x0800 /* Blocked for write completion */
 #define IOCP_CHAN_F_BLOCKED_CONNECT 0x1000 /* Blocked for connect completion */
 #define IOCP_CHAN_F_BLOCKED_MASK \
     (IOCP_CHAN_F_BLOCKED_READ | IOCP_CHAN_F_BLOCKED_WRITE | IOCP_CHAN_F_BLOCKED_CONNECT)
-#define IOCP_CHAN_F_IN_EVENT_HANDLER 0x2000 /* Being processed by event handler */
-#define IOCP_CHAN_F_ON_TIMERQ 0x4000 /* Timer scheduled for event callack */
 } IocpChannel;
 IOCP_INLINE void IocpChannelLock(IocpChannel *chanPtr) {
     IocpLockAcquireExclusive(&chanPtr->lock);
@@ -534,7 +540,7 @@ typedef struct IocpChannelVtbl {
 } IocpChannelVtbl;
 
 /* Reason codes for event notifications */
-enum IocpEventReason {
+enum TBD_IocpEventReason {
     IOCP_EVENT_IO_COMPLETED,    /* Sent from completion thread */
     IOCP_EVENT_NOTIFY_CHANNEL,  /* Sent to indicate application fileevent
                                  * callbacks should be invoked */
@@ -542,10 +548,10 @@ enum IocpEventReason {
 };
 
 /* Used to notify the thread owning a channel through Tcl event loop */
-typedef struct IocpTclEvent {
+typedef struct TBD_IocpTclEvent {
     Tcl_Event    event;         /* Must be first field */
     IocpChannel *chanPtr;       /* Channel associated with this event */
-    enum IocpEventReason reason;  /* Currently mostly used for tracing/debugging */
+    // TBD enum IocpEventReason reason;  /* Currently mostly used for tracing/debugging */
 } IocpTclEvent;
 
 /*
@@ -605,6 +611,7 @@ void IocpListAppend(IocpList *listPtr, IocpLink *linkPtr);
 void IocpListPrepend(IocpList *listPtr, IocpLink *linkPtr);
 void IocpListRemove(IocpList *listPtr, IocpLink *linkPtr);
 IocpLink *IocpListPopFront(IocpList *listPtr);
+IocpList IocpListPopAll(IocpList *listPtr);
 
 /* Error utilities */
 Tcl_Obj *Iocp_MapWindowsError(DWORD error, HANDLE moduleHandle, const char *msgPtr);

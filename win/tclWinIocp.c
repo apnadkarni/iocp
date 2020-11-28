@@ -10,16 +10,6 @@
  */
 #include "tclWinIocp.h"
 
-static void IocpNotifyChannel(IocpChannel *lockedChanPtr);
-static int  IocpEventHandler(Tcl_Event *evPtr, int flags);
-static int IocpChannelFileEventMask(IocpChannel *lockedChanPtr);
-static void IocpChannelConnectionStep(IocpChannel *lockedChanPtr, int blockable);
-static void IocpChannelExitConnectedState(IocpChannel *lockedChanPtr);
-static void IocpChannelAwaitConnectCompletion(IocpChannel *lockedChanPtr);
-
-Tcl_ObjCmdProc	Iocp_DebugOutObjCmd;
-Tcl_ObjCmdProc	Iocp_StatsObjCmd;
-
 /*
  * Static data
  */
@@ -27,21 +17,46 @@ Tcl_ObjCmdProc	Iocp_StatsObjCmd;
 /* Holds global IOCP state */
 IocpModuleState iocpModuleState;
 
-/*
- * Ready channel queue. This holds the list of channels that (potentially) need
- * some action to be taken with respect to Tcl, for example read/write events.
- * Each Tcl thread has one such queue accessible via thread local storage.
- * Channels also hold a pointer to the ready queue corresponding to their owning
- * thread. These pointers are used by the IOCP completion thread to enqueue
- * entries to the queue for the thread owning the channel as IOCP requests
- * complete. Each Tcl thread dequeues and processes these entries via
- * EventSourceSetup/EventSourceCheck.
- */
-typedef struct {
-    Tcl_ThreadId tid;
+/* Structure used for channel ready queue entries */
+typedef struct IocpReadyQEntry {
+    IocpLink     link;
+    IocpChannel *chanPtr;
+} IocpReadyQEntry;
+/* TBD - placeholders until free list cache is implemented */
+IOCP_INLINE IocpReadyQEntry *IocpReadyQEntryAllocate() {
+    return (IocpReadyQEntry *) ckalloc(sizeof(IocpReadyQEntry));
+}
+IOCP_INLINE void IocpReadyQEntryFree(IocpReadyQEntry *rqePtr) {
+    ckfree(rqePtr);
+}
 
-} IocpReadyQ;
-static Tcl_ThreadDataKey 
+/*
+ * IocpThreadData holds the state specific to a Tcl thread. Note that
+ * it is also accessed from the IOCP completion thread so access needs to
+ * be synchronized.
+ */
+typedef struct IocpThreadData {
+    IocpLock     lock;          /* Control access to the structure */
+    /*
+     * Ready channel queue. This holds the list of channels that (potentially)
+     * need some action to be taken with respect to Tcl, for example read/write
+     * events. Each Tcl thread has one such queue accessible via thread local
+     * storage. Channels also hold a pointer to the ready queue corresponding to
+     * their owning thread. These pointers are used by the IOCP completion
+     * thread to enqueue entries to the queue for the thread owning the channel
+     * as IOCP requests complete. Each Tcl thread dequeues and processes these
+     * entries via EventSourceSetup/EventSourceCheck.
+     */
+    IocpList     readyQ;
+    LONG         numRefs;   /* Number of references to this structure */
+    Tcl_ThreadId threadId;  /* Id of corresponding thread */
+} IocpThreadData;
+IOCP_INLINE void IocpThreadDataLock(IocpThreadData *tsdPtr) {
+    IocpLockAcquireExclusive(&tsdPtr->lock);
+}
+IOCP_INLINE void IocpThreadDataUnlock(IocpThreadData *tsdPtr) {
+    IocpLockReleaseExclusive(&tsdPtr->lock);
+}
 
 /* Statistics */
 IocpStats iocpStats;
@@ -61,6 +76,23 @@ TRACELOGGING_DEFINE_PROVIDER(
     (0x3a674e76, 0xfe96, 0x4450, 0xb6, 0x34, 0x24, 0xfc, 0x58, 0x7b, 0x28, 0x28));
 
 #endif /*  IOCP_ENABLE_TRACE */
+
+/* Prototypes */
+static void IocpNotifyChannel(IocpChannel *lockedChanPtr);
+static int  IocpEventHandler(Tcl_Event *evPtr, int flags);
+static int  IocpChannelFileEventMask(IocpChannel *lockedChanPtr);
+static void IocpChannelConnectionStep(IocpChannel *lockedChanPtr, int blockable);
+static void IocpChannelExitConnectedState(IocpChannel *lockedChanPtr);
+static void IocpChannelAwaitConnectCompletion(IocpChannel *lockedChanPtr);
+static void IocpThreadInit(void);
+static void IocpThreadExitHandler(ClientData unused);
+static void IocpThreadDataDrop(IocpThreadData *lockedTsdPtr);
+static IocpThreadData *IocpThreadDataGet(void);
+void IocpReadyQAdd(IocpChannel *lockedChanPtr, int force);
+
+Tcl_ObjCmdProc	Iocp_DebugOutObjCmd;
+Tcl_ObjCmdProc	Iocp_StatsObjCmd;
+
 
 /*
  * Initializes a IocpDataBuffer to be able to hold capacity bytes worth of
@@ -210,7 +242,10 @@ IocpChannel *IocpChannelNew(
     chanPtr          = ckalloc(vtblPtr->allocationSize);
     IOCP_STATS_INCR(IocpChannelAllocs);
     IocpListInit(&chanPtr->inputBuffers);
+    chanPtr->owningTsdPtr = NULL;
     chanPtr->owningThread  = 0;
+    chanPtr->readyQThread = 0;
+    chanPtr->eventQThread = 0;
     chanPtr->channel  = NULL;
     chanPtr->state    = IOCP_STATE_INIT;
     chanPtr->flags    = 0;
@@ -394,7 +429,8 @@ static void IocpChannelExitConnectedState(
         lockedChanPtr->winError = ERROR_SUCCESS;
         IocpChannelPostReads(lockedChanPtr);
     }
-    lockedChanPtr->flags |= IOCP_CHAN_F_WRITE_DONE; /* In case registered file event */
+    /* Notify channel is writable in case file events registered */
+    lockedChanPtr->flags |= IOCP_CHAN_F_NOTIFY_WRITES;
     IocpNotifyChannel(lockedChanPtr);
 }
 
@@ -505,6 +541,134 @@ int IocpChannelWakeAfterCompletion(
 }
 
 /*
+ *----------------------------------------------------------------------
+ *
+ * IocpEventSourceSetup --
+ *
+ *	This function is invoked before Tcl_DoOneEvent blocks waiting for an
+ *	event. If there are any channels marked ready, it arranges for the
+ *      event loop to poll immediately for events.
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	Adjusts the event loop block time.
+ *
+ *----------------------------------------------------------------------
+ */
+static void
+IocpEventSourceSetup(
+    ClientData data,		/* Not used. */
+    int flags)			/* Event flags as passed to Tcl_DoOneEvent. */
+{
+    IocpThreadData *tsdPtr;
+
+    IOCP_TRACE(("IocpEventSourceSetup Enter (Thread %d): flags=0x%x\n", Tcl_GetCurrentThread(), flags));
+
+    if (!(flags & TCL_FILE_EVENTS)) {
+        IOCP_TRACE(("IocpEventSourceSetup return (Thread %d): ! TCL_FILE_EVENTS\n", Tcl_GetCurrentThread()));
+	return;
+    }
+
+    tsdPtr = IocpThreadDataGet(); /* Note: tsdPtr is locked */
+    IOCP_ASSERT(tsdPtr != NULL);
+
+    if (tsdPtr->readyQ.headPtr) {
+        /*
+         * At least one channel needs to be looked at. Set block time to 0
+         * so event loop will poll immediately.
+         */
+        IOCP_TRACE(("IocpEventSourceSetup (Thread %d): Set block time to 0\n", Tcl_GetCurrentThread()));
+        Tcl_Time blockTime = { 0, 0 };
+        Tcl_SetMaxBlockTime(&blockTime);
+    }
+    IocpThreadDataUnlock(tsdPtr);
+    IOCP_TRACE(("IocpEventSourceSetup return (Thread %d)\n", Tcl_GetCurrentThread()));
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * IocpEventSourceCheck --
+ *
+ *	This function is called by Tcl_DoOneEvent to generate any events
+ *      on ready channels.
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	May queue one or more events to the event loop.
+ *
+ *----------------------------------------------------------------------
+ */
+
+static void
+IocpEventSourceCheck(
+    ClientData data,		/* Not used. */
+    int flags)			/* Event flags as passed to Tcl_DoOneEvent. */
+{
+    IocpThreadData *tsdPtr;
+    IocpList        readyQ;
+    IocpLink       *linkPtr;
+    Tcl_ThreadId    threadId;
+
+    IOCP_TRACE(("IocpEventSourceCheck Enter (Thread %d): flags=0x%x\n", Tcl_GetCurrentThread(), flags));
+
+    if (!(flags & TCL_FILE_EVENTS)) {
+        IOCP_TRACE(("IocpEventSourceCheck return (Thread %d): ! TCL_FILE_EVENTS\n", Tcl_GetCurrentThread()));
+	return;
+    }
+
+    threadId = Tcl_GetCurrentThread();
+    tsdPtr = IocpThreadDataGet(); /* Note: tsdPtr is locked */
+    IOCP_ASSERT(tsdPtr != NULL);  /* As long thread lives! */
+
+    readyQ = IocpListPopAll(&tsdPtr->readyQ);
+    IocpThreadDataUnlock(tsdPtr);
+
+    while ((linkPtr = IocpListPopFront(&readyQ)) != NULL) {
+        IocpReadyQEntry *rqePtr = CONTAINING_RECORD(linkPtr, IocpReadyQEntry, link);
+        if (rqePtr->chanPtr != NULL) {
+            IocpChannel *lockedChanPtr = rqePtr->chanPtr;
+            IocpChannelLock(lockedChanPtr);
+            rqePtr->chanPtr   = NULL;
+            lockedChanPtr->readyQThread = 0; /* Enable further enqueing to
+                                                ready q for the channel */
+            /*
+             * Ensure the channel is still attached to this thread and that
+             * an event is not already queued to it. This latter is just an
+             * optimization.
+             */
+            if (lockedChanPtr->owningThread == threadId &&
+                lockedChanPtr->owningThread != lockedChanPtr->eventQThread) {
+                IocpTclEvent *evPtr = ckalloc(sizeof(*evPtr));
+                lockedChanPtr->eventQThread = threadId;
+                evPtr->event.proc = IocpEventHandler;
+                evPtr->chanPtr    = lockedChanPtr;
+                /*
+                 * The following cancel each other.
+                 *    lockedChanPtr->numRefs++ because reference from evPtr
+                 *    lockedChanPtr->numRefs-- because dereference from rqePtr
+                 */
+                IOCP_TRACE(("IocpEventSourceCheck (Thread %d): lockedChanPtr=%p queued to event queue.\n", Tcl_GetCurrentThread(), lockedChanPtr));
+                IocpChannelUnlock(lockedChanPtr);
+                Tcl_QueueEvent((Tcl_Event *) evPtr, TCL_QUEUE_TAIL); 
+            }
+            else {
+                /* Channel not attached to this thread or already queued */
+                IOCP_TRACE(("IocpEventSourceCheck (Thread %d): lockedChanPtr=%p not attached to this thread or event already queued.\n", Tcl_GetCurrentThread(), lockedChanPtr));
+                IocpChannelDrop(lockedChanPtr); /* Deref from rqePtr */
+            }
+        }
+        IocpReadyQEntryFree(rqePtr);
+    }
+    IOCP_TRACE(("IocpEventSourceCheck return (Thread %d)\n", Tcl_GetCurrentThread()));
+}
+
+#ifdef OBSOLETE
+/*
  * IocpEventTimerCallback -
  *
  *    Called back from Tcl timer routines which is used as a trampoline to
@@ -561,7 +725,9 @@ static void IocpEventTimerCallback(ClientData clientdata)
         IocpChannelDrop(chanPtr);
     }
 }
+#endif /*  OBSOLETE */
 
+#ifdef OBSOLETE
 /*
  *------------------------------------------------------------------------
  *
@@ -636,22 +802,24 @@ void IocpChannelEnqueueEvent(
         IOCP_TRACE(("IocpChannelEnqueEvent: owningThread==0\n"));
     }
 }
+#endif
 
 /*
  *------------------------------------------------------------------------
  *
  * IocpChannelNudgeThread --
  *
- *    Wakes up the thread owning a channel if it is blocked or notifies
- *    it via the event loop if it isn't.
+ *    Wakes up the thread owning a channel if it is blocked for I/O
+ *    completion or if not, places the channel on the ready queue for
+ *    the owning thread and alerts the thread.
  *
  * Results:
  *    None.
  *
  * Side effects:
- *    An event is queued or the condition variable being waited on is poked. Due
- *    to the lock hierarchy rules, *lockedChanPtr may be unlocked and relocked
- *    before returning and its state may have therefore changed.
+ *    An ready queue entry is added or the condition variable being waited on is
+ *    poked. Due to the lock hierarchy rules, *lockedChanPtr may be unlocked and
+ *    relocked before returning and its state may have therefore changed.
  *
  *------------------------------------------------------------------------
  */
@@ -661,26 +829,226 @@ void IocpChannelNudgeThread(
                                   */
     int          blockMask,      /* Combination of IOCP_CHAN_F_BLOCKED*. Channel
                                   * thread will be woken if waiting on any of these */
-    int          forceEvent)     /* If true, force an event notification even if
+    int          force)          /* If true, force an event notification even if
                                   * thread was blocked and is woken up or if event
                                   * notification was already queued. Normally,
                                   * the function will not queue an event in these
                                   * cases. */
 {
-    IOCP_TRACE(("IocpChannelNudgeThread Enter: lockedChanPtr=%p, blockMask=0x%x, forceEvent=%d, lockedChanPtr->state=0x%x, lockedChanPtr->flags=0x%x\n", lockedChanPtr, blockMask, forceEvent, lockedChanPtr->state, lockedChanPtr->flags));
-    if (! IocpChannelWakeAfterCompletion(lockedChanPtr, blockMask) || forceEvent) {
-        IOCP_TRACE(("IocpChannelNudgeThread: checking if EnqueueEvent to be called\n"));
+    IOCP_TRACE(("IocpChannelNudgeThread Enter: lockedChanPtr=%p, blockMask=0x%x, force=%d, lockedChanPtr->state=0x%x, lockedChanPtr->flags=0x%x\n", lockedChanPtr, blockMask, force, lockedChanPtr->state, lockedChanPtr->flags));
+    if (! IocpChannelWakeAfterCompletion(lockedChanPtr, blockMask) || force) {
         /*
-         * Owning thread was not woken, either it was not blocked for the
-         * right reason or was not blocked at all. Need to notify
-         * it via the ready queue/event loop.
+         * Owning thread was not woken, either it was not blocked for the right
+         * reason or was not blocked at all. Need to alert it via the ready q.
          */
         if ((lockedChanPtr->flags & (IOCP_CHAN_F_WATCH_ACCEPT | 
                                      IOCP_CHAN_F_WATCH_INPUT |
                                      IOCP_CHAN_F_WATCH_OUTPUT)) ||
-            forceEvent) {
-            IocpChannelEnqueueEvent(lockedChanPtr, IOCP_EVENT_IO_COMPLETED, forceEvent);
+            force) {
+            IocpReadyQAdd(lockedChanPtr, force);
         }
+    }
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpThreadInit --
+ *
+ *    Initializes the thread-related structures. Allocates and initializes the
+ *    block of thread-specific data for the calling thread if not already done.
+ *    Sets up the event source and exit handlers.
+ *
+ * Results:
+ *    Nothing.
+ *
+ * Side effects:
+ *    The returned pointer is also stored in the thread's TLS table at
+ *    the index iocpModuleState.tlsIndex.
+ *
+ *------------------------------------------------------------------------
+ */
+static void
+IocpThreadInit()
+{
+    IocpThreadData *tsdPtr;
+    IOCP_ASSERT(iocpModuleState.tlsIndex != TLS_OUT_OF_INDEXES);
+    tsdPtr = TlsGetValue(iocpModuleState.tlsIndex);
+    if (tsdPtr == NULL) {
+        /* First call for this thread */
+        tsdPtr = ckalloc(sizeof(*tsdPtr));
+        IocpLockInit(&tsdPtr->lock);
+        IocpListInit(&tsdPtr->readyQ);
+        tsdPtr->numRefs = 1;    /* Corresponding decrement at thread exit */
+        tsdPtr->threadId = Tcl_GetCurrentThread();
+        TlsSetValue(iocpModuleState.tlsIndex, tsdPtr);
+
+        Tcl_CreateEventSource(IocpEventSourceSetup, IocpEventSourceCheck, NULL);
+        Tcl_CreateThreadExitHandler(IocpThreadExitHandler, NULL);
+    }
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpThreadDataDrop --
+ *
+ *    Decrements the reference count on the passed thread-specific data
+ *    and deallocates it when it reaches 0.
+ *
+ *    Caller must not reference the block when this function returns.
+ *
+ * Results:
+ *    None.
+ *
+ * Side effects:
+ *    The block is unlocked and deallocated.
+ *
+ *------------------------------------------------------------------------
+ */
+static void
+IocpThreadDataDrop(
+    IocpThreadData *lockedTsdPtr) /* Must be locked with ref count > 0 */
+{
+    IOCP_ASSERT(lockedTsdPtr->numRefs > 0);
+    if (lockedTsdPtr->numRefs == 1) {
+        /* Final reference. Free up everything */
+        IocpList         readyQ;
+        IocpLink        *linkPtr;
+
+        readyQ = IocpListPopAll(&lockedTsdPtr->readyQ);
+        IocpThreadDataUnlock(lockedTsdPtr);
+        ckfree(lockedTsdPtr);
+
+        while ((linkPtr = IocpListPopFront(&readyQ)) != NULL) {
+            IocpReadyQEntry *rqePtr = CONTAINING_RECORD(linkPtr, IocpReadyQEntry, link);
+            if (rqePtr->chanPtr != NULL) {
+                IocpChannelLock(rqePtr->chanPtr);
+                IocpChannelDrop(rqePtr->chanPtr);
+            }
+            IocpReadyQEntryFree(rqePtr);
+        }
+    } else {
+        lockedTsdPtr->numRefs -= 1;
+        IocpThreadDataUnlock(lockedTsdPtr);
+    }
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpThreadDataGet --
+ *
+ *    Retrieves the thread-specific data block for the calling thread.
+ *    This must have been allocated and initialized previously. The
+ *    block is locked on return.
+ *
+ * Results:
+ *    Pointer to the thread's IocpThreadData block.
+ *
+ * Side effects:
+ *    The lock is held on the returned block.
+ *
+ *------------------------------------------------------------------------
+ */
+static IocpThreadData *
+IocpThreadDataGet()
+{
+    IocpThreadData *tsdPtr;
+    IOCP_ASSERT(iocpModuleState.tlsIndex != TLS_OUT_OF_INDEXES);
+    tsdPtr = TlsGetValue(iocpModuleState.tlsIndex);
+    IOCP_ASSERT(tsdPtr != NULL);
+    IocpThreadDataLock(tsdPtr);
+    IOCP_ASSERT(tsdPtr->numRefs > 0);
+    return tsdPtr;
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpReadyQAdd --
+ *
+ *    Adds a channel to the ready queue for the thread owning the channel.
+ *    If the channel is already on the ready queue for the thread, an
+ *    additional entry is added only if the force parameter is true.
+ *
+ *    Caller must be holding a lock on lockedChanPtr but NOT ON the the
+ *    target thread's TSD (only an issue when called from the same thread)
+ *
+ * Results:
+ *    None.
+ *
+ * Side effects:
+ *    Thread is alerted if the ready queue is updated.
+ *
+ *------------------------------------------------------------------------
+ */
+void IocpReadyQAdd(
+    IocpChannel *lockedChanPtr,  /* Must be locked and caller holding a reference
+                                  * to ensure it does not go away even if unlocked
+                                  */
+    int          force)          /* If true, force even if already queued */
+{
+    IocpReadyQEntry *rqePtr;
+    IocpThreadData  *tsdPtr;
+
+    IOCP_TRACE(("IocpReadyQAdd Enter: lockedChanPtr=%p, force=%d, lockedChanPtr->state=0x%x, lockedChanPtr->flags=0x%x\n", lockedChanPtr, force, lockedChanPtr->state, lockedChanPtr->flags));
+
+    /* 
+     * If the channel is not attached to a thread, obviously there is no thread
+     * to mark as ready. Just return in that case. Requisite actions will be
+     * taken when the channel gets attached to a thread.
+     */
+    if (lockedChanPtr->owningThread == 0) {
+        IOCP_TRACE(("IocpReadyQAdd Return (no owning thread): lockedChanPtr=%p\n", lockedChanPtr));
+        return;
+    }
+    /*
+     * Unless force is true, enqueue only if there isn't already an entry known
+     * to be present for the channel on that thread. As an aside, note that
+     * this is only an optimization. No harm if multiple entries land up on
+     * the queue. Moreover, no harm if channel ownership is changed after
+     * enqueuing of an entry as that ownership is checked again before actual
+     * dispatch within target thread and new owner is handled by the channel
+     * attach/detach code.
+     */
+    if (lockedChanPtr->owningThread == lockedChanPtr->readyQThread && !force) {
+        IOCP_TRACE(("IocpReadyQAdd Return (already queued and !force): lockedChanPtr=%p\n", lockedChanPtr));
+        return;
+    }
+
+    tsdPtr = lockedChanPtr->owningTsdPtr;
+    IOCP_ASSERT(tsdPtr); /* Since owningThread != 0 */
+
+    rqePtr = IocpReadyQEntryAllocate(); /* Allocate BEFORE locking to minimize lock hold time */
+    IocpThreadDataLock(tsdPtr);
+    /* We have to further check that the thread is still alive! */
+    if (tsdPtr->threadId == 0) {
+        /*
+         * That thread went away. Presumably the channel will get attached
+         * to another thread at some point. Nought to do here.
+         */
+        IocpThreadDataUnlock(tsdPtr);
+        IocpReadyQEntryFree(rqePtr);
+        IOCP_TRACE(("IocpReadyQAdd Return (TSD owningThread=0): lockedChanPtr=%p\n", lockedChanPtr));
+    } else {
+        Tcl_ThreadId tid = tsdPtr->threadId; /* needed after unlocking */
+
+        rqePtr->chanPtr = lockedChanPtr;
+        lockedChanPtr->numRefs += 1; /* Will be unrefed on dequeing from readyq */
+
+        /* Remember last thread to which the channel was queued. */
+        lockedChanPtr->readyQThread = lockedChanPtr->owningThread;
+        IocpListAppend(&tsdPtr->readyQ, &rqePtr->link);
+
+        IocpThreadDataUnlock(tsdPtr);
+
+        /* If not queueing to current thread, need to poke the target thread */
+        if (tid != Tcl_GetCurrentThread()) {
+            Tcl_ThreadAlert(tid); /* Poke the thread to look for work */
+        }
+
+        IOCP_TRACE(("IocpReadyQAdd Return (Entry added to thread %d): lockedChanPtr=%p\n", lockedChanPtr->owningThread, lockedChanPtr));
     }
 }
 
@@ -715,7 +1083,21 @@ static IocpTclCode IocpProcessCleanup(ClientData clientdata)
     return TCL_OK;
 }
 
-static void IocpProcessExitHandler(ClientData clientdata)
+static void
+IocpThreadExitHandler(ClientData unused)
+{
+    IocpThreadData *tsdPtr = IocpThreadDataGet();
+    if (tsdPtr) {
+        /* NOTE: tsdPtr is already LOCKED by IocpThreadDataGet! */
+        TlsSetValue(iocpModuleState.tlsIndex, NULL);
+        tsdPtr->threadId = 0; /* So IOCP thread knows this is an orphan */
+        IocpThreadDataDrop(tsdPtr);
+        Tcl_DeleteEventSource(IocpEventSourceSetup, IocpEventSourceCheck, NULL);
+    }
+}
+
+static void
+IocpProcessExitHandler(ClientData unused)
 {
     (void) Iocp_DoOnce(&iocpProcessCleanupFlag, IocpProcessCleanup, NULL);
 }
@@ -1318,7 +1700,7 @@ IocpChannelGetOption (
  *    For reading, inform if
  *    1. Tcl in watching the input side AND
  *    2. the channel is not shutdown for reads AND
- *    3. one of the following two condition is met
+ *    3. one of the following two conditions is met
  *       a) end of file, OR
  *       b) input data is available
  *
@@ -1327,7 +1709,7 @@ IocpChannelGetOption (
  *    2. the channel is not shutdown for writes AND
  *    3. one of the following two condition is met
  *       a) end of file, OR
- *       b) a write has completed AND there is room for more writes
+ *       b) an unnotified write has completed AND there is room for more writes
  *
  * Results:
  *    None.
@@ -1337,11 +1719,13 @@ IocpChannelGetOption (
  *
  *------------------------------------------------------------------------
  */
-static int IocpChannelFileEventMask(
+static int
+IocpChannelFileEventMask(
     IocpChannel *lockedChanPtr  /* Must be locked on entry */
     )
 {
     int readyMask = 0;
+    IOCP_TRACE(("IocpChannelFileEventMask Enter: chanPtr=%p chanPtr->flags=0x%x inputBuffers.headPtr=%p pendingWrites=%d maxPendingWrites=%d.\n", lockedChanPtr, lockedChanPtr->flags, lockedChanPtr->inputBuffers.headPtr, lockedChanPtr->pendingWrites, lockedChanPtr->maxPendingWrites));
     if ((lockedChanPtr->flags & IOCP_CHAN_F_WATCH_INPUT) &&
         !(lockedChanPtr->flags & IOCP_CHAN_F_WRITEONLY) &&
         ((lockedChanPtr->flags & IOCP_CHAN_F_REMOTE_EOF) ||
@@ -1351,17 +1735,16 @@ static int IocpChannelFileEventMask(
     if ((lockedChanPtr->flags & IOCP_CHAN_F_WATCH_OUTPUT) &&        /* 1 */
         !(lockedChanPtr->flags & IOCP_CHAN_F_READONLY) &&           /* 2 */
         ((lockedChanPtr->flags & IOCP_CHAN_F_REMOTE_EOF) ||         /* 3a */
-         ((lockedChanPtr->flags & IOCP_CHAN_F_WRITE_DONE) &&        /* 3b */
+         ((lockedChanPtr->flags & IOCP_CHAN_F_NOTIFY_WRITES) &&        /* 3b */
           lockedChanPtr->pendingWrites < lockedChanPtr->maxPendingWrites))) {
         readyMask |= TCL_WRITABLE;
-        /* So we do not keep notifying of write dones */
-        lockedChanPtr->flags &= ~ IOCP_CHAN_F_WRITE_DONE;
     }
+    IOCP_TRACE(("IocpChannelFileEventMask return: readyMask=0x%x.\n", readyMask));
     return readyMask;
 }
 
 static void
-IocpChannelWatch (
+IocpChannelWatch(
     ClientData instanceData,	/* The socket state. */
     int mask)			/* Events of interest; an OR-ed
 				 * combination of TCL_READABLE,
@@ -1372,6 +1755,8 @@ IocpChannelWatch (
     IocpChannelLock(chanPtr);
 
     IOCP_TRACE(("IocpChannelWatch: chanPtr=%p state=%d mask=0x%x\n", chanPtr, chanPtr->state, mask));
+
+    IOCP_ASSERT(chanPtr->owningThread == Tcl_GetCurrentThread());
 
     /*
      * At this point, Tcl channel system is holding a reference. However, if
@@ -1388,17 +1773,20 @@ IocpChannelWatch (
     if (mask & TCL_WRITABLE) {
         /*
          * Writeable event notifications are only posted if a previous
-         * write completed and app is watching output. The WRITE_DONE
-         * flag fakes a previous write having been completed.
+         * write completed and app is watching output.
          */
-        chanPtr->flags |= IOCP_CHAN_F_WRITE_DONE | IOCP_CHAN_F_WATCH_OUTPUT;
+        chanPtr->flags |= IOCP_CHAN_F_NOTIFY_WRITES | IOCP_CHAN_F_WATCH_OUTPUT;
     }
+
     /*
-     * As per WatchProc man page, we will use the event queue to do the
-     * actual channel notification.
+     * If any events are pending, mark the channel as ready and
+     * tell event loop to poll immediately.
      */
-    if (mask)
-        IocpChannelEnqueueEvent(chanPtr, IOCP_EVENT_NOTIFY_CHANNEL, 0);
+    if (IocpChannelFileEventMask(chanPtr)) {
+        Tcl_Time blockTime = { 0, 0 };
+        IocpReadyQAdd(chanPtr, 0);
+        Tcl_SetMaxBlockTime(&blockTime);
+    }
 
     IocpChannelDrop(chanPtr);   /* Release the reference held by this function */
 }
@@ -1506,23 +1894,45 @@ void IocpChannelThreadAction(
     )
 {
     IocpChannel *chanPtr = (IocpChannel *)instanceData;
+
     IocpChannelLock(chanPtr);
 
     IOCP_TRACE(("IocpChannelThreadAction Enter: chanPtr=%p, action=%d, chanPtr->state=0x%x\n", chanPtr, action, chanPtr->state));
 
     switch (action) {
     case TCL_CHANNEL_THREAD_INSERT:
+        IOCP_ASSERT(chanPtr->owningThread == 0);
         chanPtr->owningThread = Tcl_GetCurrentThread();
+        chanPtr->owningTsdPtr = IocpThreadDataGet();
+        IOCP_ASSERT(chanPtr->owningTsdPtr != NULL);
+        /* Note chanPtr->owningTsdPtr is LOCKED */
+
         /*
-         * Notify in case any I/O completion notifications pending. No harm
-         * if there aren't. Note we force the notification because even if
-         * one is queued, that may be going to a different thread to which
-         * the channel was previously attached.
+         * Link the thread's TSD to the channel so when data is received by
+         * the IOCP completion thread, it knows which ready queue is associated
+         * with the channel. We do not need to increment the reference count on the
+         * TSD because the link from the chanPtr is covered by the lifetime
+         * of the thread. Before thread exit the channel and TSD would be unlinked
+         * by a call to this function with action THREAD_REMOVE (below).
+         * HOWEVER...in case you change this to add a reference, note you
+         * will need to modify thread cleanup (via ThreadDataDrop) to deal
+         * with ready queue entries dropping channels which in turn point
+         * to TSD's.
          */
-        IocpChannelEnqueueEvent(chanPtr, IOCP_EVENT_THREAD_INSERTED, 1);
+
+        /* NOTE: MUST unlock before calling IocpReadyQAdd !!! */
+        IocpThreadDataUnlock(chanPtr->owningTsdPtr);
+
+        /*
+         * Mark as ready in case any I/O completion notifications pending.
+         * No harm if there aren't. 
+         */
+        IocpReadyQAdd(chanPtr, 0);
         break;
+
     case TCL_CHANNEL_THREAD_REMOVE:
         chanPtr->owningThread = 0;
+        chanPtr->owningTsdPtr = NULL;
         break;
     default:
         Tcl_Panic("Unknown channel thread action %d", action);
@@ -1566,21 +1976,35 @@ static void IocpNotifyChannel(
         return;                 /* Tcl channel has gone away */
     readyMask = IocpChannelFileEventMask(lockedChanPtr);
     IOCP_TRACE(("IocpNotifyChannel : chanPtr=%p, chanPtr->state=0x%x, readyMask=0x%x\n", lockedChanPtr, lockedChanPtr->state, readyMask));
-    if (readyMask == 0)
+    if (readyMask == 0) {
+        IOCP_TRACE(("IocpNotifyChannel return: chanPtr=%p, readyMask=0x%x\n", lockedChanPtr, readyMask));
         return;                 /* Nothing to notify */
+    }
+
+    if (readyMask & TCL_WRITABLE) {
+        /*
+         * We do not want to keep notifying if we have already notified
+         * of writes unless more writes complete. The NOTIFY_WRITES flag
+         * is set when the write IOCPs complete. We reset it here if we
+         * notify Tcl that channel is writable and then we will not again
+         * trigger notification unless more write IOCPs complete.
+         */
+        lockedChanPtr->flags &= ~ IOCP_CHAN_F_NOTIFY_WRITES;
+    }
 
     /*
      * Unlock before calling Tcl_NotifyChannel which may recurse via the
      * callback script which again calls us through the channel commands.
      * Note the IocpChannel will not be freed when unlocked as caller
-     * should hold a reference count to it from evPtr.
+     * should hold a reference to it.
      */
     IocpChannelUnlock(lockedChanPtr);
     Tcl_NotifyChannel(channel, readyMask);
     IocpChannelLock(lockedChanPtr);
-    
-    IOCP_TRACE(("IocpNotifyChannel after Tcl_NotifyChannel return: chanPtr=%p, chanPtr->state=0x%x, chanPtr->flags=0x%x\n", lockedChanPtr, lockedChanPtr->state, lockedChanPtr->flags));
 
+    IOCP_TRACE(("IocpNotifyChannel after Tcl_NotifyChannel: chanPtr=%p, chanPtr->state=0x%x, chanPtr->flags=0x%x\n", lockedChanPtr, lockedChanPtr->state, lockedChanPtr->flags));
+
+#ifdef TBD  /* Needed? */
     if (lockedChanPtr->flags & IOCP_CHAN_F_REMOTE_EOF) {
         /*
          * In case of EOF, we have to keep notifying until application closes
@@ -1599,6 +2023,8 @@ static void IocpNotifyChannel(
             IocpChannelEnqueueEvent(lockedChanPtr, IOCP_EVENT_NOTIFY_CHANNEL, 1);
         }
     }
+#endif
+    IOCP_TRACE(("IocpNotifyChannel return: chanPtr=%p, chanPtr->state=0x%x, chanPtr->flags=0x%x\n", lockedChanPtr, lockedChanPtr->state, lockedChanPtr->flags));
 }
 
 
@@ -1620,7 +2046,8 @@ static void IocpNotifyChannel(
  *
  *------------------------------------------------------------------------
  */
-int IocpEventHandler(
+static int
+IocpEventHandler(
     Tcl_Event *evPtr,           /* Pointer to the Tcl_Event structure.
                                  * Contents immaterial */
     int        flags            /* TCL_FILE_EVENTS */
@@ -1628,15 +2055,15 @@ int IocpEventHandler(
 {
     IocpChannel *chanPtr;
 
-    IOCP_TRACE(("IocpEventHandler Enter: chanPtr=%p, evPtr->reason=%d\n", ((IocpTclEvent *)evPtr)->chanPtr, ((IocpTclEvent *)evPtr)->reason));
+    IOCP_TRACE(("IocpEventHandler Enter: chanPtr=%p, flags=0x%x.\n", ((IocpTclEvent *)evPtr)->chanPtr, flags));
 
     if (!(flags & TCL_FILE_EVENTS)) {
+        IOCP_TRACE(("IocpEventHandler return: chanPtr=%p, ! TCL_FILE_EVENTS.\n", ((IocpTclEvent *)evPtr)->chanPtr));
         return 0;               /* We are not to process file/network events */
     }
 
     chanPtr = ((IocpTclEvent *)evPtr)->chanPtr;
     IocpChannelLock(chanPtr);
-    chanPtr->flags &= ~IOCP_CHAN_F_ON_EVENTQ;
 
     /*
      * The channel might have been moved to another thread while this event
@@ -1644,11 +2071,13 @@ int IocpEventHandler(
      * The channel thread attach/detach would have taken care of generating
      * an event for the newly attached thread.
      * TBD - should we forward the event to the newly attached thread?
+     * The channel insert/detach code in ThreadAction should have taken care
+     * of that.
      */
     if (chanPtr->owningThread == Tcl_GetCurrentThread()) {
-        chanPtr->flags |= IOCP_CHAN_F_IN_EVENT_HANDLER;
-
         IOCP_TRACE(("IocpEventHandler: chanPtr=%p, chanPtr->state=0x%x\n", chanPtr, chanPtr->state));
+        /* Indicate that another event may be queued (optimization) */
+        chanPtr->eventQThread = 0;
 
         switch (chanPtr->state) {
         case IOCP_STATE_LISTENING:
@@ -1673,14 +2102,13 @@ int IocpEventHandler(
             /* Late arrival */
             break;
         }
-
-        chanPtr->flags &= ~IOCP_CHAN_F_IN_EVENT_HANDLER;
     }
 
     /* Drop the reference corresponding to queueing to the event q. */
     ((IocpTclEvent *)evPtr)->chanPtr = NULL;
     IocpChannelDrop(chanPtr);
 
+    IOCP_TRACE(("IocpEventHandler return.\n"));
     return 1;
 }
 
@@ -1787,6 +2215,8 @@ Iocp_Init (Tcl_Interp *interp)
         }
         return TCL_ERROR;
     }
+
+    IocpThreadInit();
 
     if (Tcp_ModuleInitialize(interp) != TCL_OK)
         return TCL_ERROR;

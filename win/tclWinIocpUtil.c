@@ -327,12 +327,38 @@ IocpLink *IocpListPopFront(
     IocpLink *firstPtr = listPtr->headPtr;
     if (firstPtr) {
         listPtr->headPtr = firstPtr->nextPtr;
-        if (listPtr->headPtr) 
+        if (listPtr->headPtr)
             listPtr->headPtr->prevPtr = NULL;
         if (listPtr->tailPtr == firstPtr)
             listPtr->tailPtr = NULL;
     }
     return firstPtr;
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpListPopAll --
+ *
+ *    Removes and returns ALL elements as a list clearing out the original
+ *    list.
+ *
+ * Results:
+ *    New list header containing elements of original list.
+ *
+ * Side effects:
+ *    Original passed in list is reset to empty.
+ *
+ *------------------------------------------------------------------------
+ */
+IocpList IocpListPopAll(
+    IocpList *listPtr
+    )
+{
+    IocpList temp = *listPtr;
+    listPtr->headPtr = NULL;
+    listPtr->tailPtr = NULL;
+    return temp;
 }
 
 /*
@@ -659,6 +685,8 @@ void IocpTraceString(const char *buf)
         IocpLockAcquireExclusive(&iocpTraceLock);
         printf("[%d] %s", GetCurrentThreadId(), buf);
         IocpLockReleaseExclusive(&iocpTraceLock);
+    } else if (iocpEnableTrace == 1001) {
+        IocpDebuggerOut("[%d] %s", GetCurrentThreadId(), buf);
     } else if (iocpEnableTrace){
         /* TraceLogging API already includes thread id, no need to add it */
         TraceLoggingWrite(iocpWinTraceProvider,
@@ -721,7 +749,7 @@ void __cdecl IocpDebuggerOut(
     ...
     )
 {
-    char buf[1024];
+    char buf[2048];
     va_list args;
 
     va_start(args, formatStr);
