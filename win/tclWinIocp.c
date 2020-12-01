@@ -961,7 +961,17 @@ IocpThreadDataGet()
     IocpThreadData *tsdPtr;
     IOCP_ASSERT(iocpModuleState.tlsIndex != TLS_OUT_OF_INDEXES);
     tsdPtr = TlsGetValue(iocpModuleState.tlsIndex);
-    IOCP_ASSERT(tsdPtr != NULL);
+    if (tsdPtr == NULL) {
+        /*
+         * IOCP not initialized in this thread. This can happen for instance
+         * if the main thread creates a IOCP socket and then passes it to
+         * another Tcl thread that has not loaded the iocp package.
+         * TBD - need a test case for this. See crash.tcl
+         */
+        IocpThreadInit();
+        tsdPtr = TlsGetValue(iocpModuleState.tlsIndex);
+        IOCP_ASSERT(tsdPtr != NULL);
+    }
     IocpThreadDataLock(tsdPtr);
     IOCP_ASSERT(tsdPtr->numRefs > 0);
     return tsdPtr;
@@ -2187,6 +2197,7 @@ Iocp_DebugOutObjCmd (
     return TCL_OK;
 }
 
+#ifdef IOCP_ENABLE_TRACE
 /* Outputs a string using Windows OutputDebugString */
 static IocpTclCode
 Iocp_TraceOutObjCmd (
@@ -2199,6 +2210,7 @@ Iocp_TraceOutObjCmd (
         IocpTraceString(Tcl_GetString(objv[1]));
     return TCL_OK;
 }
+#endif
 
 /* Returns statistics */
 static IocpTclCode
