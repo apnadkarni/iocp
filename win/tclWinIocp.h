@@ -45,12 +45,6 @@
 # endif
 #endif
 
-#ifdef IOCP_ENABLE_TRACE
-#include <TraceLoggingProvider.h>
-/* Used for ETW tracing */
-TRACELOGGING_DECLARE_PROVIDER( iocpWinTraceProvider );
-#endif
-
 /* Typedefs just to make return value semantics obvious */
 typedef int   IocpTclCode;      /* TCL_OK etc. */
 typedef DWORD IocpWinError;     /* Windows error codes */
@@ -154,9 +148,6 @@ typedef struct {
     int    initialized;       /* Whether initialized */
 } IocpModuleState;
 extern IocpModuleState iocpModuleState;
-
-/* If true, enables trace output at runtime assuming it's enabled at compile */
-extern int iocpEnableTrace;
 
 /*
  * Callback structure for accept script callback in a listener.
@@ -622,12 +613,12 @@ void IocpSetInterpPosixErrorFromWin32(Tcl_Interp *interp, IocpWinError winError,
 void __cdecl Iocp_Panic(const char *formatStr, ...);
 void __cdecl IocpDebuggerOut(const char *formatStr, ...);
 #ifdef IOCP_ENABLE_TRACE
-extern IocpLock iocpTraceLock;
+void IocpTraceInit(void);
 void __cdecl IocpTrace(const char *formatStr, ...);
 void IocpTraceString(const char *s);
-# define IOCP_TRACE(params_) do { if (iocpEnableTrace) {IocpTrace params_;} } while (0)
+# define IOCP_TRACE(params_) do { IocpTrace params_; } while (0)
 #else
-# define IOCP_TRACE(params_) (void) 0;
+# define IOCP_TRACE(params_) (void) 0
 #endif
 
 /* Buffer utilities */
@@ -706,6 +697,11 @@ void AcceptCallbackProc(ClientData callbackData, Tcl_Channel chan,
 /* Module initializations */
 IocpTclCode Tcp_ModuleInitialize(Tcl_Interp *interp);
 IocpTclCode BT_ModuleInitialize(Tcl_Interp *interp);
+
+/* Script level commands */
+Tcl_ObjCmdProc	Iocp_StatsObjCmd;
+Tcl_ObjCmdProc	Iocp_TraceOutputObjCmd;
+Tcl_ObjCmdProc	Iocp_TraceConfigureObjCmd;
 
 /*
  * Prototypes for IOCP exported functions.

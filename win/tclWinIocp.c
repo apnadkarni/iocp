@@ -61,22 +61,6 @@ IOCP_INLINE void IocpThreadDataUnlock(IocpThreadData *tsdPtr) {
 /* Statistics */
 IocpStats iocpStats;
 
-#ifdef IOCP_ENABLE_TRACE
-/* Enable/disable tracing */
-int iocpEnableTrace = IOCP_ENABLE_TRACE;
-IocpLock iocpTraceLock;
-
-/*
- * GUID format for traceview
- * 3a674e76-fe96-4450-b634-24fc587b2828
- */
-TRACELOGGING_DEFINE_PROVIDER(
-    iocpWinTraceProvider,
-    "SimpleTraceLoggingProvider",
-    (0x3a674e76, 0xfe96, 0x4450, 0xb6, 0x34, 0x24, 0xfc, 0x58, 0x7b, 0x28, 0x28));
-
-#endif /*  IOCP_ENABLE_TRACE */
-
 /* Prototypes */
 static void IocpRequestEventPoll(IocpChannel *lockedChanPtr);
 static void IocpNotifyChannel(IocpChannel *lockedChanPtr);
@@ -90,10 +74,6 @@ static void IocpThreadExitHandler(ClientData unused);
 static void IocpThreadDataDrop(IocpThreadData *lockedTsdPtr);
 static IocpThreadData *IocpThreadDataGet(void);
 void IocpReadyQAdd(IocpChannel *lockedChanPtr, int force);
-
-Tcl_ObjCmdProc	Iocp_DebugOutObjCmd;
-Tcl_ObjCmdProc	Iocp_StatsObjCmd;
-
 
 /*
  * Initializes a IocpDataBuffer to be able to hold capacity bytes worth of
@@ -1189,9 +1169,7 @@ static IocpTclCode IocpProcessInit(ClientData clientdata)
     iocpModuleState.initialized = 1;
 
 #ifdef IOCP_ENABLE_TRACE
-    IocpLockInit(&iocpTraceLock);
-    /* TBD - do we have to call TraceLoggingUnregister before exiting process */
-    TraceLoggingRegister(iocpWinTraceProvider);
+    IocpTraceInit();
 #endif
 
     Tcl_CreateExitHandler(IocpProcessExitHandler, NULL);
@@ -2184,36 +2162,8 @@ DWORD IocpChannelPostReads(
     return (lockedChanPtr->pendingReads > 0) ? 0 : winError;
 }
 
-/* Outputs a string using Windows OutputDebugString */
-static IocpTclCode
-Iocp_DebugOutObjCmd (
-    ClientData notUsed,			/* Not used. */
-    Tcl_Interp *interp,			/* Current interpreter. */
-    int objc,				/* Number of arguments. */
-    Tcl_Obj *CONST objv[])		/* Argument objects. */
-{
-    if (objc > 1)
-        OutputDebugStringA(Tcl_GetString(objv[1]));
-    return TCL_OK;
-}
-
-#ifdef IOCP_ENABLE_TRACE
-/* Outputs a string using Windows OutputDebugString */
-static IocpTclCode
-Iocp_TraceOutObjCmd (
-    ClientData notUsed,			/* Not used. */
-    Tcl_Interp *interp,			/* Current interpreter. */
-    int objc,				/* Number of arguments. */
-    Tcl_Obj *CONST objv[])		/* Argument objects. */
-{
-    if (objc > 1)
-        IocpTraceString(Tcl_GetString(objv[1]));
-    return TCL_OK;
-}
-#endif
-
 /* Returns statistics */
-static IocpTclCode
+IocpTclCode
 Iocp_StatsObjCmd (
     ClientData notUsed,			/* Not used. */
     Tcl_Interp *interp,			/* Current interpreter. */
@@ -2264,16 +2214,15 @@ Iocp_Init (Tcl_Interp *interp)
     if (BT_ModuleInitialize(interp) != TCL_OK)
         return TCL_ERROR;
 
-    Tcl_CreateObjCommand(interp, "iocp::debugout", Iocp_DebugOutObjCmd, 0L, 0L);
     Tcl_CreateObjCommand(interp, "iocp::stats", Iocp_StatsObjCmd, 0L, 0L);
 
     Tcl_PkgProvide(interp, PACKAGE_NAME, PACKAGE_VERSION);
 
 #ifdef IOCP_ENABLE_TRACE
     /* Note this is globally shared across all interpreters */
-    Tcl_LinkVar(interp, "::iocp::enableTrace",
-                (char *)&iocpEnableTrace, TCL_LINK_INT);
-    Tcl_CreateObjCommand(interp, "iocp::traceout", Iocp_TraceOutObjCmd, 0L, 0L);
+    Tcl_CreateObjCommand(interp, "iocp::trace::output", Iocp_TraceOutputObjCmd, 0L, 0L);
+    Tcl_CreateObjCommand(interp, "iocp::trace::configure", Iocp_TraceConfigureObjCmd, 0L, 0L);
+    Tcl_Eval(interp, "namespace eval iocp::trace {namespace export *; namespace ensemble create}");
 #endif
 
     return TCL_OK;
@@ -2290,10 +2239,4 @@ Iocp_Init (Tcl_Interp *interp)
  * for a discussion.
  *
  * Can only resolve by trying both and measuring.
- */
-
-/*
- * TBD - design change - Instead of going through the event loop to
- * notify fileevents, maybe set up a event source and set maxblocking time
- * to 0 as the core winsock implementation does.
  */

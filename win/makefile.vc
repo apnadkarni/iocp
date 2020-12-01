@@ -12,7 +12,7 @@
 # detailed documentation.
 #
 # To do a tracing build include iocptrace in the OPTS= command line option.
-# 
+#
 # See the file "license.terms" for information on usage and redistribution
 # of this file, and for a DISCLAIMER OF ALL WARRANTIES.
 #
@@ -21,12 +21,6 @@
 PROJECT	= iocp
 
 !include "rules-ext.vc"
-
-PRJ_DEFINES = /D_WIN32_WINNT=_WIN32_WINNT_WIN7 /DTCLH_SHORTNAMES
-!if [nmakehlp -f $(OPTS) "iocptrace"]
-!message *** Doing a tracing build
-PRJ_DEFINES = $(PRJ_DEFINES) /DIOCP_ENABLE_TRACE=1
-!endif
 
 PRJ_OBJS = \
     $(TMP_DIR)\tclWinIocp.obj \
@@ -38,6 +32,19 @@ PRJ_OBJS = \
     $(TMP_DIR)\tclWinIocpUtil.obj
 # Currently not include because of bloat
 #    $(TMP_DIR)\tclWinIocpBTNames.obj \
+
+PRJ_DEFINES = /D_WIN32_WINNT=_WIN32_WINNT_WIN7 /DTCLH_SHORTNAMES
+
+!if [nmakehlp -f $(OPTS) "iocptrace"]
+!message *** Doing a tracing build
+PRJ_OBJS = $(PRJ_OBJS) $(TMP_DIR)\tclWinIocpTrace.obj
+PRJ_DEFINES = $(PRJ_DEFINES) /DIOCP_ENABLE_TRACE
+!endif
+
+!if [nmakehlp -f $(OPTS) "iocpassert"]
+!message *** Enabling asserts
+PRJ_DEFINES = $(PRJ_DEFINES) /DIOCP_ENABLE_ASSERT
+!endif
 
 PRJ_LIBS  = ws2_32.lib Bthprops.lib rpcrt4.lib
 
