@@ -346,7 +346,6 @@ typedef struct IocpChannel {
 
     int       flags;
 
-#define TBD_IOCP_CHAN_F_ON_EVENTQ   0x0002 /* The channel is on the event q */
 #define IOCP_CHAN_F_NOTIFY_WRITES   0x0004 /* One or more writes notified */
 #define IOCP_CHAN_F_WATCH_INPUT     0x0008 /* Notify Tcl on data arrival */
 #define IOCP_CHAN_F_WATCH_OUTPUT    0x0010 /* Notify Tcl on output unblocking */
@@ -530,19 +529,10 @@ typedef struct IocpChannelVtbl {
 
 } IocpChannelVtbl;
 
-/* Reason codes for event notifications */
-enum TBD_IocpEventReason {
-    IOCP_EVENT_IO_COMPLETED,    /* Sent from completion thread */
-    IOCP_EVENT_NOTIFY_CHANNEL,  /* Sent to indicate application fileevent
-                                 * callbacks should be invoked */
-    IOCP_EVENT_THREAD_INSERTED  /* Channel inserted into a thread */
-};
-
 /* Used to notify the thread owning a channel through Tcl event loop */
-typedef struct TBD_IocpTclEvent {
+typedef struct IocpTclEvent {
     Tcl_Event    event;         /* Must be first field */
     IocpChannel *chanPtr;       /* Channel associated with this event */
-    // TBD enum IocpEventReason reason;  /* Currently mostly used for tracing/debugging */
 } IocpTclEvent;
 
 /*
@@ -659,7 +649,6 @@ Tcl_Channel  IocpMakeTclChannel(Tcl_Interp *,IocpChannel* lockedChanPtr, const c
 IocpChannel *IocpChannelNew(const IocpChannelVtbl *vtblPtr);
 void         IocpChannelAwaitCompletion(IocpChannel *lockedChanPtr, int flags);
 int          IocpChannelWakeAfterCompletion(IocpChannel *lockedChanPtr, int blockMask);
-void         IocpChannelEnqueueEvent(IocpChannel *lockedChanPtr, enum IocpEventReason,  int force);
 void         IocpChannelDrop(IocpChannel *lockedChanPtr);
 DWORD        IocpChannelPostReads(IocpChannel *lockedChanPtr);
 void         IocpChannelNudgeThread(IocpChannel *lockedChanPtr, int blockMask, int force);
