@@ -10,6 +10,10 @@
 
 #set httpLog 1
 
+package require iocp_inet
+rename ::socket ::tcl_socket
+rename ::iocp::inet::socket ::socket
+
 if {$::tcl_platform(os) eq "Darwin"} {
     # Name resolution often a problem on OSX; not focus of HTTP package anyway
     set HOST localhost
@@ -44,6 +48,10 @@ proc httpdAccept {newsock ipaddr port} {
     global httpd
     upvar #0 httpd$newsock data
 
+    # Verify we are indeed using iocp sockets
+    if {![dict exists [fconfigure $newsock] -maxpendingreads]} {
+        error "Not using IOCP sockets."
+    }
     fconfigure $newsock -blocking 0 -translation {auto crlf}
     httpd_log $newsock Connect $ipaddr $port
     set data(ipaddr) $ipaddr

@@ -10,6 +10,9 @@
 package require tcltest 2
 namespace import -force ::tcltest::*
 
+package require iocp_inet
+rename ::socket ::tcl_socket
+rename ::iocp::inet::socket ::socket
 package require http 2.8
 
 # start the server
@@ -84,6 +87,17 @@ test http11-1.0 "normal request for document " -setup {
     http::cleanup $tok
     halt_httpd
 } -result {ok {HTTP/1.1 200 OK} ok close}
+
+test http11-1.0 "Ensure IOCP in use" -setup {
+    variable httpd [create_httpd]
+} -body {
+    set tok [http::geturl http://localhost:$httpd_port/testdoc.html -timeout 10000]
+    http::wait $tok
+    set ${tok}(sock)
+} -cleanup {
+    http::cleanup $tok
+    halt_httpd
+} -result tcp* -match glob
 
 test http11-1.1 "normal,gzip,non-chunked" -setup {
     variable httpd [create_httpd]

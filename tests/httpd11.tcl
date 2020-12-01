@@ -10,6 +10,10 @@
 
 package require Tcl 8.6-
 
+package require iocp_inet
+rename ::socket ::tcl_socket
+rename ::iocp::inet::socket ::socket
+
 proc ::tcl::dict::get? {dict key} {
     if {[dict exists $dict $key]} {
         return [dict get $dict $key]
@@ -223,6 +227,10 @@ proc Service {chan addr port} {
 }
 
 proc Accept {chan addr port} {
+    # Verify we are indeed using iocp sockets
+    if {![dict exists [fconfigure $chan] -maxpendingreads]} {
+        error "Not using IOCP sockets."
+    }
     coroutine client$chan Service $chan $addr $port
     return
 }

@@ -14,6 +14,10 @@
 package require tcltest 2
 namespace import -force ::tcltest::*
 
+package require iocp_inet
+rename ::socket ::tcl_socket
+rename ::iocp::inet::socket ::socket
+
 if {[catch {package require http 2} version]} {
     if {[info exists http2]} {
 	catch {puts "Cannot load http 2.* package"}
@@ -136,6 +140,12 @@ test http-3.3 {http::geturl} -body {
 <h1>Hello, World!</h1>
 <h2>GET /</h2>
 </body></html>"
+test http-3.3.1 {http::geturl - verify using iocp socket} -body {
+    set token [http::geturl $url]
+    set ${token}(sock)
+} -cleanup {
+    http::cleanup $token
+} -result tcp* -match glob
 set tail /a/b/c
 set url //${::HOST}:$port/a/b/c
 set fullurl HTTP://user:pass@${::HOST}:$port/a/b/c
@@ -579,6 +589,7 @@ test http-4.13 {http::Event} -body {
 #	Longer timeout to good host, bad port, gets an error after the
 #	connection "completes" but the socket is bad.
 test http-4.14 {http::Event} -body {
+    # NOTE: this fails for Tcl socket command as well with same failure
     set token [http::geturl $badurl/?timeout=10 -timeout 10000 -command \#]
     if {$token eq ""} {
 	error "bogus return from http::geturl"

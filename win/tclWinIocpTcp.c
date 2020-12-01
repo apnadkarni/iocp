@@ -586,7 +586,7 @@ Iocp_OpenTcpClient(
                     &errorMsg)) {
         if (interp != NULL) {
             Tcl_SetObjResult(interp, Tcl_ObjPrintf(
-                    "couldn't resolve addresses: %s", errorMsg));
+                    "couldn't open socket: %s", errorMsg));
         }
         goto fail;
     }
