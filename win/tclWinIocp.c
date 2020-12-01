@@ -78,6 +78,7 @@ TRACELOGGING_DEFINE_PROVIDER(
 #endif /*  IOCP_ENABLE_TRACE */
 
 /* Prototypes */
+static void IocpRequestEventPoll(IocpChannel *lockedChanPtr);
 static void IocpNotifyChannel(IocpChannel *lockedChanPtr);
 static int  IocpEventHandler(Tcl_Event *evPtr, int flags);
 static int  IocpChannelFileEventMask(IocpChannel *lockedChanPtr);
@@ -369,7 +370,8 @@ static void IocpChannelConnectionStep(
             if (lockedChanPtr->vtblPtr->blockingconnect) {
                 lockedChanPtr->vtblPtr->blockingconnect(lockedChanPtr);
                 /* Don't care about success. Caller responsible to check state */
-                IocpNotifyChannel(lockedChanPtr);
+
+                IocpRequestEventPoll(lockedChanPtr);
             }
         } else {
             if (lockedChanPtr->vtblPtr->connectfailed  == NULL ||
@@ -377,7 +379,8 @@ static void IocpChannelConnectionStep(
                 /* No means to retry or retry failed. lockedChanPtr->winError is error */
                 lockedChanPtr->state = IOCP_STATE_CONNECT_FAILED;
                 lockedChanPtr->flags |= IOCP_CHAN_F_REMOTE_EOF;
-                IocpNotifyChannel(lockedChanPtr);
+
+                IocpRequestEventPoll(lockedChanPtr);
             }
             else {
                 /* Revert to CONNECTING state when retry ongoing */
@@ -391,6 +394,7 @@ static void IocpChannelConnectionStep(
                   lockedChanPtr->state);
         break;
     }
+    IOCP_TRACE(("IocpChannelConnectionStep return: lockedChanPtr=%p, blockable=%d, state=0x%x\n", lockedChanPtr, blockable, lockedChanPtr->state));
 }
 
 /*
@@ -431,7 +435,8 @@ static void IocpChannelExitConnectedState(
     }
     /* Notify channel is writable in case file events registered */
     lockedChanPtr->flags |= IOCP_CHAN_F_NOTIFY_WRITES;
-    IocpNotifyChannel(lockedChanPtr);
+
+    IocpRequestEventPoll(lockedChanPtr);
 }
 
 /*
@@ -830,10 +835,9 @@ void IocpChannelNudgeThread(
     int          blockMask,      /* Combination of IOCP_CHAN_F_BLOCKED*. Channel
                                   * thread will be woken if waiting on any of these */
     int          force)          /* If true, force an event notification even if
-                                  * thread was blocked and is woken up or if event
-                                  * notification was already queued. Normally,
-                                  * the function will not queue an event in these
-                                  * cases. */
+                                  * thread was blocked and is woken up or channel
+                                  * was already queued on ready q. Normally,
+                                  * the function will not do so in these cases. */
 {
     IOCP_TRACE(("IocpChannelNudgeThread Enter: lockedChanPtr=%p, blockMask=0x%x, force=%d, lockedChanPtr->state=0x%x, lockedChanPtr->flags=0x%x\n", lockedChanPtr, blockMask, force, lockedChanPtr->state, lockedChanPtr->flags));
     if (! IocpChannelWakeAfterCompletion(lockedChanPtr, blockMask) || force) {
@@ -1050,6 +1054,32 @@ void IocpReadyQAdd(
 
         IOCP_TRACE(("IocpReadyQAdd Return (Entry added to thread %d): lockedChanPtr=%p\n", lockedChanPtr->owningThread, lockedChanPtr));
     }
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
+ * IocpRequestEventPoll --
+ *
+ *    Marks a channel as ready and requests the event loop in the CURRENT
+ *    thread to poll for events.
+ *
+ * Results:
+ *    None.
+ *
+ * Side effects:
+ *    As above.
+ *
+ *------------------------------------------------------------------------
+ */
+static void
+IocpRequestEventPoll(
+    IocpChannel *lockedChanPtr  /* Must be locked on entry */
+    )
+{
+    Tcl_Time blockTime = { 0, 0 };
+    IocpReadyQAdd(lockedChanPtr, 0);
+    Tcl_SetMaxBlockTime(&blockTime);
 }
 
 /*
@@ -1528,6 +1558,7 @@ IocpChannelOutput (
 
     IocpChannelDrop(chanPtr);   /* Release the reference held by this function */
 
+    IOCP_TRACE(("IocpChannelOutput return: chanPtr=%p written=%d", chanPtr, written));
     return written;
 }
 
@@ -1783,9 +1814,7 @@ IocpChannelWatch(
      * tell event loop to poll immediately.
      */
     if (IocpChannelFileEventMask(chanPtr)) {
-        Tcl_Time blockTime = { 0, 0 };
-        IocpReadyQAdd(chanPtr, 0);
-        Tcl_SetMaxBlockTime(&blockTime);
+        IocpRequestEventPoll(chanPtr);
     }
 
     IocpChannelDrop(chanPtr);   /* Release the reference held by this function */
