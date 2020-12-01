@@ -393,6 +393,11 @@ proc httpTestScript::Requester {uriCode keepAlive validate query args} {
         return
     } else {
         # Request will begin.
+        # Verify we are indeed using iocp sockets
+        if {! [string match tcp* [set ${token}(sock)]]} {
+            catch {puts stdout "Error: not using IOCP sockets"}
+            return
+        }
     }
 
     return

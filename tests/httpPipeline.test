@@ -11,6 +11,9 @@
 package require tcltest 2
 namespace import -force ::tcltest::*
 
+package require iocp_inet
+rename ::socket ::tcl_socket
+rename ::iocp::inet::socket ::socket
 package require http 2.8
 
 set sourcedir [file normalize [file dirname [info script]]]
