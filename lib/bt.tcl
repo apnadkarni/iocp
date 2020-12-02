@@ -307,7 +307,6 @@ proc iocp::bt::device::port {device service_class} {
         while {1} {
             # 0x100 -> LUP_RETURN_ADDR
             set rec [LookupServiceNext $h 0x100]
-            puts $rec
             if {[dict exists $rec RemoteAddress] &&
                 [dict get $rec RemoteAddress AddressFamily] == 32} {
                 # 32 -> AF_BTH (Bluetooth)
