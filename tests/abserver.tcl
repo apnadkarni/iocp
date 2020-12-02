@@ -10,7 +10,7 @@ proc accept {chan addr port} {
 }
 
 fconfigure [socket -server accept 8080] {*}$argv
-puts stderr "Tcl socket listening on 8082"
+puts stderr "Tcl socket listening on 8080"
 
 if {[catch {
     package require iocp_inet
