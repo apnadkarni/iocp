@@ -54,7 +54,8 @@ typedef int   IocpSizeT;        /* Signed type to hold Tcl string lengths */
 /*
  * We may use either critical sections or SRWLocks. The latter are lighter
  * and faster with multiple readers. The former allow recursive locking
- * and are available on older Windows platforms as well.
+ * and are available on older Windows platforms as well. We do not lock
+ * recursively and do not support older platforms so SRWLocks are the default.
  */
 #ifdef IOCP_USE_CRITICAL_SECTION
 typedef CRITICAL_SECTION IocpLock;
@@ -267,39 +268,53 @@ IOCP_INLINE int IocpStateConnectionInProgress(enum IocpState state) {
  * from this structure (by inclusion).
  *
  * General working and lifetime:
- * 
+ *
  * - A IocpChannel is allocated through the socket (or similar) call. It
  *   starts with a reference count of 1 corresponding to the reference from
  *   the Tcl channel subsystem. The corresponding reference decrement will
  *   happen when the channel is closed through IocpCloseProc.
- * 
+ *
  * - The Tcl channel layer then calls the IocpThreadActionProc function
- *   which attaches it to a thread. The thread id is stored in
- *   IocpChannel.threadId and completion notifications are sent to that
- *   thread.
- * 
+ *   which attaches it to a thread. The thread id as well as a pointer to
+ *   the thread specific data (which houses the ready queue) is stored in
+ *   the IocpChannel. The completion thread uses these to send notifications
+ *   to the appropriate channel.
+ *
  * - For I/O, IocpBuffer's are allocated and posted to the Win32 I/O API.
  *   The IocpBuffer points back to the associated IocpChannel and thus
  *   increments the latter's reference count. The corresponding reference
  *   decrement happens when the IocpBuffer is freed.
- * 
+ *
  * - When a read I/O completes, the IOCP completion thread retrieves the
  *   IocpBuffer and places it on the IocpChannel's inputBuffers queue.
- * 
- * - The completion thread then sends a Tcl_Event notification referencing
- *   the IocpChannel to the thread owning the channel. The IocpChannel
- *   reference count is incremented corresponding to this reference.
- * 
+ *   (Write I/O are simpler but work similarly and not described here.)
+ *
+ * - The completion thread then adds an entry to the channel ready queue
+ *   for that thread (via the channel's thread data pointer) and alerts
+ *   the owning thread. The IocpChannel's reference count is incremented
+ *   corresponding to this reference. As an optimization, the channel
+ *   is not queued if already on the ready queue for that thread. The
+ *   readyQThread field is used for this purpose.
+ *
+ * - When the Tcl thread event loop invokes the event source check function
+ *   for the channel type, all ready queue entries are popped from the
+ *   ready queue and processed. A Tcl event is generated for the channel
+ *   and queued. In the normal case, the reference count for the channel is
+ *   unchanged since the logical decrement for popping from ready queue and
+ *   a logical increment for placing on event queue cancel each other.
+ *
  * - The notified Tcl thread receives the event and processes the
- *   completion. The IocpChannel reference count is decremented as it is no
+ *   completion invoking any file event callbacks via Tcl_NotifyChannel if
+ *   necessary. The IocpChannel reference count is decremented as it is no
  *   longer referenced from the Tcl event queue.
- * 
+ *
  * - The IocpBuffer's on the IocpChannel inputBuffers queue are processed
  *   when the Tcl channel layer calls IocpInputProc to read data.
- * 
+ *
  * - Before closing the Tcl channel layer calls the IocpThreadActionProc to
- *   detach the channel.
- * 
+ *   detach the channel. This marks the channel as unowned and removes the
+ *   the reference to the owning thread's thread data.
+ *
  * - On the actual close, the IocpCloseProc function is called which
  *   decrements the IocpChannel reference count corresponding to the initial
  *   allocation reference. NOTE this does not mean the IocpChannel structure
