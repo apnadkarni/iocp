@@ -364,8 +364,8 @@ typedef struct IocpChannel {
 #define IOCP_CHAN_F_NOTIFY_WRITES   0x0004 /* One or more writes notified */
 #define IOCP_CHAN_F_WATCH_INPUT     0x0008 /* Notify Tcl on data arrival */
 #define IOCP_CHAN_F_WATCH_OUTPUT    0x0010 /* Notify Tcl on output unblocking */
-#define IOCP_CHAN_F_READONLY        0x0020 /* Channel input disabled */
-#define IOCP_CHAN_F_WRITEONLY       0x0040 /* Channel output disabled */
+#define IOCP_CHAN_F_READONLY        0x0020 /* Channel output disabled */
+#define IOCP_CHAN_F_WRITEONLY       0x0040 /* Channel input disabled */
 #define IOCP_CHAN_F_REMOTE_EOF      0x0080 /* Remote end closed connection */
 #define IOCP_CHAN_F_NONBLOCKING     0x0100 /* Channel is in non-blocking mode */
 #define IOCP_CHAN_F_WATCH_ACCEPT    0x0200 /* Notify on connection accepts */
@@ -374,6 +374,9 @@ typedef struct IocpChannel {
 #define IOCP_CHAN_F_BLOCKED_CONNECT 0x1000 /* Blocked for connect completion */
 #define IOCP_CHAN_F_BLOCKED_MASK \
     (IOCP_CHAN_F_BLOCKED_READ | IOCP_CHAN_F_BLOCKED_WRITE | IOCP_CHAN_F_BLOCKED_CONNECT)
+#define IOCP_CHAN_F_HSENT           0x2000  /* Socket had already sent data */
+#define IOCP_CHAN_F_HRECV           0x4000  /* Socket had already received data */
+#define IOCP_CHAN_F_DISCONNECT      0x8000  /* Socket entering disconnect process */
 } IocpChannel;
 IOCP_INLINE void IocpChannelLock(IocpChannel *chanPtr) {
     IocpLockAcquireExclusive(&chanPtr->lock);
@@ -669,6 +672,8 @@ DWORD        IocpChannelPostReads(IocpChannel *lockedChanPtr);
 void         IocpChannelNudgeThread(IocpChannel *lockedChanPtr, int blockMask, int force);
 
 IocpTclCode IocpSetChannelDefaults(Tcl_Channel channel);
+
+int WinsockClientGracefulDisconnect(IocpChannel *lockedChanPtr, int flags);
 
 /* Completion thread */
 DWORD WINAPI IocpCompletionThread (LPVOID lpParam);

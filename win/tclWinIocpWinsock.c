@@ -27,8 +27,6 @@ const char *iocpWinsockOptionNames[] = {
 /* Just to ensure consistency */
 const char *gSocketOpenErrorMessage = "couldn't open socket: ";
 
-static IocpWinError WinsockClientPostDisconnect(WinsockClient *chanPtr);
-
 /*
  *------------------------------------------------------------------------
  *
@@ -91,6 +89,175 @@ void WinsockClientFinit(IocpChannel *chanPtr)
 /*
  *------------------------------------------------------------------------
  *
+ * WinsockClientGracefulDisconnect --
+ *
+ *    Gracefully disconnects the socket before channel gets closed.
+ *
+ * Results:
+ *    None.
+ *
+ * Side effects:
+ *    Socket also closed if both directions get closed.
+ *
+ *------------------------------------------------------------------------
+ */
+int
+WinsockClientGracefulDisconnect(
+    IocpChannel *chanPtr, /* Must be locked on entry. */
+    int flags)
+{
+    int ret = 0;
+    WinsockClient *wsPtr = IocpChannelToWinsockClient(chanPtr);
+
+    /*
+     * Do graceful disconnect if needed. The default Windows behavior for a
+     * socket is to use linger, which does a graceful shutdown in the
+     * background, this can cause a flood with pending sockets in TIME_WAIT
+     * state, so can result to exceeding of FD_SETSIZE, etc
+     * (see bug [b6d0d8cc2c]). So try do a graceful disconnect manually,
+     * if success don't linger otherwise lingering for 5 seconds, that should be
+     * enough per default to fullfil a shutdown (flush buffers etc).
+     * The port can remain longer in TIME_WAIT state, but windows could
+     * probably use it earlier in out of sockets situation.
+     */
+
+    SOCKET s = wsPtr->so;
+    LINGER l;
+
+    /* If pendiong operations available, disconnect in corresponding completion operation in helper thread */
+    if ((chanPtr->pendingReads || chanPtr->pendingWrites)
+     && chanPtr->owningThread == Tcl_GetCurrentThread()
+    ) {
+        if (flags & TCL_CLOSE_READ) {
+            chanPtr->flags |= IOCP_CHAN_F_WRITEONLY;
+            WSARecvDisconnect(s, NULL); /* shutdown(s, SD_RECEIVE); */
+        }
+        if (flags & TCL_CLOSE_WRITE) {
+            chanPtr->flags |= IOCP_CHAN_F_READONLY;
+            WSASendDisconnect(s, NULL); /* shutdown(s, SD_SEND) */
+        }
+        chanPtr->flags |= IOCP_CHAN_F_DISCONNECT;
+        return 0;
+    }
+
+    l.l_linger = 5; /* 0 would cause a hard reset, so use carefully */
+
+    /* if nothing was sent through this connection - execute a fast reset */
+    if (!(chanPtr->flags & IOCP_CHAN_F_HSENT)) {
+        l.l_linger = 0; /* hard reset */
+        goto lingerSocket;
+    }
+
+    /* If channel is not yet already closed by peer */
+    if (!(chanPtr->flags & IOCP_CHAN_F_REMOTE_EOF)) {
+
+        WSAEVENT eventObj = WSACreateEvent();
+        int fdFlags = 0;
+
+        /* We'll made an attempt of graceful disconnect (if possible).
+         * Thereby FD_WRITE or FD_READ signaling that we'd avoid immediate disconnect. */
+        if ((flags & TCL_CLOSE_WRITE) && (
+              (chanPtr->flags & (IOCP_CHAN_F_HSENT|IOCP_CHAN_F_READONLY)) == IOCP_CHAN_F_HSENT
+            || chanPtr->pendingWrites
+          )
+        ) {
+            fdFlags = FD_WRITE;
+        }
+        if ((flags & TCL_CLOSE_READ) && (
+              (chanPtr->flags & (IOCP_CHAN_F_HRECV|IOCP_CHAN_F_WRITEONLY)) == IOCP_CHAN_F_HRECV
+            || chanPtr->pendingReads
+          )
+        ) {
+            fdFlags = FD_READ;
+        }
+
+        /* Unlock during wait to be able process completion for pending operations */
+        IocpChannelUnlock(chanPtr);
+        if (
+               (ret = WSAEventSelect(s, eventObj, (FD_CLOSE|fdFlags))) != SOCKET_ERROR
+            && ((fdFlags & FD_WRITE) || (ret = WSASendDisconnect(s, NULL)) != SOCKET_ERROR)
+            && ((fdFlags & FD_READ) || (ret = WSARecvDisconnect(s, NULL)) != SOCKET_ERROR)
+        ) {
+            /* Wait a bit (10ms) for FD_CLOSE gets signalled (e. g. fast
+             * (local) connect or already pending FIN/RST from other peer) */
+            while ((!(chanPtr->flags & IOCP_CHAN_F_REMOTE_EOF) || 
+                chanPtr->pendingWrites || chanPtr->pendingReads) &&
+                WSAWaitForMultipleEvents(1, &eventObj, 0, 1, 0)
+                    != WSA_WAIT_TIMEOUT
+            ) {
+                WSANETWORKEVENTS evv;
+                if (WSAEnumNetworkEvents(s, eventObj, &evv) == 0) {
+
+                    if (evv.lNetworkEvents & FD_CLOSE) {
+                        chanPtr->flags |= IOCP_CHAN_F_REMOTE_EOF;
+                        break;
+                    }
+                    if ((evv.lNetworkEvents & FD_WRITE)) {
+                        /* send disconnect now (and reset it to stop repeat) */
+                        if ((fdFlags & FD_WRITE) && !chanPtr->pendingWrites) {
+                            fdFlags &= ~FD_WRITE;
+                            flags &= ~TCL_CLOSE_WRITE;
+                            /* don't need write anymore - send disconnect and repeat */
+                            if ((ret = WSASendDisconnect(s, NULL)) != SOCKET_ERROR) {
+                                continue;
+                            }
+                        }
+                    }
+                    if ((fdFlags & FD_READ) && (evv.lNetworkEvents & FD_READ)) {
+                        /* send disconnect now (and reset it to stop repeat) */
+                        if ((fdFlags & FD_READ) && !chanPtr->pendingReads) {
+                            fdFlags &= ~FD_READ;
+                            flags &= ~TCL_CLOSE_READ;
+                            /* don't need read anymore - send disconnect and repeat */
+                            if (shutdown(s, SD_RECEIVE) != SOCKET_ERROR) {
+                                continue;
+                            }
+                        }
+                    }
+                }
+            }
+            (void) WSAEventSelect(s, NULL, 0);
+        }
+        WSACloseEvent(eventObj);
+        /* Lock again */
+        IocpChannelLock(chanPtr);
+
+        /* Still one attempt to close remaining direction */
+        if (flags & TCL_CLOSE_READ) {
+            chanPtr->flags |= IOCP_CHAN_F_WRITEONLY;
+            WSARecvDisconnect(s, NULL); /* shutdown(s, SD_RECEIVE); */
+        }
+        if (flags & TCL_CLOSE_WRITE) {
+            chanPtr->flags |= IOCP_CHAN_F_READONLY;
+            WSASendDisconnect(s, NULL); /* shutdown(s, SD_SEND) */
+        }
+    }
+
+    /* If attempt succeeded (noticed FD_CLOSE) */
+    if (  (chanPtr->flags & IOCP_CHAN_F_REMOTE_EOF)
+      || !(chanPtr->flags & IOCP_CHAN_F_HSENT)
+    ) { /* don't need lingering. */
+        int v = 0; /* the socket will not remain open */
+        setsockopt(s, SOL_SOCKET, SO_DONTLINGER,
+                    (const char *) &v, sizeof(v));
+    } else {
+lingerSocket:
+        l.l_onoff = 1; /* the socket will remain open for l_linger time */
+        setsockopt(s, SOL_SOCKET, SO_LINGER,
+                    (const char *) &l, sizeof(l));
+    }
+    
+    /* If both sides are closed now: */
+    if ((chanPtr->flags & (IOCP_CHAN_F_WRITEONLY|IOCP_CHAN_F_READONLY)) == (IOCP_CHAN_F_WRITEONLY|IOCP_CHAN_F_READONLY)) {
+        /* ensure to close its handle also (by TCL_CLOSE_READ|TCL_CLOSE_WRITE close callback isn't invoked) */
+        WinsockClientDisconnected(chanPtr);
+    }
+    return ret;
+}
+
+/*
+ *------------------------------------------------------------------------
+ *
  * WinsockClientShutdown --
  *
  *    Conforms to the IocpChannel shutdown interface.
@@ -110,35 +277,18 @@ int WinsockClientShutdown(
 {
     WinsockClient *lockedWsPtr = IocpChannelToWinsockClient(lockedChanPtr);
 
-    if (lockedWsPtr->so != INVALID_SOCKET) {
+    flags &= (TCL_CLOSE_READ|TCL_CLOSE_WRITE);
+    if ((lockedWsPtr->so != INVALID_SOCKET) && flags) {
         int wsaStatus = 0;
-        switch (flags & (TCL_CLOSE_READ|TCL_CLOSE_WRITE)) {
-        case TCL_CLOSE_READ:
+
+        /* Is it allowed to close one side only? */
+        if (flags != (TCL_CLOSE_READ|TCL_CLOSE_WRITE)) {
             if ((lockedWsPtr->flags & IOCP_WINSOCK_HALF_CLOSABLE) == 0) {
                 return EINVAL; /* TBD */
             }
-            wsaStatus = shutdown(lockedWsPtr->so, SD_RECEIVE);
-            break;
-        case TCL_CLOSE_WRITE:
-            if ((lockedWsPtr->flags & IOCP_WINSOCK_HALF_CLOSABLE) == 0) {
-                return EINVAL; /* TBD */
-            }
-            wsaStatus = shutdown(lockedWsPtr->so, SD_SEND);
-            break;
-        case TCL_CLOSE_READ|TCL_CLOSE_WRITE:
-            /*
-             * Doing just a closesocket seems to result in a TCP RESET
-             * instead of graceful close. Do use DisconnectEx if
-             * available.
-             */
-            if (WinsockClientPostDisconnect(lockedWsPtr) != ERROR_SUCCESS) {
-                wsaStatus = closesocket(lockedWsPtr->so);
-                lockedWsPtr->so = INVALID_SOCKET;
-            }
-            break;
-        default:                /* Not asked to close either */
-            return 0;
         }
+        /* An attempt to graceful disconnect and shutdown. */
+        wsaStatus = WinsockClientGracefulDisconnect(lockedChanPtr, TCL_CLOSE_READ);
         if (wsaStatus == SOCKET_ERROR) {
             /* TBD - do we need to set a error string in interp? */
             IocpSetTclErrnoFromWin32(WSAGetLastError());
@@ -174,58 +324,6 @@ IocpTclCode WinsockClientGetHandle(
         return TCL_ERROR;
     *handlePtr = (ClientData) so;
     return TCL_OK;
-}
-
-/*
- *------------------------------------------------------------------------
- *
- * WinsockClientPostDisconnect --
- *
- *    Initiates a disconnect on a connection.
- *
- * Results:
- *    ERROR_SUCCESS if disconnect request was successfully posted or an
- *    Winsock error code.
- *
- * Side effects:
- *    The Disconnect is queued on the IOCP completion port.
- *
- *------------------------------------------------------------------------
- */
-static IocpWinError
-WinsockClientPostDisconnect(
-    WinsockClient *lockedWsPtr     /* Must be locked */
-    )
-{
-    static GUID     DisconnectExGuid = WSAID_DISCONNECTEX;
-    LPFN_DISCONNECTEX  fnDisconnectEx;
-    DWORD nbytes;
-
-    if (WSAIoctl(lockedWsPtr->so, SIO_GET_EXTENSION_FUNCTION_POINTER,
-                 &DisconnectExGuid, sizeof(GUID),
-                 &fnDisconnectEx,
-                 sizeof(fnDisconnectEx),
-                 &nbytes, NULL, NULL) != 0) {
-        return WSAGetLastError();
-    }
-    else {
-        IocpBuffer *bufPtr = IocpBufferNew(0, IOCP_BUFFER_OP_DISCONNECT, IOCP_BUFFER_F_WINSOCK);
-        if (bufPtr == NULL)
-            return WSAENOBUFS;
-        bufPtr->chanPtr    = WinsockClientToIocpChannel(lockedWsPtr);
-        lockedWsPtr->base.numRefs += 1; /* Reversed when buffer is unlinked from channel */
-
-        if (fnDisconnectEx(lockedWsPtr->so, &bufPtr->u.wsaOverlap, 0, 0) == FALSE) {
-            IocpWinError    winError = WSAGetLastError();
-            if (winError != WSA_IO_PENDING) {
-                lockedWsPtr->base.numRefs -= 1; /* Reverse above increment */
-                bufPtr->chanPtr = NULL;          /* Else IocpBufferFree will assert */
-                IocpBufferFree(bufPtr);
-                return winError;
-            }
-        }
-        return ERROR_SUCCESS;
-    }
 }
 
 /*
@@ -459,7 +557,15 @@ WinsockClientDisconnected(
     WinsockClient *wsPtr = IocpChannelToWinsockClient(lockedChanPtr);
 
     if (wsPtr->so != INVALID_SOCKET) {
-        closesocket(wsPtr->so);
+
+        /* Clean up the OS socket handle. */
+        
+        if (closesocket(wsPtr->so) == SOCKET_ERROR) {
+            IocpSetTclErrnoFromWin32(WSAGetLastError());
+            //errorCode = Tcl_GetErrno();
+            /* TODO */
+        }
+
         wsPtr->so = INVALID_SOCKET;
     }
 }
