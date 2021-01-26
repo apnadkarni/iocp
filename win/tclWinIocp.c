@@ -1165,7 +1165,7 @@ IocpChannelInput (
      * Unless channel is marked as write-only (via shutdown) pass up data
      * irrespective of state. TBD - is this needed or does channel ensure this?
      */
-    if (chanPtr->flags & IOCP_CHAN_F_WRITEONLY) {
+    if ((chanPtr->flags & IOCP_CHAN_F_NO_READ)) {
         IOCP_TRACE(("IocpChannelInput returning (WRITEONLY channel): chanPtr=%p, state=0x%x\n", chanPtr, chanPtr->state));
         goto vamoose; /* bytesRead is already 0 indicating EOF */
     }
@@ -1609,15 +1609,15 @@ IocpChannelFileEventMask(
     int readyMask = 0;
     IOCP_TRACE(("IocpChannelFileEventMask Enter: chanPtr=%p chanPtr->flags=0x%x inputBuffers.headPtr=%p pendingWrites=%d maxPendingWrites=%d.\n", lockedChanPtr, lockedChanPtr->flags, lockedChanPtr->inputBuffers.headPtr, lockedChanPtr->pendingWrites, lockedChanPtr->maxPendingWrites));
     if ((lockedChanPtr->flags & IOCP_CHAN_F_WATCH_INPUT) &&
-        !(lockedChanPtr->flags & IOCP_CHAN_F_WRITEONLY) &&
+        !(lockedChanPtr->flags & IOCP_CHAN_F_NO_READ) &&
         ((lockedChanPtr->flags & IOCP_CHAN_F_REMOTE_EOF) ||
          lockedChanPtr->inputBuffers.headPtr)) {
         readyMask |= TCL_READABLE;
     }
     if ((lockedChanPtr->flags & IOCP_CHAN_F_WATCH_OUTPUT) &&        /* 1 */
-        !(lockedChanPtr->flags & IOCP_CHAN_F_READONLY) &&           /* 2 */
+        !(lockedChanPtr->flags & IOCP_CHAN_F_NO_WRITE) &&           /* 2 */
         ((lockedChanPtr->flags & IOCP_CHAN_F_REMOTE_EOF) ||         /* 3a */
-         ((lockedChanPtr->flags & IOCP_CHAN_F_NOTIFY_WRITES) &&        /* 3b */
+         ((lockedChanPtr->flags & IOCP_CHAN_F_NOTIFY_WRITES) &&     /* 3b */
           lockedChanPtr->pendingWrites < lockedChanPtr->maxPendingWrites))) {
         readyMask |= TCL_WRITABLE;
     }
@@ -1708,9 +1708,9 @@ IocpChannelClose2 (
     ret = (chanPtr->vtblPtr->shutdown)(interp, chanPtr, flags);
 
     if (flags & TCL_CLOSE_READ)
-        chanPtr->flags |= IOCP_CHAN_F_WRITEONLY;
+        chanPtr->flags |= IOCP_CHAN_F_NO_READ;
     if (flags & TCL_CLOSE_WRITE)
-        chanPtr->flags |= IOCP_CHAN_F_READONLY;
+        chanPtr->flags |= IOCP_CHAN_F_NO_WRITE;
 
     IocpChannelDrop(chanPtr);   /* Release the reference held by this function */
 

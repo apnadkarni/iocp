@@ -294,10 +294,8 @@ IocpCompletionThread (LPVOID lpParam)
             switch (bufPtr->operation) {
             case IOCP_BUFFER_OP_READ:
                 IocpCompleteRead(chanPtr, bufPtr);
-                chanPtr->flags |= IOCP_CHAN_F_HRECV;
                 break;
             case IOCP_BUFFER_OP_WRITE:
-                chanPtr->flags |= IOCP_CHAN_F_HSENT;
                 IocpCompleteWrite(chanPtr, bufPtr);
                 break;
             case IOCP_BUFFER_OP_CONNECT:
@@ -311,19 +309,9 @@ IocpCompletionThread (LPVOID lpParam)
                 break;
             }
 
-            if (chanPtr->flags & IOCP_CHAN_F_DISCONNECT) {
-                int how = 0;
-                if (chanPtr->flags & IOCP_CHAN_F_WRITEONLY) {
-                    how |= TCL_CLOSE_WRITE;
-                }
-                if (chanPtr->flags & IOCP_CHAN_F_READONLY) {
-                    how |= TCL_CLOSE_READ;
-                }
-                if (how) {
-                    WinsockClientGracefulDisconnect(chanPtr, how);
-                } else {
-                    chanPtr->flags = IOCP_CHAN_F_REMOTE_EOF;
-                }
+            if (chanPtr->flags & (IOCP_CHAN_F_SEND_DISCONNECT|IOCP_CHAN_F_RECV_DISCONNECT)) {
+                /* Complete disconnect for closed side */
+                WinsockClientGracefulDisconnect(chanPtr, 0);
             }
         }
 #ifdef _MSC_VER
