@@ -130,7 +130,7 @@ WinsockClientGracefulDisconnect(
     ) {
         chanPtr->flags |= IOCP_CHAN_F_NO_READ;
         if (!chanPtr->pendingReads || !(chanPtr->flags & IOCP_CHAN_F_HRECV)) {
-            WSARecvDisconnect(s, NULL); /* shutdown(s, SD_RECEIVE); */
+            ret = WSARecvDisconnect(s, NULL); /* shutdown(s, SD_RECEIVE); */
             chanPtr->flags &= ~IOCP_CHAN_F_RECV_DISCONNECT;
         } else {
             chanPtr->flags |= IOCP_CHAN_F_RECV_DISCONNECT;
@@ -141,7 +141,7 @@ WinsockClientGracefulDisconnect(
     ) {
         chanPtr->flags |= IOCP_CHAN_F_NO_WRITE;
         if (!chanPtr->pendingWrites || !(chanPtr->flags & IOCP_CHAN_F_HSENT)) {
-            WSASendDisconnect(s, NULL); /* shutdown(s, SD_SEND) */
+            ret = WSASendDisconnect(s, NULL); /* shutdown(s, SD_SEND) */
             chanPtr->flags &= ~IOCP_CHAN_F_SEND_DISCONNECT;
         } else {
             chanPtr->flags |= IOCP_CHAN_F_SEND_DISCONNECT;
@@ -150,7 +150,7 @@ WinsockClientGracefulDisconnect(
 
     /* If pending operations available, finalize disconnect later. */
     if (chanPtr->pendingReads || chanPtr->pendingWrites) {
-        return 0;
+        return ret;
     }
 
     /* If both sides are closed (and no completion pending) */
