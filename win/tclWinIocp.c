@@ -2074,7 +2074,7 @@ Iocp_Init (Tcl_Interp *interp)
 
     if (Tcp_ModuleInitialize(interp) != TCL_OK)
         return TCL_ERROR;
-#if IOCP_ENABLE_BLUETOOTH
+#ifdef IOCP_ENABLE_BLUETOOTH
     if (BT_ModuleInitialize(interp) != TCL_OK)
         return TCL_ERROR;
 #endif

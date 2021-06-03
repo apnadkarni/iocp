@@ -2,7 +2,7 @@
  * IOCP Bluetooth module
  */
 
-#if IOCP_ENABLE_BLUETOOTH
+#ifdef IOCP_ENABLE_BLUETOOTH
 
 #include "tclWinIocp.h"
 #include "tclWinIocpWinsock.h"
