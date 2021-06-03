@@ -2,6 +2,8 @@
  * IOCP Bluetooth module
  */
 
+#if IOCP_ENABLE_BLUETOOTH
+
 #include "tclWinIocp.h"
 #include "tclWinIocpWinsock.h"
 
@@ -1734,3 +1736,4 @@ BT_ModuleInitialize(Tcl_Interp *interp)
     return TCL_OK;
 }
 
+#endif

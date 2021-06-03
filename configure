@@ -741,6 +741,7 @@ enable_64bit_vis
 enable_rpath
 enable_wince
 with_celib
+enable_bluetooth
 enable_symbols
 '
       ac_precious_vars='build_alias
@@ -1367,6 +1368,7 @@ Optional Features:
   --enable-64bit-vis      enable 64bit Sparc VIS support (default: off)
   --disable-rpath         disable rpath support (default: on)
   --enable-wince          enable Win/CE support (where applicable)
+  --enable-bluetooth      enable of bluetooth support (default: off)
   --enable-symbols        build with debugging symbols (default: off)
 
 Optional Packages:
@@ -8384,6 +8386,25 @@ $as_echo "no" >&6; }
     fi
 
 
+
+#--------------------------------------------------------------------
+# Check whether --enable-bluetooth was given.
+#--------------------------------------------------------------------
+
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking enable of bluetooth support" >&5
+$as_echo_n "checking enable of bluetooth support... " >&6; }
+# Check whether --enable-bluetooth was given.
+if test "${enable_bluetooth+set}" = set; then :
+  enableval=$enable_bluetooth; tcl_ok=$enableval
+else
+  tcl_ok=no
+fi
+
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: \"$tcl_ok\"" >&5
+$as_echo "\"$tcl_ok\"" >&6; }
+if test "$tcl_ok" = "yes"; then
+    CFLAGS="${CFLAGS} -DIOCP_ENABLE_BLUETOOTH"
+fi
 
 # Set the architecture specific subdirectory. This extension is Windows only so
 # hard code the values which correspond to the values returned by Tcl's

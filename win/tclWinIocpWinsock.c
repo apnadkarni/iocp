@@ -575,6 +575,7 @@ WinsockListifyAddress(
         return ERROR_SUCCESS;
     }
 
+#if IOCP_ENABLE_BLUETOOTH
     if (addrPtr->sa.sa_family == AF_BTH) {
         char buf[40];
         /*
@@ -590,6 +591,7 @@ WinsockListifyAddress(
         Tcl_DStringAppendElement(dsPtr, buf);
         return ERROR_SUCCESS;
     }
+#endif
 
     return WSAEAFNOSUPPORT;
 
