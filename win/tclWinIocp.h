@@ -190,7 +190,7 @@ enum IocpBufferOp {
  *
  * As such, the IocpBuffer may be referenced from one of the following
  * contexts:
- *   * the Tcl thread via the IocpChannel structure, 
+ *   * the Tcl thread via the IocpChannel structure,
  *   * the Windows kernel within the overlapped I/O execution, and
  *   * the completion thread after the I/O completes
  *
@@ -600,7 +600,7 @@ extern struct IocpTcl85IntPlatStubs *tclIntPlatStubsPtr;
  * Prototypes for IOCP internal functions.
  */
 IocpTclCode Iocp_DoOnce(Iocp_DoOnceState *stateP, Iocp_DoOnceProc *once_fn, ClientData clientdata);
-
+void BT_InitAPI();
 
 /* List utilities */
 void IocpListAppend(IocpList *listPtr, IocpLink *linkPtr);
