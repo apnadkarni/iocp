@@ -11,7 +11,7 @@
 # See TIP 477 (https://core.tcl.tk/tips/doc/trunk/tip/477.md) for
 # detailed documentation.
 #
-# To do a tracing build include iocptrace in the OPTS= command line option.
+# To do a debug tracing build include iocpdebug in the OPTS= command line option.
 #
 # See the file "license.terms" for information on usage and redistribution
 # of this file, and for a DISCLAIMER OF ALL WARRANTIES.
@@ -41,9 +41,9 @@ PRJ_OBJS = $(PRJ_OBJS) $(TMP_DIR)\tclWinIocpTrace.obj
 PRJ_DEFINES = $(PRJ_DEFINES) /DIOCP_ENABLE_TRACE
 !endif
 
-!if [nmakehlp -f $(OPTS) "iocpassert"]
+!if [nmakehlp -f $(OPTS) "iocpdebug"]
 !message *** Enabling asserts
-PRJ_DEFINES = $(PRJ_DEFINES) /DIOCP_ENABLE_ASSERT
+PRJ_DEFINES = $(PRJ_DEFINES) /DIOCP_ENABLE_ASSERT /DIOCP_DEBUG
 !endif
 
 PRJ_LIBS  = ws2_32.lib Bthprops.lib rpcrt4.lib
