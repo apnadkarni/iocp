@@ -6,7 +6,7 @@
 #include "tclWinIocpWinsock.h"
 
 /*
- * Options supported by TCP sockets. Note the order MUST match 
+ * Options supported by TCP sockets. Note the order MUST match
  * the IocpWinsockOptions enum definition.
  */
 const char *iocpWinsockOptionNames[] = {
@@ -719,13 +719,18 @@ WinsockClientGetOption(
             return TCL_ERROR;
         }
         else {
-	    int optlen = sizeof(BOOL);
-	    BOOL optval = FALSE;
-	    getsockopt(lockedWsPtr->so, SOL_SOCKET,
-	    	opt == IOCP_WINSOCK_OPT_KEEPALIVE ? SO_KEEPALIVE : TCP_NODELAY,
-	    	(char *)&optval, &optlen);
+            int optlen  = sizeof(BOOL);
+            BOOL optval = FALSE;
+            getsockopt(lockedWsPtr->so,
+                       SOL_SOCKET,
+                       opt == IOCP_WINSOCK_OPT_KEEPALIVE ? SO_KEEPALIVE
+                                                         : TCP_NODELAY,
+                       (char *)&optval,
+                       &optlen);
+            if (opt == IOCP_WINSOCK_OPT_NAGLE)
+                optval = !optval;
             Tcl_DStringAppend(dsPtr, optval ? "1" : "0", 1);
-	}
+        }
         return TCL_OK;
     default:
         if (interp) {
@@ -823,17 +828,31 @@ IocpTclCode WinsockClientSetOption(
                                     iocpWinsockOptionNames[opt],
                                     "-maxpendingreads -maxpendingwrites"
                                     "-sorcvbuf -sosndbuf");
-    case IOCP_WINSOCK_OPT_KEEPALIVE:
     case IOCP_WINSOCK_OPT_NAGLE:
+    case IOCP_WINSOCK_OPT_KEEPALIVE:
         if (Tcl_GetBoolean(interp, valuePtr, &intValue) != TCL_OK) {
             Tcl_SetErrno(EINVAL);
             return TCL_ERROR;
         }
-        bVal = intValue ? TRUE : FALSE;
-        if (setsockopt(lockedWsPtr->so, SOL_SOCKET,
-                       opt == IOCP_WINSOCK_OPT_KEEPALIVE ? SO_KEEPALIVE : TCP_NODELAY,
-                       (const char *) &bVal, sizeof(BOOL)) != 0
-            ) {
+        if (opt == IOCP_WINSOCK_OPT_KEEPALIVE) {
+            bVal     = intValue ? TRUE : FALSE;
+            intValue = setsockopt(lockedWsPtr->so,
+                                  SOL_SOCKET,
+                                  SO_KEEPALIVE,
+                                  (const char *)&bVal,
+                                  sizeof(BOOL));
+        }
+        else {
+            /* Note truth value reversed NAGLE -> NODELAY */
+            bVal     = intValue ? FALSE : TRUE;
+            intValue = setsockopt(lockedWsPtr->so,
+                                  SOL_SOCKET,
+                                  TCP_NODELAY,
+                                  (const char *)&bVal,
+                                  sizeof(BOOL));
+
+        }
+        if (intValue != 0) {
             /* Note retrieve Win32 error before any other call */
             Iocp_ReportLastWindowsError(interp, "setsockopt failed: ");
             Tcl_SetErrno(EINVAL);
