@@ -143,10 +143,10 @@ IOCP_INLINE void IocpListInit(IocpList *listPtr) {
  * as the IOCP worker threads. Should not be written to after initialization.
  */
 typedef struct {
+    int    initialized;       /* Whether initialized */
     HANDLE completion_port;   /* The completion port around which life revolves */
     HANDLE completion_thread; /* Handle of thread servicing completions */
     DWORD  tlsIndex;          /* TLS index for thread data */
-    int    initialized;       /* Whether initialized */
 } IocpModuleState;
 extern IocpModuleState iocpModuleState;
 
@@ -599,8 +599,8 @@ extern struct IocpTcl85IntPlatStubs *tclIntPlatStubsPtr;
 /*
  * Prototypes for IOCP internal functions.
  */
-IocpTclCode Iocp_DoOnce(Iocp_DoOnceState *stateP, Iocp_DoOnceProc *once_fn, ClientData clientdata);
-void BT_InitAPI();
+int BT_APIInitialize();
+void BT_APIFinalize();
 
 /* List utilities */
 void IocpListAppend(IocpList *listPtr, IocpLink *linkPtr);

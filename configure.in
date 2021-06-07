@@ -160,11 +160,15 @@ TEA_CONFIG_CFLAGS
 AC_MSG_CHECKING([enable of bluetooth support])
 AC_ARG_ENABLE(bluetooth,
     AC_HELP_STRING([--enable-bluetooth],
-  [enable of bluetooth support (default: off)]),
-    [tcl_ok=$enableval], [tcl_ok=no])
+  [enable of bluetooth support (default: yes)]),
+    [tcl_ok=$enableval], [tcl_ok=yes])
 AC_MSG_RESULT("$tcl_ok")
-if test "$tcl_ok" = "yes"; then
-    CFLAGS="${CFLAGS} -DIOCP_ENABLE_BLUETOOTH"
+if test "$tcl_ok" = "no"; then
+    CFLAGS="${CFLAGS} -DIOCP_ENABLE_BLUETOOTH=0"
+elif test "$tcl_ok" = "lazy"; then
+    CFLAGS="${CFLAGS} -DIOCP_ENABLE_BLUETOOTH=2"
+elif test "$tcl_ok" != "yes"; then
+    AC_MSG_WARN([unsupporte value $tcl_ok for enable-bluetooth, expected yes, no or lazy])
 fi
 
 # Set the architecture specific subdirectory. This extension is Windows only so

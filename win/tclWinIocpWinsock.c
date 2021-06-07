@@ -575,7 +575,7 @@ WinsockListifyAddress(
         return ERROR_SUCCESS;
     }
 
-#ifdef IOCP_ENABLE_BLUETOOTH
+#if !defined(IOCP_ENABLE_BLUETOOTH) || IOCP_ENABLE_BLUETOOTH != 0
     if (addrPtr->sa.sa_family == AF_BTH) {
         char buf[40];
         /*

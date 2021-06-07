@@ -2,7 +2,7 @@
  * IOCP Bluetooth module
  */
 
-#ifdef IOCP_ENABLE_BLUETOOTH
+#if !defined(IOCP_ENABLE_BLUETOOTH) || IOCP_ENABLE_BLUETOOTH != 0
 
 #include "tclWinIocp.h"
 #include "tclWinIocpWinsock.h"
@@ -81,16 +81,18 @@ static Tcl_Obj *ObjFromBLUETOOTH_DEVICE_INFO (const BLUETOOTH_DEVICE_INFO *infoP
  * out if not available. Is expected to be called exactly once per process
  * and caller is responsible for thread synchronization.
  */
-void BT_InitAPI()
+static HMODULE btDllH = NULL;
+int BT_APIInitialize()
 {
-    static HMODULE btDllH;
-
+    if (btDllH) {
+        return TCL_OK;
+    }
     /* gBtAPI statically 0's so no need to init here */
 
     /* Note since called exactly once, no need to check for already init'ed */
     btDllH = LoadLibraryA("Bthprops.cpl");
     if (btDllH == NULL)
-        return;
+        return TCL_ERROR;
 
 #define INITPROC(x) \
 	gBtAPI.p ## x = (x ## Proc *)(void *)GetProcAddress(btDllH, #x)
@@ -110,6 +112,15 @@ void BT_InitAPI()
     INITPROC(BluetoothEnableIncomingConnections);
     INITPROC(BluetoothIsConnectable);
 #undef INITPROC
+    return TCL_OK;
+}
+
+void BT_APIFinalize()
+{
+    if (btDllH) {
+        FreeLibrary(btDllH);
+        btDllH = NULL;
+    }
 }
 
 static IocpTclCode

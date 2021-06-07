@@ -15,7 +15,9 @@
  */
 
 /* Holds global IOCP state */
-IocpModuleState iocpModuleState;
+IocpModuleState iocpModuleState = {0,};
+
+TCL_DECLARE_MUTEX(packageMutex)
 
 /* Structure used for channel ready queue entries */
 typedef struct IocpReadyQEntry {
@@ -942,8 +944,7 @@ IocpRequestEventPoll(
  *
  * Returns TCL_OK on success, TCL_ERROR on error.
  */
-Iocp_DoOnceState iocpProcessCleanupFlag;
-static IocpTclCode IocpProcessCleanup(ClientData clientdata)
+static void IocpProcessCleanup(ClientData unused)
 {
     if (iocpModuleState.initialized) {
         /* Tell completion port thread to exit and wait for it */
@@ -963,7 +964,10 @@ static IocpTclCode IocpProcessCleanup(ClientData clientdata)
 
         WSACleanup();
     }
-    return TCL_OK;
+
+#if !defined(IOCP_ENABLE_BLUETOOTH) || IOCP_ENABLE_BLUETOOTH != 0
+    BT_APIFinalize();
+#endif
 }
 
 static void
@@ -979,12 +983,6 @@ IocpThreadExitHandler(ClientData unused)
     }
 }
 
-static void
-IocpProcessExitHandler(ClientData unused)
-{
-    (void) Iocp_DoOnce(&iocpProcessCleanupFlag, IocpProcessCleanup, NULL);
-}
-
 /*
  * Initialization function to be called exactly once *per process*.
  * Caller responsible to ensure it's called only once in a thread-safe manner.
@@ -992,18 +990,26 @@ IocpProcessExitHandler(ClientData unused)
  *
  * Returns TCL_OK on success, TCL_ERROR on error.
  */
-Iocp_DoOnceState iocpProcessInitFlag;
 static IocpTclCode IocpProcessInit(ClientData clientdata)
 {
     WSADATA wsa_data;
     Tcl_Interp *interp = (Tcl_Interp *)clientdata;
 
+    if (iocpModuleState.initialized) {
+        return iocpModuleState.initialized == 1 ? TCL_OK : TCL_ERROR;
+    }
+
 #define WSA_VERSION_REQUESTED    MAKEWORD(2,2)
+
+    if (WSAStartup(WSA_VERSION_REQUESTED, &wsa_data) != 0) {
+        Tcl_SetResult(interp, "Could not load winsock.", TCL_STATIC);
+        goto error;
+    }
 
     iocpModuleState.tlsIndex = TlsAlloc();
     if (iocpModuleState.tlsIndex == TLS_OUT_OF_INDEXES) {
         Tcl_SetResult(interp, "Could not allocate TLS index.", TCL_STATIC);
-        return TCL_ERROR;
+        goto error;
     }
 
     iocpModuleState.completion_port =
@@ -1011,37 +1017,39 @@ static IocpTclCode IocpProcessInit(ClientData clientdata)
             INVALID_HANDLE_VALUE, NULL, (ULONG_PTR)NULL, 0);
     if (iocpModuleState.completion_port == NULL) {
         Iocp_ReportLastWindowsError(interp, "couldn't create completion port: ");
-        return TCL_ERROR;
+        goto error;
     }
-    if (WSAStartup(WSA_VERSION_REQUESTED, &wsa_data) != 0) {
-        CloseHandle(iocpModuleState.completion_port);
-        iocpModuleState.completion_port = NULL;
-        Tcl_SetResult(interp, "Could not load winsock.", TCL_STATIC);
-        return TCL_ERROR;
-    }
-
-#ifdef IOCP_ENABLE_BLUETOOTH
-    BT_InitAPI();
-#endif
 
     iocpModuleState.completion_thread =
         CreateThread(NULL, 0, IocpCompletionThread, iocpModuleState.completion_port, 0, NULL);
     if (iocpModuleState.completion_thread == NULL) {
         Iocp_ReportLastWindowsError(interp, "couldn't create completion thread: ");
-        CloseHandle(iocpModuleState.completion_port);
-        iocpModuleState.completion_port = NULL;
-        WSACleanup();
-        return TCL_ERROR;
+        goto error;
     }
-    iocpModuleState.initialized = 1;
 
 #ifdef IOCP_ENABLE_TRACE
     IocpTraceInit();
 #endif
 
-    Tcl_CreateExitHandler(IocpProcessExitHandler, NULL);
+#if !defined(IOCP_ENABLE_BLUETOOTH) || IOCP_ENABLE_BLUETOOTH == 1
+    (void)BT_APIInitialize();
+#endif
+
+    Tcl_CreateExitHandler(IocpProcessCleanup, NULL);
+
+    iocpModuleState.initialized = 1;
 
     return TCL_OK;
+
+error:
+    
+    if (iocpModuleState.completion_port) {
+        CloseHandle(iocpModuleState.completion_port);
+        iocpModuleState.completion_port = NULL;
+    }
+    WSACleanup();
+    iocpModuleState.initialized = -1;
+    return TCL_ERROR;
 }
 
 /*
@@ -2058,6 +2066,42 @@ Iocp_StatsObjCmd (
     return TCL_OK;
 }
 
+#if IOCP_ENABLE_BLUETOOTH == 2 /* bluetooth ondemand */
+IocpTclCode
+Iocpbt_InitOnDemand_Done(ClientData  unused,/* Not used. */
+                Tcl_Interp *interp,    /* Current interpreter. */
+                int         objc,      /* Number of arguments. */
+                Tcl_Obj *CONST objv[]) /* Argument objects. */
+
+{
+    return TCL_OK;
+}
+
+IocpTclCode
+Iocpbt_InitOnDemand(ClientData  unused,/* Not used. */
+                Tcl_Interp *interp,    /* Current interpreter. */
+                int         objc,      /* Number of arguments. */
+                Tcl_Obj *CONST objv[]) /* Argument objects. */
+
+{
+    Tcl_MutexLock(&packageMutex);
+    if (BT_APIInitialize() != TCL_OK) {
+        Tcl_MutexUnlock(&packageMutex);
+        Iocp_ReportWindowsError(interp, GetLastError(), "Initialization error: ");
+        return TCL_ERROR;
+    }
+    Tcl_MutexUnlock(&packageMutex);
+
+    if (BT_ModuleInitialize(interp) != TCL_OK)
+        return TCL_ERROR;
+
+    /* Tcl_DeleteCommand(interp, "iocp::bt"); */
+    Tcl_CreateObjCommand(
+        interp, "iocp::bt", Iocpbt_InitOnDemand_Done, NULL, NULL);
+    return TCL_OK;
+}
+#endif
+
 int
 Iocp_Init (Tcl_Interp *interp)
 {
@@ -2067,20 +2111,26 @@ Iocp_Init (Tcl_Interp *interp)
     }
 #endif
 
-    if (Iocp_DoOnce(&iocpProcessInitFlag, IocpProcessInit, interp) != TCL_OK) {
+    Tcl_MutexLock(&packageMutex);
+    if (IocpProcessInit(interp) != TCL_OK) {
+        Tcl_MutexUnlock(&packageMutex);
         if (Tcl_GetCharLength(Tcl_GetObjResult(interp)) == 0) {
             Tcl_SetResult(interp, "Unable to do one-time initialization for " PACKAGE_NAME ".", TCL_STATIC);
         }
         return TCL_ERROR;
     }
+    Tcl_MutexUnlock(&packageMutex);
 
     IocpThreadInit();
 
     if (Tcp_ModuleInitialize(interp) != TCL_OK)
         return TCL_ERROR;
-#ifdef IOCP_ENABLE_BLUETOOTH
+#if !defined(IOCP_ENABLE_BLUETOOTH) || IOCP_ENABLE_BLUETOOTH == 1
     if (BT_ModuleInitialize(interp) != TCL_OK)
         return TCL_ERROR;
+#elif IOCP_ENABLE_BLUETOOTH == 2 /* bluetooth ondemand loader */
+    Tcl_CreateObjCommand(
+        interp, "iocp::bt", Iocpbt_InitOnDemand, NULL, NULL);
 #endif
 
     Tcl_CreateObjCommand(interp, "iocp::stats", Iocp_StatsObjCmd, 0L, 0L);
