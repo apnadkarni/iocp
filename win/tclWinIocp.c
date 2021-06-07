@@ -1020,7 +1020,9 @@ static IocpTclCode IocpProcessInit(ClientData clientdata)
         return TCL_ERROR;
     }
 
+#ifdef IOCP_ENABLE_BLUETOOTH
     BT_InitAPI();
+#endif
 
     iocpModuleState.completion_thread =
         CreateThread(NULL, 0, IocpCompletionThread, iocpModuleState.completion_port, 0, NULL);
