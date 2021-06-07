@@ -114,7 +114,7 @@ static IocpTclCode
 BT_ReportGetProcError(Tcl_Interp *interp)
 {
     return Iocp_ReportWindowsError(
-        interp, ERROR_PROC_NOT_FOUND, "Bluetooth API function not available.");
+        interp, ERROR_PROC_NOT_FOUND, "Bluetooth API function not available. ");
 }
 
 static IocpTclCode
@@ -381,8 +381,13 @@ BT_FindFirstDeviceObjCmd(
     info.dwSize = sizeof(info);
     findHandle = gBtAPI.pBluetoothFindFirstDevice(&params, &info);
     /* TBD - what is returned if there are no bluetooth devices */
-    if (findHandle == NULL)
-        return Iocp_ReportLastWindowsError(interp, "Bluetooth device search failed: ");
+    if (findHandle == NULL) {
+        if (GetLastError() == ERROR_NO_MORE_ITEMS)
+            return TCL_OK;/* Empty list */
+        else
+            return Iocp_ReportLastWindowsError(
+                interp, "Bluetooth device search failed: ");
+    }
 
     tclResult = PointerRegister(interp, findHandle,
                                 "HBLUETOOTH_DEVICE_FIND", &objs[0]);
@@ -1569,7 +1574,7 @@ int BT_LookupServiceBeginObjCmd (
     flags = LUP_FLUSHCACHE;
     if (WSALookupServiceBeginW(&qs, flags, &lookupH) != 0)
         return Iocp_ReportWindowsError(
-            interp, WSAGetLastError(), "Bluetooth service search failed.");
+            interp, WSAGetLastError(), "Bluetooth service search failed. ");
     if (PointerRegister(interp, lookupH, "HWSALOOKUPSERVICE", &objP) != TCL_OK) {
         CloseHandle(lookupH);
         return TCL_ERROR;

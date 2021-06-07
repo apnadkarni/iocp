@@ -15,7 +15,7 @@ namespace eval iocp::bt {
     }
     namespace eval device {
         namespace path [namespace parent]
-        namespace export address port print printn remove service_references services
+        namespace export address addresses port print printn remove service_references services
         namespace ensemble create
     }
 }
@@ -247,7 +247,7 @@ proc iocp::bt::devices {args} {
     set pair [FindFirstDevice {*}$args]
     if {[llength $pair] == 0} {
         # No devices found
-        return {} 
+        return {}
     }
     lassign $pair finder device
     set device [dict merge $device [DeviceClass [dict get $device Class]]]
@@ -264,12 +264,13 @@ proc iocp::bt::devices {args} {
     return $devices
 }
 
-proc iocp::bt::device::address {name args} {
+interp alias {} iocp::bt::device::address {} iocp::bt::device::addresses
+proc iocp::bt::device::addresses {name args} {
     # Returns a list of Bluetooth addresses for a given name.
     # name - name of device of interest
     # args - Options to control device enquiry. See [devices].
 
-    set addresses [lmap device [devices] {
+    set addresses [lmap device [devices {*}$args] {
         if {[string compare -nocase $name [dict get $device Name]]} {
             continue
         }
@@ -327,6 +328,8 @@ proc iocp::bt::device::remove {device} {
     # Removes cached authentication information for a device from the system cache.
     #  device - bluetooth address or name of a device. if specified as a name,
     #           it must resolve to a single address.
+    # The command will raise an error if $device is a name that cannot be
+    # resolved.
 
     RemoveDevice [ResolveDeviceUnique $device]
 }
@@ -418,8 +421,8 @@ proc iocp::bt::device::printn {dinfolist {detailed false}} {
     set sep ""
     foreach dinfo $dinfolist {
         if {$detailed} {
-            puts $sep
-            set sep "----------------------------------------------"
+            puts -nonewline $sep
+            set sep "----------------------------------------------\n"
             print $dinfo
         } else {
             dict with dinfo {
@@ -662,7 +665,7 @@ proc iocp::bt::ResolveDeviceUnique {device} {
     }
     set addrs [device address $device]
     if {[llength $addrs] == 0} {
-        error "Could not resolve Bluetooth device name \"$device.\""
+        error "Could not resolve Bluetooth device name \"$device\"."
     } elseif {[llength $addrs] > 1} {
         error "Device \"$device\" resolves to multiple addresses."
     }

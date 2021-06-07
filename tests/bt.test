@@ -1,0 +1,259 @@
+#
+# Copyright (c) 2020-2021, Ashok P. Nadkarni
+# All rights reserved.
+#
+# See the file LICENSE for license
+
+# This file contains tests for commands from the services.tcl
+package require tcltest 2
+
+tcltest::configure {*}$argv
+
+package require iocp_bt
+
+namespace eval iocp::test {
+
+    # Return non-0 if all elements match and at least one element
+    proc lregexpmatch {re result} {
+        if {[llength $result] == 0} {
+            return 0
+        }
+        foreach elem $result {
+            if {![regexp $re $result]} {
+                return 0
+            }
+        }
+        return 1
+    }
+    tcltest::customMatch lregexp [namespace current]::lregexpmatch
+
+    proc testbadopt {label cmd optphrase args} {
+        set message "bad option \"-badopt\": must be $optphrase"
+        test $label-badopt-0 "$label bad option" \
+            -body "$cmd -badopt" \
+            -result $message -returnCodes error \
+            {*}$args
+    }
+    proc testnumargs {label cmd {fixed {}} {optional {}} args} {
+        set minargs [llength $fixed]
+        set maxargs [expr {$minargs + [llength $optional]}]
+        if {[string match ...? [lindex $optional end]]} {
+            unset maxargs
+        }
+        set message "wrong # args: should be \"$cmd"
+        if {[llength $fixed]} {
+            append message " $fixed"
+        }
+        if {[llength $optional]} {
+            append message " $optional"
+        }
+        if {[llength $fixed] == 0 && [llength $optional] == 0} {
+            append message " \""
+        } else {
+            append message "\""
+        }
+        if {$minargs > 0} {
+            set arguments [lrepeat [expr {$minargs-1}] x]
+            test $label-minargs-0 "$label no arguments" \
+                -body "$cmd" \
+                -result $message -returnCodes error \
+                {*}$args
+            if {$minargs > 1} {
+                test $label-minargs-1 "$label missing arguments" \
+                    -body "$cmd $arguments" \
+                    -result $message -returnCodes error \
+                    {*}$args
+            }
+        }
+        if {[info exists maxargs]} {
+            set arguments [lrepeat [expr {$maxargs+1}] x]
+            test $label-maxargs-0 "$label extra arguments" \
+                -body "$cmd $arguments" \
+                -result $message -returnCodes error \
+                {*}$args
+        }
+    }
+
+    proc dnames {args} {
+        lmap dinfo [iocp::bt::devices {*}$args] {
+            dict get $dinfo Name
+        }
+    }
+
+    # Return a device name and address we can remove
+    proc find_victim {args} {
+        variable TARGET
+        foreach d [dnames -remembered] {
+            if {$d ne $TARGET} {
+                return $d
+            }
+        }
+        # Retry after inquiring
+        foreach d [dnames -remembered -inquire] {
+            if {$d ne $TARGET} {
+                return $d
+            }
+        }
+        error "Could not find a remembered device"
+    }
+    proc daddr {name} {
+        variable addr_cache
+        if {![info exists addr_cache($name)]} {
+            set addr_cache($name) [lindex [iocp::bt::device addresses $name] 0]
+        }
+        return $addr_cache($name)
+    }
+}
+
+namespace eval iocp::test {
+    namespace import ::tcltest::test
+
+    variable TARGET
+    if {[info exists ::env(IOCP_BT_TARGET)]} {
+        set TARGET $::env(IOCP_BT_TARGET)
+    } else {
+        set TARGET "APN"
+    }
+
+    puts "Testing with Bluetooth device = $TARGET"
+
+    test bt-version-0 "iocp_bt version" -body {
+        package require iocp_bt
+    } -result 1.1.0
+
+    testnumargs device "::iocp::bt::device" "subcommand" "?arg ...?"
+
+    ###
+    # device addresses
+
+    testbadopt device-addresses "::iocp::bt::device addresses $TARGET" "-authenticated, -remembered, -unknown, -connected, -inquire, -timeout, or -hradio"
+    testnumargs device-addresses "::iocp::bt::device addresses" "name" "?arg ...?"
+    set num -1
+    test device-addresses-[incr num] {Get device address} -body {
+        iocp::bt::device addresses $TARGET
+    } -result {^([[:xdigit:]]{2}:){5}[[:xdigit:]]{2}$} -match lregexp
+
+    foreach opt {-authenticated -inquire -remembered {-timeout 1000 -inquire}} {
+        test device-addresses-[incr num] "device addresses $opt" -body {
+            iocp::bt::device addresses $TARGET {*}$opt
+        } -result {^([[:xdigit:]]{2}:){5}[[:xdigit:]]{2}$} -match lregexp
+    }
+
+    # Options that may not have any matching devices
+    # For some reason -connected always returns empty. Not clear
+    # what connected means
+    foreach opt {-connected} {
+        test device-addresses-[incr num] "device addresses $opt" -body {
+            set result [iocp::bt::device addresses $TARGET {*}$opt]
+            expr {
+                  [llength $result] == 0 ||
+                  [lregexpmatch {^([[:xdigit:]]{2}:){5}[[:xdigit:]]{2}$} $result]
+              }
+        } -result 1
+    }
+
+    ###
+    # device address is alias for device addresses for backward compatibility
+    testnumargs device-address "::iocp::bt::device address" "name" "?arg ...?"
+    test device-address-0 {Get device address} -body {
+        iocp::bt::device address $TARGET
+    } -result {^([[:xdigit:]]{2}:){5}[[:xdigit:]]{2}$} -match regexp
+
+    ###
+    # device port
+    testnumargs device-port "::iocp::bt::device port" "device service_class"
+    test device-port-0 {get device service port} -body {
+        iocp::bt::device port $TARGET OBEXObjectPush
+    } -result {^\d+$} -match regexp
+    test device-port-1 {get device service port from address} -body {
+        iocp::bt::device port [daddr $TARGET] OBEXObjectPush
+    } -result {^\d+$} -match regexp
+
+    ###
+    # device print
+    testnumargs device-print "::iocp::bt::device print" "devinfo"
+    test device-print-0 {device print} -body {
+        iocp::bt::device print [lindex [iocp::bt::devices] 0]
+    } -output {^Device .*\nAddress: .*\nClass: .*\nDevice categories: .*\nAuthenticated: .*\nRemembered: (0|1)\nConnected: (0|1)\nLast seen: .*\nLast used: .*$} -match regexp
+
+    ###
+    # device printn
+    testnumargs device-printn "::iocp::bt::device printn" "dinfolist" "?detailed?"
+    test device-printn-0 {device printn} -body {
+        iocp::bt::device printn [iocp::bt::devices]
+    } -output {^(^([[:xdigit:]]{2}:){5}[[:xdigit:]]{2} .+\n)+\s*$} -match regexp
+    test device-printn-1 {device printn nodetail} -body {
+        iocp::bt::device printn [iocp::bt::devices] 0
+    } -output {^(^([[:xdigit:]]{2}:){5}[[:xdigit:]]{2} .+\n)+\s*$} -match regexp
+    test device-printn-2 {device printn detail} -body {
+        iocp::bt::device printn [iocp::bt::devices] 1
+    } -output {^(Device .*\nAddress: .*\nClass: .*\nDevice categories: .*\nAuthenticated: .*\nRemembered: (0|1)\nConnected: (0|1)\nLast seen: .*\nLast used: .*\n-*)+\s*$} -match regexp
+    test device-printn-error-0 {device printn error} -body {
+        iocp::bt::device printn [iocp::bt::devices] notanint
+    } -result {expected boolean value but got "notanint"} -returnCodes error
+
+    ###
+    # device remove
+    # Does not really seem to have any predictable effect
+    testnumargs device-remove "::iocp::bt::device remove" "device" ""
+    test device-remove-0 "device remove name" -setup {
+        set victim [find_victim -remembered]
+    } -body {
+        iocp::bt::device remove $victim
+        expr {$victim in [dnames -remembered]}
+    } -result 0
+    test device-remove-1 "device remove address" -setup {
+        set victim [find_victim -remembered]
+    } -body {
+        iocp::bt::device remove [daddr $TARGET]
+        expr {$victim in [dnames -remembered]}
+    } -result 0
+
+    ###
+    # device service_references
+    testnumargs device-service_references "::iocp::bt::device service_references" "device service" ""
+    test device-service_references-0 "device service_references name" -body {
+        expr {[llength [iocp::bt::device service_references $TARGET OBEXObjectPush]] > 0}
+    } -result 1
+    test device-service_references-1 "device service_references address" -body {
+        expr {[llength [iocp::bt::device service_references [daddr $TARGET] OBEXObjectPush]] > 0}
+    } -result 1
+    test device-service_references-2 "device service_references name uuid" -body {
+        expr {[llength [iocp::bt::device service_references $TARGET 00001105-0000-1000-8000-00805f9b34fb]] > 0}
+    } -result 1
+    test device-service_references-error-0 "device service_references bad name" -body {
+        iocp::bt::device service_references NOSUCHDEVICE OBEXObjectPush
+    } -result {Could not resolve Bluetooth device name "NOSUCHDEVICE".} -returnCodes error
+    test device-service_references-error-1 "device service_references bad address" -body {
+        iocp::bt::device service_references 11:11:11:11:11:11 OBEXObjectPush
+    } -result {Bluetooth service search failed. No such service is known. The service cannot be found in the specified name space. } -returnCodes error
+    test device-service_references-error-2 "device service_references bad service" -body {
+        iocp::bt::device service_references $TARGET NoSuchService
+    } -result {Name "NoSuchService" could not be mapped to a UUID} -returnCodes error
+
+    ###
+    # device services
+    # More rigorous testing in the sdr tests
+    testnumargs device-services "::iocp::bt::device services" "device" ""
+    test device-services-0 "device services name" -body {
+        expr {[llength [iocp::bt::device services $TARGET]] > 0}
+    } -result 1
+    test device-services-1 "device services addr" -body {
+        expr {[llength [iocp::bt::device services [daddr $TARGET]]] > 0}
+    } -result 1
+    test device-services-error-0 "device services bad name" -body {
+        iocp::bt::device services NOSUCHDEVICE
+    } -result {Could not resolve Bluetooth device name "NOSUCHDEVICE".} -returnCodes error
+    test device-services-error-1 "device services bad name" -body {
+        iocp::bt::device services 11:11:11:11:11:11 
+    } -result {Bluetooth service search failed. No such service is known. The service cannot be found in the specified name space. } -returnCodes error
+
+    #TBD - bad device names and address formats
+
+    ################################################################
+
+
+    ::tcltest::cleanupTests
+}
+
+namespace delete iocp::test
