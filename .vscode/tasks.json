@@ -6,7 +6,7 @@
         {
             "label": "debug",
             "type": "shell",
-            "command": "win\\build.bat INSTALLDIR=D:\\tcl\\debug\\x64 cdebug=\"-Zi -Od -DIOCP_DEBUG -DIOCP_ENABLE_TRACE -DIOCP_ENABLE_ASSERT\"",
+            "command": "win\\build.bat OPTS=iocptrace,iocpdebug,pdbs INSTALLDIR=D:\\tcl\\debug\\x64 cdebug=\"-Zi -Od\"",
             "problemMatcher": [
                 "$msCompile"
             ],
@@ -15,7 +15,7 @@
         {
             "label": "debug-install",
             "type": "shell",
-            "command": "win\\build.bat INSTALLDIR=D:\\tcl\\debug\\x64 cdebug=\"-Zi -Od -DIOCP_DEBUG -DIOCP_ENABLE_TRACE -DIOCP_ENABLE_ASSERT\" install",
+            "command": "win\\build.bat OPTS=iocptrace,iocpdebug,pdbs INSTALLDIR=D:\\tcl\\debug\\x64 cdebug=\"-Zi -Od\" install",
             "problemMatcher": [
                 "$msCompile"
             ],

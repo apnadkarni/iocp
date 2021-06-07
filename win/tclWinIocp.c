@@ -205,7 +205,7 @@ void IocpBufferFree(IocpBuffer *bufPtr)
  * IocpChannelNew --
  *
  *    Allocates and initializes a IocpChannel structure. The reference count of
- *    the structure is initialized to 1. 
+ *    the structure is initialized to 1.
  *
  * Results:
  *    Returns a pointer to the allocated IocpChannel or NULL on failure.
@@ -639,7 +639,7 @@ IocpEventSourceCheck(
                  */
                 IOCP_TRACE(("IocpEventSourceCheck (Thread %d): lockedChanPtr=%p queued to event queue.\n", Tcl_GetCurrentThread(), lockedChanPtr));
                 IocpChannelUnlock(lockedChanPtr);
-                Tcl_QueueEvent((Tcl_Event *) evPtr, TCL_QUEUE_TAIL); 
+                Tcl_QueueEvent((Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
             }
             else {
                 /* Channel not attached to this thread or already queued */
@@ -688,7 +688,7 @@ void IocpChannelNudgeThread(
          * Owning thread was not woken, either it was not blocked for the right
          * reason or was not blocked at all. Need to alert it via the ready q.
          */
-        if ((lockedChanPtr->flags & (IOCP_CHAN_F_WATCH_ACCEPT | 
+        if ((lockedChanPtr->flags & (IOCP_CHAN_F_WATCH_ACCEPT |
                                      IOCP_CHAN_F_WATCH_INPUT |
                                      IOCP_CHAN_F_WATCH_OUTPUT)) ||
             force) {
@@ -851,7 +851,7 @@ void IocpReadyQAdd(
 
     IOCP_TRACE(("IocpReadyQAdd Enter: lockedChanPtr=%p, force=%d, lockedChanPtr->state=0x%x, lockedChanPtr->flags=0x%x\n", lockedChanPtr, force, lockedChanPtr->state, lockedChanPtr->flags));
 
-    /* 
+    /*
      * If the channel is not attached to a thread, obviously there is no thread
      * to mark as ready. Just return in that case. Requisite actions will be
      * taken when the channel gets attached to a thread.
@@ -1020,6 +1020,8 @@ static IocpTclCode IocpProcessInit(ClientData clientdata)
         return TCL_ERROR;
     }
 
+    BT_InitAPI();
+
     iocpModuleState.completion_thread =
         CreateThread(NULL, 0, IocpCompletionThread, iocpModuleState.completion_port, 0, NULL);
     if (iocpModuleState.completion_thread == NULL) {
@@ -1085,7 +1087,7 @@ IocpChannelClose (
     IocpChannelLock(chanPtr);
 
     /* Call specific IOCP type to close OS handles */
-    ret = (chanPtr->vtblPtr->shutdown)(interp, chanPtr, 
+    ret = (chanPtr->vtblPtr->shutdown)(interp, chanPtr,
                                              TCL_CLOSE_READ|TCL_CLOSE_WRITE);
 
     /* Irrespective of errors in above call, we're done with this channel */
@@ -1805,7 +1807,7 @@ void IocpChannelThreadAction(
 
         /*
          * Mark as ready in case any I/O completion notifications pending.
-         * No harm if there aren't. 
+         * No harm if there aren't.
          */
         IocpReadyQAdd(chanPtr, 0);
         break;

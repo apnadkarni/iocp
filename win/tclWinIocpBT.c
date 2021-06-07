@@ -25,6 +25,40 @@ enum BT_COMMAND
     BT_STATUS_INCOMING,
 };
 
+/*
+ * Since not all systems have the DLL installed, we need to load at runtime.
+ * This structure holds the pointers.
+ */
+typedef HBLUETOOTH_RADIO_FIND (WINAPI BluetoothFindFirstRadioProc) (const BLUETOOTH_FIND_RADIO_PARAMS *pbtfrp, HANDLE *phRadio);
+typedef BOOL (WINAPI BluetoothFindNextRadioProc) (HBLUETOOTH_RADIO_FIND hFind, HANDLE *phRadio);
+typedef BOOL (WINAPI BluetoothFindRadioCloseProc)(HBLUETOOTH_RADIO_FIND hFind);
+typedef DWORD (WINAPI BluetoothGetRadioInfoProc) (HANDLE hRadio, PBLUETOOTH_RADIO_INFO pRadioInfo);
+typedef HBLUETOOTH_DEVICE_FIND (WINAPI BluetoothFindFirstDeviceProc) (const BLUETOOTH_DEVICE_SEARCH_PARAMS *pbtsp, BLUETOOTH_DEVICE_INFO *pbtdi);
+typedef BOOL (WINAPI BluetoothFindNextDeviceProc) (HBLUETOOTH_DEVICE_FIND hFind, BLUETOOTH_DEVICE_INFO *pbtdi);
+typedef BOOL (WINAPI BluetoothFindDeviceCloseProc)(HBLUETOOTH_DEVICE_FIND hFind);
+typedef DWORD (WINAPI BluetoothGetDeviceInfoProc) (HANDLE hRadio, BLUETOOTH_DEVICE_INFO *pbtdi);
+typedef DWORD (WINAPI BluetoothRemoveDeviceProc)(const BLUETOOTH_ADDRESS *pAddress);
+typedef DWORD (WINAPI BluetoothEnumerateInstalledServicesProc) (HANDLE hRadio, const BLUETOOTH_DEVICE_INFO *pbtdi, DWORD *pcServiceInout, GUID *pGuidServices);
+typedef BOOL (WINAPI BluetoothEnableDiscoveryProc)(HANDLE hRadio, BOOL fEnabled);
+typedef BOOL (WINAPI BluetoothIsDiscoverableProc)(HANDLE hRadio);
+typedef BOOL (WINAPI BluetoothEnableIncomingConnectionsProc)(HANDLE hRadio, BOOL fEnabled);
+typedef BOOL (WINAPI BluetoothIsConnectableProc)(HANDLE hRadio);
+static struct BT_API {
+    BluetoothFindFirstRadioProc *pBluetoothFindFirstRadio;
+    BluetoothFindNextRadioProc *pBluetoothFindNextRadio;
+    BluetoothFindRadioCloseProc *pBluetoothFindRadioClose;
+    BluetoothGetRadioInfoProc *pBluetoothGetRadioInfo;
+    BluetoothFindFirstDeviceProc *pBluetoothFindFirstDevice;
+    BluetoothFindNextDeviceProc *pBluetoothFindNextDevice;
+    BluetoothFindDeviceCloseProc *pBluetoothFindDeviceClose;
+    BluetoothGetDeviceInfoProc *pBluetoothGetDeviceInfo;
+    BluetoothRemoveDeviceProc *pBluetoothRemoveDevice;
+    BluetoothEnumerateInstalledServicesProc *pBluetoothEnumerateInstalledServices;
+    BluetoothEnableDiscoveryProc *pBluetoothEnableDiscovery;
+    BluetoothIsDiscoverableProc *pBluetoothIsDiscoverable;
+    BluetoothEnableIncomingConnectionsProc *pBluetoothEnableIncomingConnections;
+    BluetoothIsConnectableProc *pBluetoothIsConnectable;
+} gBtAPI;
 
 static Tcl_Obj *ObjFromSYSTEMTIME(const SYSTEMTIME *timeP);
 static Tcl_Obj *ObjFromBLUETOOTH_ADDRESS (const BLUETOOTH_ADDRESS *addrPtr);
@@ -35,6 +69,55 @@ static IocpTclCode ObjToBLUETOOTH_ADDRESS(
 static Tcl_Obj *ObjFromBLUETOOTH_RADIO_INFO (const BLUETOOTH_RADIO_INFO *infoPtr);
 static Tcl_Obj *ObjFromBLUETOOTH_DEVICE_INFO (const BLUETOOTH_DEVICE_INFO *infoPtr);
 
+/* Checks if API exists, and if not, returns from caller with TCL_ERROR */
+#define BTAPICHECK(interp_, fnname_)               \
+    do {                                           \
+        if (gBtAPI.p##fnname_ == NULL)             \
+            return BT_ReportGetProcError(interp_); \
+    } while (0)
+
+/*
+ * Initializes the dynamically loaded API for bluetooth. Does NOT error
+ * out if not available. Is expected to be called exactly once per process
+ * and caller is responsible for thread synchronization.
+ */
+void BT_InitAPI()
+{
+    static HMODULE btDllH;
+
+    /* gBtAPI statically 0's so no need to init here */
+
+    /* Note since called exactly once, no need to check for already init'ed */
+    btDllH = LoadLibraryA("Bthprops.cpl");
+    if (btDllH == NULL)
+        return;
+
+#define INITPROC(x) \
+	gBtAPI.p ## x = (x ## Proc *)(void *)GetProcAddress(btDllH, #x)
+
+    INITPROC(BluetoothFindFirstRadio);
+    INITPROC(BluetoothFindNextRadio);
+    INITPROC(BluetoothFindRadioClose);
+    INITPROC(BluetoothGetRadioInfo);
+    INITPROC(BluetoothFindFirstDevice);
+    INITPROC(BluetoothFindNextDevice);
+    INITPROC(BluetoothFindDeviceClose);
+    INITPROC(BluetoothGetDeviceInfo);
+    INITPROC(BluetoothRemoveDevice);
+    INITPROC(BluetoothEnumerateInstalledServices);
+    INITPROC(BluetoothEnableDiscovery);
+    INITPROC(BluetoothIsDiscoverable);
+    INITPROC(BluetoothEnableIncomingConnections);
+    INITPROC(BluetoothIsConnectable);
+#undef INITPROC
+}
+
+static IocpTclCode
+BT_ReportGetProcError(Tcl_Interp *interp)
+{
+    return Iocp_ReportWindowsError(
+        interp, ERROR_PROC_NOT_FOUND, "Bluetooth API function not available.");
+}
 
 static IocpTclCode
 BT_CloseHandleObjCmd (
@@ -61,28 +144,6 @@ BT_CloseHandleObjCmd (
     return TCL_OK;
 }
 
-/* Outputs a string using Windows OutputDebugString */
-static IocpTclCode
-BT_SelectObjCmd (
-    ClientData notUsed,			/* Not used. */
-    Tcl_Interp *interp,			/* Current interpreter. */
-    int objc,				/* Number of arguments. */
-    Tcl_Obj *CONST objv[])		/* Argument objects. */
-{
-    /* TBD */
-    BLUETOOTH_SELECT_DEVICE_PARAMS btparams;
-    memset(&btparams, 0, sizeof(btparams));
-    btparams.dwSize = sizeof(btparams);
-    if (BluetoothSelectDevices(&btparams)) {
-        BluetoothSelectDevicesFree(&btparams);
-        return TCL_OK;
-    }
-    else {
-        Iocp_ReportLastWindowsError(interp, "Could not select Bluetooth device: ");
-        return TCL_ERROR;
-    }
-}
-
 static IocpTclCode
 BT_FindFirstRadioObjCmd (
     ClientData notUsed,			/* Not used. */
@@ -99,8 +160,12 @@ BT_FindFirstRadioObjCmd (
         Tcl_WrongNumArgs(interp, 1, objv, "");
         return TCL_ERROR;
     }
+
+    BTAPICHECK(interp, BluetoothFindFirstRadio);
+    BTAPICHECK(interp, BluetoothFindRadioClose);
+
     btParams.dwSize = sizeof(btParams);
-    findHandle = BluetoothFindFirstRadio(&btParams, &radioHandle);
+    findHandle = gBtAPI.pBluetoothFindFirstRadio(&btParams, &radioHandle);
 
     if (findHandle == NULL) {
         IocpWinError winError = GetLastError();
@@ -124,7 +189,7 @@ BT_FindFirstRadioObjCmd (
     if (radioHandle)
         CloseHandle(radioHandle);
     if (findHandle)
-        BluetoothFindRadioClose(findHandle);
+        gBtAPI.pBluetoothFindRadioClose(findHandle);
     return TCL_ERROR;
 }
 
@@ -142,12 +207,15 @@ BT_FindFirstRadioCloseObjCmd (
         Tcl_WrongNumArgs(interp, 1, objv, "HBLUETOOTH_RADIO_FIND");
         return TCL_ERROR;
     }
+
+    BTAPICHECK(interp, BluetoothFindRadioClose);
+
     tclResult = PointerObjUnregister(interp, objv[1],
                                      &findHandle, "HBLUETOOTH_RADIO_FIND");
     if (tclResult != TCL_OK)
         return tclResult;
 
-    if (BluetoothFindRadioClose(findHandle) != TRUE)
+    if (gBtAPI.pBluetoothFindRadioClose(findHandle) != TRUE)
         return Iocp_ReportLastWindowsError(interp, "Could not close Bluetooth radio search handle: ");
 
     return TCL_OK;
@@ -169,11 +237,14 @@ BT_FindNextRadioObjCmd (
         Tcl_WrongNumArgs(interp, 1, objv, "HBLUETOOTH_RADIO_FIND");
         return TCL_ERROR;
     }
+
+    BTAPICHECK(interp, BluetoothFindNextRadio);
+
     tclResult = PointerObjVerify(interp, objv[1], &findHandle, "HBLUETOOTH_RADIO_FIND");
     if (tclResult != TCL_OK)
         return tclResult;
 
-    if (BluetoothFindNextRadio(findHandle, &radioHandle) != TRUE) {
+    if (gBtAPI.pBluetoothFindNextRadio(findHandle, &radioHandle) != TRUE) {
         DWORD winError = GetLastError();
         if (winError == ERROR_NO_MORE_ITEMS)
             return TCL_BREAK;
@@ -204,12 +275,15 @@ BT_GetRadioInfoObjCmd (
         Tcl_WrongNumArgs(interp, 1, objv, "HRADIO");
         return TCL_ERROR;
     }
+
+    BTAPICHECK(interp, BluetoothGetRadioInfo);
+
     tclResult = PointerObjVerify(interp, objv[1], &radioHandle, "HRADIO");
     if (tclResult != TCL_OK)
         return tclResult;
 
     info.dwSize = sizeof(info);
-    if (BluetoothGetRadioInfo(radioHandle,&info) != ERROR_SUCCESS)
+    if (gBtAPI.pBluetoothGetRadioInfo(radioHandle,&info) != ERROR_SUCCESS)
         return Iocp_ReportLastWindowsError(interp, "Could not get Bluetooth radio information: ");
 
     Tcl_SetObjResult(interp, ObjFromBLUETOOTH_RADIO_INFO(&info));
@@ -251,6 +325,8 @@ BT_FindFirstDeviceObjCmd(
     BLUETOOTH_DEVICE_INFO          info;
     HBLUETOOTH_DEVICE_FIND         findHandle;
     Tcl_Obj *objs[2];
+
+    BTAPICHECK(interp, BluetoothFindFirstDevice);
 
     memset(&params, 0, sizeof(params));
     params.dwSize = sizeof(params);
@@ -305,7 +381,7 @@ BT_FindFirstDeviceObjCmd(
     }
 
     info.dwSize = sizeof(info);
-    findHandle = BluetoothFindFirstDevice(&params, &info);
+    findHandle = gBtAPI.pBluetoothFindFirstDevice(&params, &info);
     /* TBD - what is returned if there are no bluetooth devices */
     if (findHandle == NULL)
         return Iocp_ReportLastWindowsError(interp, "Bluetooth device search failed: ");
@@ -329,13 +405,15 @@ BT_FindFirstDeviceCloseObjCmd (
     HBLUETOOTH_DEVICE_FIND findHandle;
     int tclResult;
 
+    BTAPICHECK(interp, BluetoothFindDeviceClose);
+
     if (objc != 2) {
         Tcl_WrongNumArgs(interp, 1, objv, "HBLUETOOTH_DEVICE_FIND");
         return TCL_ERROR;
     }
     tclResult = PointerObjUnregister(interp, objv[1], &findHandle, "HBLUETOOTH_DEVICE_FIND");
     if (tclResult == TCL_OK) {
-        if (BluetoothFindDeviceClose(findHandle) != TRUE)
+        if (gBtAPI.pBluetoothFindDeviceClose(findHandle) != TRUE)
             tclResult = Iocp_ReportLastWindowsError(interp, "Could not close Bluetooth device search handle: ");
     }
     return tclResult;
@@ -352,6 +430,8 @@ BT_FindNextDeviceObjCmd (
     BLUETOOTH_DEVICE_INFO info;
     int tclResult;
 
+    BTAPICHECK(interp, BluetoothFindNextDevice);
+
     if (objc != 2) {
         Tcl_WrongNumArgs(interp, 1, objv, "HBLUETOOTH_DEVICE_FIND");
         return TCL_ERROR;
@@ -361,7 +441,7 @@ BT_FindNextDeviceObjCmd (
         return tclResult;
 
     info.dwSize = sizeof(info);
-    if (BluetoothFindNextDevice(findHandle, &info) != TRUE) {
+    if (gBtAPI.pBluetoothFindNextDevice(findHandle, &info) != TRUE) {
         DWORD winError = GetLastError();
         if (winError == ERROR_NO_MORE_ITEMS)
             return TCL_BREAK;
@@ -388,6 +468,9 @@ BT_GetDeviceInfoObjCmd (
         Tcl_WrongNumArgs(interp, 1, objv, "HRADIO BTADDR");
         return TCL_ERROR;
     }
+
+    BTAPICHECK(interp, BluetoothGetDeviceInfo);
+
     tclResult = PointerObjVerify(interp, objv[1], &radioHandle, "HRADIO");
     if (tclResult != TCL_OK)
         return tclResult;
@@ -397,7 +480,7 @@ BT_GetDeviceInfoObjCmd (
         return tclResult;
 
     info.dwSize = sizeof(info);
-    if (BluetoothGetDeviceInfo(radioHandle,&info) != ERROR_SUCCESS)
+    if (gBtAPI.pBluetoothGetDeviceInfo(radioHandle,&info) != ERROR_SUCCESS)
         return Iocp_ReportLastWindowsError(interp, "Could not get Bluetooth radio information: ");
 
     Tcl_SetObjResult(interp, ObjFromBLUETOOTH_DEVICE_INFO(&info));
@@ -418,11 +501,12 @@ int BT_RemoveDeviceObjCmd (
         Tcl_WrongNumArgs(interp, 1, objv, "BTADDR");
         return TCL_ERROR;
     }
+    BTAPICHECK(interp, BluetoothRemoveDevice);
     tclResult = ObjToBLUETOOTH_ADDRESS(interp, objv[1], &btAddress);
     if (tclResult != TCL_OK)
         return tclResult;
 
-    winError = BluetoothRemoveDevice(&btAddress);
+    winError = gBtAPI.pBluetoothRemoveDevice(&btAddress);
     if (winError != ERROR_SUCCESS && winError != ERROR_NOT_FOUND) {
         return Iocp_ReportWindowsError(interp, winError, "Could not remove device: ");
     }
@@ -468,6 +552,10 @@ BT_EnumerateDevicesObjCmd(
     HBLUETOOTH_DEVICE_FIND         findHandle;
     Tcl_Obj *resultObj = NULL;
 
+    BTAPICHECK(interp, BluetoothFindFirstDevice);
+    BTAPICHECK(interp, BluetoothFindNextDevice);
+    BTAPICHECK(interp, BluetoothFindDeviceClose);
+
     memset(&params, 0, sizeof(params));
     params.dwSize = sizeof(params);
     for (i = 1; i < objc; ++i) {
@@ -510,7 +598,7 @@ BT_EnumerateDevicesObjCmd(
     }
 
     info.dwSize = sizeof(info);
-    findHandle = BluetoothFindFirstDevice(&params, &info);
+    findHandle = gBtAPI.pBluetoothFindFirstDevice(&params, &info);
     if (findHandle == NULL) {
         winError = GetLastError();
         if (winError == ERROR_NO_MORE_ITEMS) {
@@ -523,7 +611,7 @@ BT_EnumerateDevicesObjCmd(
     resultObj = Tcl_NewListObj(0, NULL);
     do {
         Tcl_ListObjAppendElement(interp, resultObj, ObjFromBLUETOOTH_DEVICE_INFO(&info));
-    } while (BluetoothFindNextDevice(findHandle, &info) == TRUE);
+    } while (gBtAPI.pBluetoothFindNextDevice(findHandle, &info) == TRUE);
 
     winError = GetLastError();
     if (winError != ERROR_NO_MORE_ITEMS) {
@@ -533,7 +621,7 @@ BT_EnumerateDevicesObjCmd(
         Tcl_SetObjResult(interp, resultObj);
         tclResult = TCL_OK;
     }
-    BluetoothFindDeviceClose(findHandle);
+    gBtAPI.pBluetoothFindDeviceClose(findHandle);
     return tclResult;
 }
 #endif /* NOTUSED */
@@ -556,6 +644,9 @@ BT_ConfigureRadioObjCmd (
         return TCL_ERROR;
     }
 
+    BTAPICHECK(interp, BluetoothEnableDiscovery);
+    BTAPICHECK(interp, BluetoothEnableIncomingConnections);
+
     tclResult = Tcl_GetBooleanFromObj(interp, objv[1], &enable);
     if (tclResult != TCL_OK)
         return tclResult;
@@ -568,9 +659,9 @@ BT_ConfigureRadioObjCmd (
     }
 
     if (command == BT_ENABLE_DISCOVERY) {
-        changed = BluetoothEnableDiscovery(radioHandle, enable);
+        changed = gBtAPI.pBluetoothEnableDiscovery(radioHandle, enable);
     } else if (command == BT_ENABLE_INCOMING) {
-        changed = BluetoothEnableIncomingConnections(radioHandle, enable);
+        changed = gBtAPI.pBluetoothEnableIncomingConnections(radioHandle, enable);
     } else {
         Tcl_Panic("Unexpected clientData parameter value %d", command);
         changed = 0;            /* NOTREACHED - Keep compiler happy */
@@ -597,6 +688,9 @@ BT_RadioStatusObjCmd (
         return TCL_ERROR;
     }
 
+    BTAPICHECK(interp, BluetoothIsDiscoverable);
+    BTAPICHECK(interp, BluetoothIsConnectable);
+
     radioHandle = NULL;
     if (objc > 1) {
         tclResult = PointerObjVerify(interp, objv[1], &radioHandle, "HRADIO");
@@ -605,9 +699,9 @@ BT_RadioStatusObjCmd (
     }
 
     if (command == BT_STATUS_DISCOVERY) {
-        status = BluetoothIsDiscoverable(radioHandle);
+        status = gBtAPI.pBluetoothIsDiscoverable(radioHandle);
     } else if (command == BT_STATUS_INCOMING) {
-        status = BluetoothIsConnectable(radioHandle);
+        status = gBtAPI.pBluetoothIsConnectable(radioHandle);
     } else {
         Tcl_Panic("Unexpected clientData parameter value %d", command);
         status = 0;            /* NOTREACHED - Keep compiler happy */
@@ -616,22 +710,6 @@ BT_RadioStatusObjCmd (
     return TCL_OK;
 
 }
-
-#ifdef OBSOLETE
-Tcl_Obj *WrapUuid(UUID *guid) {
-  char guid_string[37];
-  snprintf(
-      guid_string, sizeof(guid_string) / sizeof(guid_string[0]),
-      "%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x",
-      guid->Data1, guid->Data2, guid->Data3,
-      guid->Data4[0], guid->Data4[1], guid->Data4[2],
-      guid->Data4[3], guid->Data4[4], guid->Data4[5],
-      guid->Data4[6], guid->Data4[7]);
-  // remove when VC++7.1 is no longer supported
-  guid_string[sizeof(guid_string) / sizeof(guid_string[0]) - 1] = L'\0';
-  return Tcl_NewStringObj(guid_string, -1);
-}
-#endif
 
 int BT_EnumerateInstalledServicesObjCmd (
     ClientData notUsed,
@@ -652,6 +730,8 @@ int BT_EnumerateInstalledServicesObjCmd (
         return TCL_ERROR;
     }
 
+    BTAPICHECK(interp, BluetoothEnumerateInstalledServices);
+
     info.dwSize = sizeof(info);
     tclResult = ObjToBLUETOOTH_ADDRESS(interp, objv[1], &info.Address);
     if (tclResult != TCL_OK)
@@ -668,7 +748,7 @@ int BT_EnumerateInstalledServicesObjCmd (
     serviceP = services;
     count    = sizeof(services)/sizeof(services[0]);
     /* Loop while error is lack of buffer space */
-    while ((winError = BluetoothEnumerateInstalledServices(
+    while ((winError = gBtAPI.pBluetoothEnumerateInstalledServices(
                 radioH, &info, &count, serviceP)) == ERROR_MORE_DATA) {
         /* Free previous allocation if not the static space and allocate new */
         if (serviceP != services)
@@ -913,7 +993,7 @@ BT_FormatAddressObjCmd (
 }
 #endif
 
-/* 
+/*
  * Implementation of Bluetooth channels.
  */
 static IocpWinError BtClientBlockingConnect(IocpChannel *);
@@ -1111,7 +1191,7 @@ BtClientPostConnect(
  *
  *------------------------------------------------------------------------
  */
-static IocpWinError 
+static IocpWinError
 BtClientInitiateConnection(
     WinsockClient *btPtr)  /* Caller must ensure exclusivity either by locking
                             * or ensuring no other thread can access */
@@ -1237,7 +1317,7 @@ Iocp_OpenBTClient(
                                  (TCL_READABLE | TCL_WRITABLE));
     if (channel == NULL)
         goto fail;
-    
+
     /*
      * At this point IocpMakeTclChannel has incremented the references
      * on btPtr, so we can drop the one this function is holding from
@@ -1392,7 +1472,7 @@ BT_SocketObjCmd(ClientData  notUsed,   /* Not used. */
             return TCL_ERROR;
         }
 
-        /* 
+        /*
          * Register with the interpreter to let us know when the interpreter is
          * deleted (by having the callback set the interp field of the
          * acceptCallbackPtr's structure to NULL). This is to avoid trying to
@@ -1401,7 +1481,7 @@ BT_SocketObjCmd(ClientData  notUsed,   /* Not used. */
 
         IocpRegisterAcceptCallbackCleanup(interp, acceptCallbackPtr);
 
-        /* 
+        /*
          * Register a close callback. This callback will inform the interpreter
          * (if it still exists) that this channel does not need to be informed
          * when the interpreter is deleted.
@@ -1437,7 +1517,7 @@ BT_SocketObjCmd(ClientData  notUsed,   /* Not used. */
  *
  *    Implements the Tcl command BT_LookupServiceBegin.
  *    TBD - make this a generic Winsock function.
- * 
+ *
  * Results:
  *    TCL_OK    - Success. Returns search handle as interpreter result.
  *    TCL_ERROR - Error.
@@ -1468,7 +1548,7 @@ int BT_LookupServiceBeginObjCmd (
     }
 
     /* Note btAddr only used to verify syntax */
-    if (ObjToBLUETOOTH_ADDRESS(interp, objv[1], &btAddr) != TCL_OK || 
+    if (ObjToBLUETOOTH_ADDRESS(interp, objv[1], &btAddr) != TCL_OK ||
         UnwrapUuid(interp, objv[2], &serviceUuid) != TCL_OK) {
         return TCL_ERROR;
     }

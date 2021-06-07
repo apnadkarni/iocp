@@ -1,11 +1,18 @@
-#
-# Tcl package index file
-#
-package require platform
-
 # Core iocp package
 package ifneeded @PACKAGE_NAME@ @PACKAGE_VERSION@ \
-    "[list load [file join $dir [platform::identify] @PKG_LIB_FILE@] @PACKAGE_NAME@]"
+    [list apply [list {dir} {
+        if {$::tcl_platform(machine) eq "amd64"} {
+            set path [file join $dir amd64 "@PKG_LIB_FILE@"]
+        } else {
+            set path [file join $dir x86 "@PKG_LIB_FILE@"]
+        }
+        if {![file exists $path]} {
+            # To accomodate make test
+            set path [file join $dir "@PKG_LIB_FILE@"]
+        }
+        uplevel #0 [list load $path]
+    }] $dir]
+
 # iocp_inet doesn't need anything other than core iocp
 package ifneeded @PACKAGE_NAME@_inet @PACKAGE_VERSION@ \
     "package require @PACKAGE_NAME@"

@@ -2431,6 +2431,19 @@ foreach {servip sc} $x {
     }
 }
 
+test socket-nagle-1.0 "socket option - nagle" -setup {
+    set so [iocp::inet::socket www.example.com 80]
+} -cleanup {
+    close $so
+} -body {
+    list \
+        [fconfigure $so -nagle] \
+        [fconfigure $so -nagle 0] \
+        [fconfigure $so -nagle] \
+        [fconfigure $so -nagle 1] \
+        [fconfigure $so -nagle]
+} -result [list 1 {} 0 {} 1]
+
 ::tcltest::cleanupTests
 flush stdout
 return

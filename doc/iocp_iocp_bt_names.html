@@ -1,5 +1,5 @@
 <!DOCTYPE html><html><head><meta charset="utf-8"/>
-<title>iocp package reference (V1.0.8)</title>
+<title>iocp package reference (V1.0.9)</title>
 <style>
 /*
 Copyright (c) 2009, Yahoo! Inc. All rights reserved.
@@ -259,6 +259,20 @@ pre {
 .ruff_source_link {
     font-size: smaller;
 }
+
+.ruff_index {
+    font-size: small;
+    color: grey;
+    line-height: 1;
+}
+
+.ruff_index ul li {
+    list-style-type: none;
+}
+
+.ruff_index ul li a {
+    text-decoration: none;
+}
 </style>
 <script>function toggleSource( id )
 {
@@ -292,14 +306,14 @@ pre {
 }
 </script></head>
 <body><div id='doc3' class='yui-t2'><div id='hd' class='banner'>
-<a style='text-decoration:none;' href='iocp.html'>iocp package reference (V1.0.8)</a>
+<a style='text-decoration:none;' href='iocp.html'>iocp package reference (V1.0.9)</a>
 </div>
-<div id='bd'><div id='yui-main'><div class='yui-b'><h1 class='ruff'><a name='::iocp::bt::names'></a>::iocp::bt::names<span class='tinylink'><a href='#top'>Top</a>, <a href='iocp.html'>Main</a></span></h1>
+<div id='bd'><div id='yui-main'><div class='yui-b'><h1 class='ruff'><a name='::iocp::bt::names'></a>::iocp::bt::names<span class='tinylink'><a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp_docindex.html#'>Index</a></span></h1>
 <div style='clear:both;'></div>
 <p class='ruff'>Most objects in Bluetooth services are identified using UUIDs or in some cases numeric identifiers. The <code>iocp::bt::names</code> namespace contains utility commands to map these to human readable names.</p>
-<h2 class='ruff'><a name='::iocp::bt::names-Commands'></a>Commands<span class='tinylink'><a href='iocp_iocp_bt_names.html#::iocp::bt::names'>names</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a></span></h2>
+<h2 class='ruff'><a name='::iocp::bt::names-Commands'></a>Commands<span class='tinylink'><a href='iocp_iocp_bt_names.html#::iocp::bt::names'>names</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp_docindex.html#'>Index</a></span></h2>
 <div style='clear:both;'></div>
-<h4 class='ruffproc'><a name='::iocp::bt::names::attribute_id'>attribute_id</a><span class='ns_scope'> [<a href="iocp_iocp_bt_names.html#::iocp::bt::names" title="::iocp::bt::names" class='ruff_cmd'>::iocp::bt::names</a>]</span><span class='tinylink'><a href='iocp_iocp_bt_names.html#::iocp::bt::names'>names</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a></span></h4>
+<h4 class='ruffproc'><a name='::iocp::bt::names::attribute_id'>attribute_id</a><span class='ns_scope'> [<a href="iocp_iocp_bt_names.html#::iocp::bt::names" title="::iocp::bt::names" class='ruff_cmd'>::iocp::bt::names</a>]</span><span class='tinylink'><a href='iocp_iocp_bt_names.html#::iocp::bt::names'>names</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp_docindex.html#'>Index</a></span></h4>
 <div style='clear:both;'></div>
 <p class='ruff'>Maps a attribute name to it numeric attribute identifier.</p>
 <div class='ruff_synopsis'><span class='ruff_cmd'>attribute_id</span> <span class='ruff_arg'>name</span></div>
@@ -322,7 +336,7 @@ pre {
     }
     return [dict get $attribute_names $name]
 }</pre></div>
-</div><h4 class='ruffproc'><a name='::iocp::bt::names::attribute_name'>attribute_name</a><span class='ns_scope'> [<a href="iocp_iocp_bt_names.html#::iocp::bt::names" title="::iocp::bt::names" class='ruff_cmd'>::iocp::bt::names</a>]</span><span class='tinylink'><a href='iocp_iocp_bt_names.html#::iocp::bt::names'>names</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a></span></h4>
+</div><h4 class='ruffproc'><a name='::iocp::bt::names::attribute_name'>attribute_name</a><span class='ns_scope'> [<a href="iocp_iocp_bt_names.html#::iocp::bt::names" title="::iocp::bt::names" class='ruff_cmd'>::iocp::bt::names</a>]</span><span class='tinylink'><a href='iocp_iocp_bt_names.html#::iocp::bt::names'>names</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp_docindex.html#'>Index</a></span></h4>
 <div style='clear:both;'></div>
 <p class='ruff'>Maps a attribute id (numeric or name) to a attribute name.</p>
 <div class='ruff_synopsis'><span class='ruff_cmd'>attribute_name</span> <span class='ruff_arg'>attr_id</span></div>
@@ -348,7 +362,7 @@ pre {
     }
     error &quot;Unknown attribute \&quot;$attr_id\&quot;.&quot;
 }</pre></div>
-</div><h4 class='ruffproc'><a name='::iocp::bt::names::print'>print</a><span class='ns_scope'> [<a href="iocp_iocp_bt_names.html#::iocp::bt::names" title="::iocp::bt::names" class='ruff_cmd'>::iocp::bt::names</a>]</span><span class='tinylink'><a href='iocp_iocp_bt_names.html#::iocp::bt::names'>names</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a></span></h4>
+</div><h4 class='ruffproc'><a name='::iocp::bt::names::print'>print</a><span class='ns_scope'> [<a href="iocp_iocp_bt_names.html#::iocp::bt::names" title="::iocp::bt::names" class='ruff_cmd'>::iocp::bt::names</a>]</span><span class='tinylink'><a href='iocp_iocp_bt_names.html#::iocp::bt::names'>names</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp_docindex.html#'>Index</a></span></h4>
 <div style='clear:both;'></div>
 <p class='ruff'>Prints known UUID's and their mapped mnemonics.</p>
 <div class='ruff_synopsis'><span class='ruff_cmd'>print</span> </div>
@@ -361,7 +375,7 @@ pre {
         puts &quot;[Uuid16 $uuid16] $name&quot;
     }
 }</pre></div>
-</div><h4 class='ruffproc'><a name='::iocp::bt::names::profile_name'>profile_name</a><span class='ns_scope'> [<a href="iocp_iocp_bt_names.html#::iocp::bt::names" title="::iocp::bt::names" class='ruff_cmd'>::iocp::bt::names</a>]</span><span class='tinylink'><a href='iocp_iocp_bt_names.html#::iocp::bt::names'>names</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a></span></h4>
+</div><h4 class='ruffproc'><a name='::iocp::bt::names::profile_name'>profile_name</a><span class='ns_scope'> [<a href="iocp_iocp_bt_names.html#::iocp::bt::names" title="::iocp::bt::names" class='ruff_cmd'>::iocp::bt::names</a>]</span><span class='tinylink'><a href='iocp_iocp_bt_names.html#::iocp::bt::names'>names</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp_docindex.html#'>Index</a></span></h4>
 <div style='clear:both;'></div>
 <p class='ruff'>Maps a UUID to a Bluetooth profile name.</p>
 <div class='ruff_synopsis'><span class='ruff_cmd'>profile_name</span> <span class='ruff_arg'>uuid</span></div>
@@ -380,7 +394,7 @@ pre {
     # Profiles seem to come from same service class UUID space.
     return [service_class_name $uuid]
 }</pre></div>
-</div><h4 class='ruffproc'><a name='::iocp::bt::names::protocol_name'>protocol_name</a><span class='ns_scope'> [<a href="iocp_iocp_bt_names.html#::iocp::bt::names" title="::iocp::bt::names" class='ruff_cmd'>::iocp::bt::names</a>]</span><span class='tinylink'><a href='iocp_iocp_bt_names.html#::iocp::bt::names'>names</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a></span></h4>
+</div><h4 class='ruffproc'><a name='::iocp::bt::names::protocol_name'>protocol_name</a><span class='ns_scope'> [<a href="iocp_iocp_bt_names.html#::iocp::bt::names" title="::iocp::bt::names" class='ruff_cmd'>::iocp::bt::names</a>]</span><span class='tinylink'><a href='iocp_iocp_bt_names.html#::iocp::bt::names'>names</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp_docindex.html#'>Index</a></span></h4>
 <div style='clear:both;'></div>
 <p class='ruff'>Maps a UUID to a protocol name.</p>
 <div class='ruff_synopsis'><span class='ruff_cmd'>protocol_name</span> <span class='ruff_arg'>uuid</span></div>
@@ -398,7 +412,7 @@ pre {
     variable protocol_names
     return [MapUuidToName $uuid protocol_names]
 }</pre></div>
-</div><h4 class='ruffproc'><a name='::iocp::bt::names::protocol_uuid'>protocol_uuid</a><span class='ns_scope'> [<a href="iocp_iocp_bt_names.html#::iocp::bt::names" title="::iocp::bt::names" class='ruff_cmd'>::iocp::bt::names</a>]</span><span class='tinylink'><a href='iocp_iocp_bt_names.html#::iocp::bt::names'>names</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a></span></h4>
+</div><h4 class='ruffproc'><a name='::iocp::bt::names::protocol_uuid'>protocol_uuid</a><span class='ns_scope'> [<a href="iocp_iocp_bt_names.html#::iocp::bt::names" title="::iocp::bt::names" class='ruff_cmd'>::iocp::bt::names</a>]</span><span class='tinylink'><a href='iocp_iocp_bt_names.html#::iocp::bt::names'>names</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp_docindex.html#'>Index</a></span></h4>
 <div style='clear:both;'></div>
 <p class='ruff'>Maps a protocol name to a UUID.</p>
 <div class='ruff_synopsis'><span class='ruff_cmd'>protocol_uuid</span> <span class='ruff_arg'>name</span></div>
@@ -419,7 +433,7 @@ pre {
     variable protocol_names
     return [MapNameToUuid $name protocol_names]
 }</pre></div>
-</div><h4 class='ruffproc'><a name='::iocp::bt::names::service_class_name'>service_class_name</a><span class='ns_scope'> [<a href="iocp_iocp_bt_names.html#::iocp::bt::names" title="::iocp::bt::names" class='ruff_cmd'>::iocp::bt::names</a>]</span><span class='tinylink'><a href='iocp_iocp_bt_names.html#::iocp::bt::names'>names</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a></span></h4>
+</div><h4 class='ruffproc'><a name='::iocp::bt::names::service_class_name'>service_class_name</a><span class='ns_scope'> [<a href="iocp_iocp_bt_names.html#::iocp::bt::names" title="::iocp::bt::names" class='ruff_cmd'>::iocp::bt::names</a>]</span><span class='tinylink'><a href='iocp_iocp_bt_names.html#::iocp::bt::names'>names</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp_docindex.html#'>Index</a></span></h4>
 <div style='clear:both;'></div>
 <p class='ruff'>Maps a UUID to a service class name.</p>
 <div class='ruff_synopsis'><span class='ruff_cmd'>service_class_name</span> <span class='ruff_arg'>uuid</span></div>
@@ -445,7 +459,7 @@ pre {
     }
     return $uuid
 }</pre></div>
-</div><h4 class='ruffproc'><a name='::iocp::bt::names::service_class_uuid'>service_class_uuid</a><span class='ns_scope'> [<a href="iocp_iocp_bt_names.html#::iocp::bt::names" title="::iocp::bt::names" class='ruff_cmd'>::iocp::bt::names</a>]</span><span class='tinylink'><a href='iocp_iocp_bt_names.html#::iocp::bt::names'>names</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a></span></h4>
+</div><h4 class='ruffproc'><a name='::iocp::bt::names::service_class_uuid'>service_class_uuid</a><span class='ns_scope'> [<a href="iocp_iocp_bt_names.html#::iocp::bt::names" title="::iocp::bt::names" class='ruff_cmd'>::iocp::bt::names</a>]</span><span class='tinylink'><a href='iocp_iocp_bt_names.html#::iocp::bt::names'>names</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp_docindex.html#'>Index</a></span></h4>
 <div style='clear:both;'></div>
 <p class='ruff'>Maps a service class name to a UUID.</p>
 <div class='ruff_synopsis'><span class='ruff_cmd'>service_class_uuid</span> <span class='ruff_arg'>name</span></div>
@@ -466,7 +480,7 @@ pre {
     variable service_class_names
     return [MapNameToUuid $name service_class_names]
 }</pre></div>
-</div><h4 class='ruffproc'><a name='::iocp::bt::names::to_name'>to_name</a><span class='ns_scope'> [<a href="iocp_iocp_bt_names.html#::iocp::bt::names" title="::iocp::bt::names" class='ruff_cmd'>::iocp::bt::names</a>]</span><span class='tinylink'><a href='iocp_iocp_bt_names.html#::iocp::bt::names'>names</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a></span></h4>
+</div><h4 class='ruffproc'><a name='::iocp::bt::names::to_name'>to_name</a><span class='ns_scope'> [<a href="iocp_iocp_bt_names.html#::iocp::bt::names" title="::iocp::bt::names" class='ruff_cmd'>::iocp::bt::names</a>]</span><span class='tinylink'><a href='iocp_iocp_bt_names.html#::iocp::bt::names'>names</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp_docindex.html#'>Index</a></span></h4>
 <div style='clear:both;'></div>
 <p class='ruff'>Map a UUID to a name.</p>
 <div class='ruff_synopsis'><span class='ruff_cmd'>to_name</span> <span class='ruff_arg'>uuid</span></div>
@@ -491,7 +505,7 @@ pre {
     }
     return [protocol_name $uuid]
 }</pre></div>
-</div><h4 class='ruffproc'><a name='::iocp::bt::names::to_uuid'>to_uuid</a><span class='ns_scope'> [<a href="iocp_iocp_bt_names.html#::iocp::bt::names" title="::iocp::bt::names" class='ruff_cmd'>::iocp::bt::names</a>]</span><span class='tinylink'><a href='iocp_iocp_bt_names.html#::iocp::bt::names'>names</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a></span></h4>
+</div><h4 class='ruffproc'><a name='::iocp::bt::names::to_uuid'>to_uuid</a><span class='ns_scope'> [<a href="iocp_iocp_bt_names.html#::iocp::bt::names" title="::iocp::bt::names" class='ruff_cmd'>::iocp::bt::names</a>]</span><span class='tinylink'><a href='iocp_iocp_bt_names.html#::iocp::bt::names'>names</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp_docindex.html#'>Index</a></span></h4>
 <div style='clear:both;'></div>
 <p class='ruff'>Map a name to a UUID.</p>
 <div class='ruff_synopsis'><span class='ruff_cmd'>to_uuid</span> <span class='ruff_arg'>name_or_uuid</span></div>
@@ -516,6 +530,7 @@ pre {
     return [protocol_uuid $name_or_uuid]
 }</pre></div>
 </div></div></div><div class='yui-b navbox' style='position: fixed;'><h1><a style='padding-top:2px;' href='iocp.html'>Start page</a></h1>
+<h1><a href='iocp_docindex.html' accesskey='i'>Index</a></h1>
 <hr>
 <h1><a href='iocp_iocp_bt.html'>iocp::bt</a></h1>
 <h1><a style='color: #006666;background-color: white; margin-left:-4px; padding-left:3px;padding-right:2px;' href='iocp_iocp_bt_names.html'>iocp::bt::names</a></h1>
