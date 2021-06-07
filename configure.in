@@ -154,13 +154,13 @@ TEA_ENABLE_SHARED
 TEA_CONFIG_CFLAGS
 
 # Set the architecture specific subdirectory. This extension is Windows only so
-# hard code the values which correspond to the values returned by Tcl's
+# hard code the values which correspond to the values in tcl_platform(platform)
 # platform::identify command. This has to come after TEA_CONFIG_CFLAGS because that
 # sets the do64bit variable.
 AS_IF([test "$do64bit" = "yes"], [
-	  AC_SUBST(PLATFORM_IDENTIFY, "win32-x86_64")
+	  AC_SUBST(PLATFORM_IDENTIFY, "amd64")
       ], [
-	  AC_SUBST(PLATFORM_IDENTIFY, "win32-ix86")
+	  AC_SUBST(PLATFORM_IDENTIFY, "x86")
       ])
 
 

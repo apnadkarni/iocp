@@ -8386,17 +8386,17 @@ $as_echo "no" >&6; }
 
 
 # Set the architecture specific subdirectory. This extension is Windows only so
-# hard code the values which correspond to the values returned by Tcl's
+# hard code the values which correspond to the values in tcl_platform(platform)
 # platform::identify command. This has to come after TEA_CONFIG_CFLAGS because that
 # sets the do64bit variable.
 if test "$do64bit" = "yes"; then :
 
-	  PLATFORM_IDENTIFY="win32-x86_64"
+	  PLATFORM_IDENTIFY="amd64"
 
 
 else
 
-	  PLATFORM_IDENTIFY="win32-ix86"
+	  PLATFORM_IDENTIFY="x86"
 
 
 fi
