@@ -86,7 +86,7 @@ void BT_InitAPI()
     /* gBtAPI statically 0's so no need to init here */
 
     /* Note since called exactly once, no need to check for already init'ed */
-    btDllH = LoadLibraryA("Bthprops.dll");
+    btDllH = LoadLibraryA("Bthprops.cpl");
     if (btDllH == NULL)
         return;
 
