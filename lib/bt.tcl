@@ -169,7 +169,7 @@ proc iocp::bt::radio::configure {radio args} {
             }]
         } else {
             set unchanged {}
-            foreach {opt val} {
+            foreach {opt val} $args {
                 switch -exact -- $opt {
                     -discoverable {
                         set changed [EnableDiscovery $val]

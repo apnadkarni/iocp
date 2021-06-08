@@ -1446,7 +1446,8 @@ static int IocpParseOption(
         Tcl_DString ds;
         Tcl_DStringInit(&ds);
         for (opt = 0; optNames[opt]; ++opt) {
-            Tcl_DStringAppendElement(&ds, optNames[opt]);
+            /* Skip the "-" as Tcl_BadChannelOption prefixes it itself */
+            Tcl_DStringAppendElement(&ds, 1+optNames[opt]);
         }
         Tcl_BadChannelOption(interp, optName, Tcl_DStringValue(&ds));
         Tcl_DStringFree(&ds);

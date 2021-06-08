@@ -12,6 +12,14 @@ tcltest::configure {*}$argv
 package require iocp_bt
 
 namespace eval iocp::test {
+    variable TARGET
+    if {[info exists ::env(IOCP_BT_TARGET)]} {
+        set TARGET $::env(IOCP_BT_TARGET)
+    } else {
+        set TARGET "Test phone"
+    }
+    variable UNKNOWNADDR 11:11:11:11:11:11
+    variable BTADDRRE {([[:xdigit:]]{2}:){5}[[:xdigit:]]{2}}
 
     # Return non-0 if all elements match and at least one element
     proc lregexpmatch {re result} {
@@ -103,17 +111,64 @@ namespace eval iocp::test {
         }
         return $addr_cache($name)
     }
+
+    proc testradio {} {
+        return [lindex [iocp::bt::radios] 0]
+    }
+
+    # Checks validity of device information entries as returned by
+    # devices command. Returns string of errors (empty if valid)
+    proc btdevinfocheck d {
+        set errors [list ]
+        foreach {field re} {
+            Address {^([[:xdigit:]]{2}:){5}[[:xdigit:]]{2}$}
+            Name .+
+            Class {^\d+$}
+            Connected {^0|1$}
+            Remembered {^0|1$}
+            Authenticated {^0|1$}
+            LastSeen {^\d+( \d+){7}$}
+            LastUsed {^\d+( \d+){7}$}
+            MajorClassName {.*}
+            MinorClassName {.*}
+            DeviceClasses {.*}
+        } {
+            if {![dict exists $d $field]} {
+                lappend errors "Missing field $field."
+            } elseif {![regexp $re [dict get $d $field]]} {
+                lappend errors "Field $field value [dict get $d $field] does not match regexp $re"
+            }
+        }
+        return [join $errors \n]
+    }
+
+    # Checks validity of radio information entries as returned by
+    # radios command. Returns string of errors (empty if valid)
+    proc btradioinfocheck r {
+        set errors [list ]
+        foreach {field re} {
+            Address {^([[:xdigit:]]{2}:){5}[[:xdigit:]]{2}$}
+            Name .+
+            Manufacturer .+
+            Class {^\d+$}
+            Subversion {^\d+$}
+            MajorClassName Computer
+            MinorClassName .+
+            DeviceClasses {.*}
+        } {
+            if {![dict exists $r $field]} {
+                lappend errors "Missing field $field."
+            } elseif {![regexp $re [dict get $r $field]]} {
+                lappend errors "Field $field value [dict get $r $field] does not match regexp $re"
+            }
+        }
+        return [join $errors \n]
+        
+    }
 }
 
 namespace eval iocp::test {
     namespace import ::tcltest::test
-
-    variable TARGET
-    if {[info exists ::env(IOCP_BT_TARGET)]} {
-        set TARGET $::env(IOCP_BT_TARGET)
-    } else {
-        set TARGET "APN"
-    }
 
     puts "Testing with Bluetooth device = $TARGET"
 
@@ -126,17 +181,17 @@ namespace eval iocp::test {
     ###
     # device addresses
 
-    testbadopt device-addresses "::iocp::bt::device addresses $TARGET" "-authenticated, -remembered, -unknown, -connected, -inquire, -timeout, or -hradio"
+    testbadopt device-addresses "::iocp::bt::device addresses \"$TARGET\"" "-authenticated, -remembered, -unknown, -connected, -inquire, -timeout, or -hradio"
     testnumargs device-addresses "::iocp::bt::device addresses" "name" "?arg ...?"
     set num -1
     test device-addresses-[incr num] {Get device address} -body {
         iocp::bt::device addresses $TARGET
-    } -result {^([[:xdigit:]]{2}:){5}[[:xdigit:]]{2}$} -match lregexp
+    } -result "^$BTADDRRE\$" -match lregexp
 
     foreach opt {-authenticated -inquire -remembered {-timeout 1000 -inquire}} {
         test device-addresses-[incr num] "device addresses $opt" -body {
             iocp::bt::device addresses $TARGET {*}$opt
-        } -result {^([[:xdigit:]]{2}:){5}[[:xdigit:]]{2}$} -match lregexp
+        } -result "^$BTADDRRE\$" -match lregexp
     }
 
     # Options that may not have any matching devices
@@ -147,7 +202,7 @@ namespace eval iocp::test {
             set result [iocp::bt::device addresses $TARGET {*}$opt]
             expr {
                   [llength $result] == 0 ||
-                  [lregexpmatch {^([[:xdigit:]]{2}:){5}[[:xdigit:]]{2}$} $result]
+                  [lregexpmatch "^$BTADDRRE\$" $result]
               }
         } -result 1
     }
@@ -157,7 +212,7 @@ namespace eval iocp::test {
     testnumargs device-address "::iocp::bt::device address" "name" "?arg ...?"
     test device-address-0 {Get device address} -body {
         iocp::bt::device address $TARGET
-    } -result {^([[:xdigit:]]{2}:){5}[[:xdigit:]]{2}$} -match regexp
+    } -result "^$BTADDRRE\$" -match regexp
 
     ###
     # device port
@@ -167,6 +222,9 @@ namespace eval iocp::test {
     } -result {^\d+$} -match regexp
     test device-port-1 {get device service port from address} -body {
         iocp::bt::device port [daddr $TARGET] OBEXObjectPush
+    } -result {^\d+$} -match regexp
+    test device-port-2 {get device service port from service uuid} -body {
+        iocp::bt::device port [daddr $TARGET] 00001105-0000-1000-8000-00805f9b34fb
     } -result {^\d+$} -match regexp
 
     ###
@@ -181,10 +239,10 @@ namespace eval iocp::test {
     testnumargs device-printn "::iocp::bt::device printn" "dinfolist" "?detailed?"
     test device-printn-0 {device printn} -body {
         iocp::bt::device printn [iocp::bt::devices]
-    } -output {^(^([[:xdigit:]]{2}:){5}[[:xdigit:]]{2} .+\n)+\s*$} -match regexp
+    } -output {^(([[:xdigit:]]{2}:){5}[[:xdigit:]]{2} .+\n)+\s*$} -match regexp
     test device-printn-1 {device printn nodetail} -body {
         iocp::bt::device printn [iocp::bt::devices] 0
-    } -output {^(^([[:xdigit:]]{2}:){5}[[:xdigit:]]{2} .+\n)+\s*$} -match regexp
+    } -output {^(([[:xdigit:]]{2}:){5}[[:xdigit:]]{2} .+\n)+\s*$} -match regexp
     test device-printn-2 {device printn detail} -body {
         iocp::bt::device printn [iocp::bt::devices] 1
     } -output {^(Device .*\nAddress: .*\nClass: .*\nDevice categories: .*\nAuthenticated: .*\nRemembered: (0|1)\nConnected: (0|1)\nLast seen: .*\nLast used: .*\n-*)+\s*$} -match regexp
@@ -225,7 +283,7 @@ namespace eval iocp::test {
         iocp::bt::device service_references NOSUCHDEVICE OBEXObjectPush
     } -result {Could not resolve Bluetooth device name "NOSUCHDEVICE".} -returnCodes error
     test device-service_references-error-1 "device service_references bad address" -body {
-        iocp::bt::device service_references 11:11:11:11:11:11 OBEXObjectPush
+        iocp::bt::device service_references $UNKNOWNADDR OBEXObjectPush
     } -result {Bluetooth service search failed. No such service is known. The service cannot be found in the specified name space. } -returnCodes error
     test device-service_references-error-2 "device service_references bad service" -body {
         iocp::bt::device service_references $TARGET NoSuchService
@@ -245,14 +303,253 @@ namespace eval iocp::test {
         iocp::bt::device services NOSUCHDEVICE
     } -result {Could not resolve Bluetooth device name "NOSUCHDEVICE".} -returnCodes error
     test device-services-error-1 "device services bad name" -body {
-        iocp::bt::device services 11:11:11:11:11:11 
+        iocp::bt::device services $UNKNOWNADDR
     } -result {Bluetooth service search failed. No such service is known. The service cannot be found in the specified name space. } -returnCodes error
 
-    #TBD - bad device names and address formats
+    ###
+    # devices and radio devices
+
+    testbadopt devices "::iocp::bt::devices" "-authenticated, -remembered, -unknown, -connected, -inquire, -timeout, or -hradio"
+    testnumargs devices "::iocp::bt::devices" "" "?arg ...?"
+    testnumargs radio-devices "::iocp::bt::radio devices" "radio" "?arg ...?"
+    set num -1
+    foreach opt {{} -authenticated -inquire -remembered {-timeout 1000 -inquire}} {
+        incr num
+        test devices-$num "devices $opt" -body {
+            foreach dev [iocp::bt::devices {*}$opt] {
+                append results [btdevinfocheck $dev]
+            }
+            if {![info exists results]} {
+                set results "No devices found."
+            }
+            set results
+        } -result {}
+        test radio-devices-$num "radio devices $opt" -body {
+            foreach dev [iocp::bt::radio devices [testradio] {*}$opt] {
+                append results [btdevinfocheck $dev]
+            }
+            if {![info exists results]} {
+                set results "No devices found."
+            }
+            set results
+        } -result {}
+    }
+
+    # Options that may not have any matching devices
+    # For some reason -connected always returns empty. Not clear
+    # what connected means
+    foreach opt {-connected} {
+        incr num
+        test devices-$num "devices $opt" -body {
+            set results ""
+            foreach dev [iocp::bt::devices {*}$opt] {
+                append results [btdevinfocheck $dev]
+            }
+            set results
+        } -result ""
+        test radio-devices-$num "radio devices $opt" -body {
+            set results ""
+            foreach dev [iocp::bt::radio devices [testradio] {*}$opt] {
+                append results [btdevinfocheck $dev]
+            }
+            set results
+        } -result ""
+    }
+
+    test radio-devices-error-0 "radio devices bad radio" -body {
+        iocp::bt::radio devices $UNKNOWNADDR
+    } -result {Radio not found.} -returnCodes error
+
+    ###
+    # radios
+
+    testnumargs radios "::iocp::bt::radios" "" "?detailed?"
+    test radios-0 {Get radios} -body {
+        iocp::bt::radios
+    } -result "^$BTADDRRE\$" -match lregexp
+    test radios-1 {Get radios nodetail} -body {
+        iocp::bt::radios 0
+    } -result "^$BTADDRRE\$" -match lregexp
+    test radios-2 "radions detail" -body {
+        foreach dev [iocp::bt::radios 1] {
+            append results [btradioinfocheck $dev]
+        }
+        if {![info exists results]} {
+            set results "No devices found."
+        }
+        set results
+    } -result {}
+    test radios-error-0 {Get radios arg error} -body {
+        iocp::bt::radios x
+    } -result {expected boolean value but got "x"} -returnCodes error
+
+    ###
+    # radio info
+    testnumargs radio-info "::iocp::bt::radio info" "" "?radio?"
+    test radio-info-0 "radio info" -body {
+        btradioinfocheck [iocp::bt::radio info]
+    } -result ""
+    test radio-info-1 "radio info radio" -body {
+        btradioinfocheck [iocp::bt::radio info [testradio]]
+    } -result ""
+    test radio-info-1 "radio info radio" -body {
+        btradioinfocheck [iocp::bt::radio info $UNKNOWNADDR]
+    } -result "Radio not found." -returnCodes error
+
+    ###
+    # radio configure
+    testnumargs radio-configure "::iocp::bt::radio configure" "radio" "?arg ...?"
+    test radio-configure-0 "radio configure" -setup {
+        set r [lindex [iocp::bt::radios] 0]
+        set settings [iocp::bt::radio configure $r]
+    } -cleanup {
+        iocp::bt::radio configure $r {*}$settings
+    } -body {
+        # This test will often fail - Windows bug - see google as
+        # it does not reliable turn BT discoverability off
+        list \
+            [iocp::bt::radio configure $r -discoverable 0] \
+            [iocp::bt::radio configure $r -connectable 0] \
+            [iocp::bt::radio configure $r -discoverable] \
+            [iocp::bt::radio configure $r -connectable] \
+            [iocp::bt::radio configure $r -discoverable 1 -connectable 1] \
+            [iocp::bt::radion configure $r]
+    } -result [list {} {} 0 0 {} {-discoverable 1 -connectable 1}]
 
     ################################################################
 
+    test bt-socket-0 "Basic socket connect" -setup {
+        set port [::iocp::bt::device port $TARGET OBEXObjectPush]
+    } -body {
+        close [::iocp::bt::socket [daddr $TARGET] $port]
+    } -result ""
+    test bt-socket-1 "Basic socket connect -async" -setup {
+        set port [::iocp::bt::device port $TARGET OBEXObjectPush]
+    } -body {
+        set so [::iocp::bt::socket -async [daddr $TARGET] $port]
+        fileevent $so writable [list apply {{so} {
+            fileevent $so writable ""
+            set ::gate [eof $so]
+            close $so
+        }} $so]
+        vwait ::gate
+        set ::gate
+    } -result 0
+    test bt-socket-error-0 "Basic socket fail to connect" -body {
+        ::iocp::bt::socket $UNKNOWNADDR 7
+    } -result {couldn't open socket: connection timed out} -returnCodes error
+    test bt-socket-error-1 "Basic socket connect -async" -body {
+        set so [::iocp::bt::socket -async $UNKNOWNADDR 7]
+        fileevent $so writable [list apply {{so} {
+            fileevent $so writable ""
+            set ::gate [list [fconfigure $so -connecting] [fconfigure $so -error]]
+            close $so
+        }} $so]
+        vwait ::gate
+        set ::gate
+    } -result [list 0 {connection timed out}]
+    test bt-socket-error-2 "Basic socket bad port" -body {
+        ::iocp::bt::socket [daddr $TARGET] 25
+    } -result {couldn't open socket: host is down} -returnCodes error
 
+    # TBD - socket data tests need a remote server. Currently rely on
+    # obex tests
+
+    ###
+    # fconfigure
+    test bt-socket-configure-0 "get socket configuration" -setup {
+        set port [::iocp::bt::device port $TARGET OBEXObjectPush]
+        set so [::iocp::bt::socket [daddr $TARGET] $port]
+    } -cleanup {
+        close $so
+    } -body {
+        lsort [dict keys [fconfigure $so]]
+    } -result [lsort {-blocking -buffering -buffersize -encoding -eofchar -translation -peername -sockname -error -connecting -maxpendingreads -maxpendingwrites -maxpendingaccepts -sosndbuf -sorcvbuf -nagle}]
+
+    test bt-socket-configure-1 "socket configure readwrite opts" -setup {
+        set port [::iocp::bt::device port $TARGET OBEXObjectPush]
+        set so [::iocp::bt::socket [daddr $TARGET] $port]
+    } -cleanup {
+        close $so
+    } -body {
+        set result {}
+        foreach {opt vals} {
+            -buffering {none line full}
+            -buffersize 1024
+            -encoding {utf-8 cp1252}
+            -eofchar {{X Y}}
+            -translation {{lf lf} {cr cr}}
+            -maxpendingreads 3
+            -maxpendingwrites 3
+            -sosndbuf 1000
+            -sorcvbuf 1000
+            -nagle {0 1}
+        } {
+            foreach val $vals {
+                fconfigure $so $opt $val
+                set val2 [fconfigure $so $opt]
+                if {$val != $val2} {
+                    lappend result "$opt not configured ($val != $val2)"
+                }
+            }
+        }
+        join $result \n
+    } -result {}
+    test bt-socket-configure-2 "get socket readonly configuration" -setup {
+        set port [::iocp::bt::device port $TARGET OBEXObjectPush]
+        set so [::iocp::bt::socket [daddr $TARGET] $port]
+    } -cleanup {
+        close $so
+    } -body {
+        set result {}
+        set myaddr [dict get [iocp::bt::radio info] Address]
+        foreach {opt expected} [list \
+                                    -error {} \
+                                    -connecting 0 \
+                                    -sockname [list $myaddr $myaddr 0] \
+                                    -peername [list [daddr $TARGET] [daddr $TARGET] $port]
+                               ] \
+            {
+                set val [fconfigure $so $opt]
+                if {$val != $expected} {
+                    append result "$opt value ($val) != expected ($expected)"
+                }
+            }
+        join $result \n
+    } -result {}
+    test bt-socket-configure-get-keepalive "socket configure -keepalive" -setup {
+        set port [::iocp::bt::device port $TARGET OBEXObjectPush]
+        set so [::iocp::bt::socket [daddr $TARGET] $port]
+    } -cleanup {
+        close $so
+    } -body {
+        set myaddr [dict get [iocp::bt::radio info] Address]
+        fconfigure $so -keepalive
+    } -result {getsockopt failed: An unknown, invalid, or unsupported option or level was specified in a getsockopt or setsockopt call. } -returnCodes error
+    test bt-socket-configure-get-badoption "socket configure badoption" -setup {
+        set port [::iocp::bt::device port $TARGET OBEXObjectPush]
+        set so [::iocp::bt::socket [daddr $TARGET] $port]
+    } -cleanup {
+        close $so
+    } -body {
+        set myaddr [dict get [iocp::bt::radio info] Address]
+        fconfigure $so -nosuchoption
+    } -result {bad option "-nosuchoption": should be one of -blocking, -buffering, -buffersize, -encoding, -eofchar, -translation, -peername, -sockname, -error, -connecting, -maxpendingreads, -maxpendingwrites, -maxpendingaccepts, -sosndbuf, -sorcvbuf, -keepalive, or -nagle} -returnCodes error
+
+    test bt-socket-configure-blocking "socket configure -blocking" -setup {
+        set port [::iocp::bt::device port $TARGET OBEXObjectPush]
+        set so [::iocp::bt::socket [daddr $TARGET] $port]
+    } -cleanup {
+       close $so
+    } -body {
+        list \
+            [fconfigure $so -blocking 0] \
+            [read $so] \
+            [fconfigure $so -blocking 1] \
+            [fconfigure $so -blocking]
+    } -result [list {} {} {} 1]
+
+    ################################################################
     ::tcltest::cleanupTests
 }
 

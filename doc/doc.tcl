@@ -143,7 +143,7 @@ namespace eval iocp::bt {
 
         First, the device name has to be mapped to its physical address. Unlike
         the TCP sockets in Tcl, Bluetooth sockets require physical addresses to
-        be specified as device names are ambiguous. The [device address] command
+        be specified as device names are ambiguous. The [device addresses] command
         can be used to obtain the physical addresses corresponding to a name.
         Note that there can be multiple devices with the same name so the
         command returns a list of addresses, one per device. When the list

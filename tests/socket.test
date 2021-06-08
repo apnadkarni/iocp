@@ -1,9 +1,4 @@
-set iocp_load_command {
-    apply {{} {
-        lappend ::auto_path d:/tcl/lib
-        package require iocp_inet
-    }}
-}
+set iocp_load_command {package require iocp_inet}
 {*}$iocp_load_command
 
 # Commands tested in this file: socket.
@@ -2445,6 +2440,7 @@ test socket-nagle-1.0 "socket option - nagle" -setup {
 } -result [list 1 {} 0 {} 1]
 
 ::tcltest::cleanupTests
+puts "If you see the script hung here for more than 20s, hit Return couple of times."
 flush stdout
 return
 

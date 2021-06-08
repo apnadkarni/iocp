@@ -1158,9 +1158,14 @@ BtClientPostConnect(
     bufPtr->chanPtr    = WinsockClientToIocpChannel(btPtr);
     btPtr->base.numRefs += 1; /* Reversed when buffer is unlinked from channel */
 
-    if (fnConnectEx(btPtr->so, btPtr->addresses.inet.remote->ai_addr,
-                    (int) btPtr->addresses.inet.remote->ai_addrlen,
-                    NULL, 0, &nbytes, &bufPtr->u.wsaOverlap) == FALSE) {
+    if (fnConnectEx(btPtr->so,
+                    (SOCKADDR *)&btPtr->addresses.bt.remote,
+                    sizeof(SOCKADDR_BTH),
+                    NULL,
+                    0,
+                    &nbytes,
+                    &bufPtr->u.wsaOverlap)
+        == FALSE) {
         winError = WSAGetLastError();
         if (winError != WSA_IO_PENDING) {
             bufPtr->chanPtr = NULL;

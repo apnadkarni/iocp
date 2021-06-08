@@ -680,8 +680,11 @@ WinsockClientGetOption(
         }
         if (winError == 0)
             return TCL_OK;
-        else
-            return Iocp_ReportWindowsError(interp, winError, NULL);
+        else {
+            Iocp_ReportWindowsError(interp, winError, NULL);
+            Tcl_SetErrno(EINVAL);
+            return TCL_ERROR;
+        }
     case IOCP_WINSOCK_OPT_MAXPENDINGREADS:
     case IOCP_WINSOCK_OPT_MAXPENDINGWRITES:
         sprintf_s(integerSpace, sizeof(integerSpace),
@@ -705,8 +708,10 @@ WinsockClientGetOption(
                        SOL_SOCKET,
                        opt == IOCP_WINSOCK_OPT_SOSNDBUF ? SO_SNDBUF : SO_RCVBUF,
                        (char *)&dw,
-                       &addrSize)) {
-            return Iocp_ReportLastWindowsError(interp, "getsockopt failed: ");
+                       &addrSize) != 0) {
+            Iocp_ReportLastWindowsError(interp, "getsockopt failed: ");
+            Tcl_SetErrno(EINVAL);
+            return TCL_ERROR;
         }
         sprintf_s(integerSpace, sizeof(integerSpace), "%u", dw);
         Tcl_DStringAppend(dsPtr, integerSpace, -1);
@@ -721,12 +726,19 @@ WinsockClientGetOption(
         else {
             int optlen  = sizeof(BOOL);
             BOOL optval = FALSE;
-            getsockopt(lockedWsPtr->so,
-                       SOL_SOCKET,
-                       opt == IOCP_WINSOCK_OPT_KEEPALIVE ? SO_KEEPALIVE
-                                                         : TCP_NODELAY,
-                       (char *)&optval,
-                       &optlen);
+            if (getsockopt(lockedWsPtr->so,
+                           SOL_SOCKET,
+                           opt == IOCP_WINSOCK_OPT_KEEPALIVE ? SO_KEEPALIVE
+                                                             : TCP_NODELAY,
+                           (char *)&optval,
+                           &optlen)
+                != 0) {
+                /* Failed */
+                Iocp_ReportLastWindowsError(interp,
+                                                   "getsockopt failed: ");
+                Tcl_SetErrno(EINVAL);
+                return TCL_ERROR;
+            }
             if (opt == IOCP_WINSOCK_OPT_NAGLE)
                 optval = !optval;
             Tcl_DStringAppend(dsPtr, optval ? "1" : "0", 1);
