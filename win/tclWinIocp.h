@@ -600,7 +600,6 @@ extern struct IocpTcl85IntPlatStubs *tclIntPlatStubsPtr;
  * Prototypes for IOCP internal functions.
  */
 IocpTclCode Iocp_DoOnce(Iocp_DoOnceState *stateP, Iocp_DoOnceProc *once_fn, ClientData clientdata);
-void BT_InitAPI();
 
 /* List utilities */
 void IocpListAppend(IocpList *listPtr, IocpLink *linkPtr);

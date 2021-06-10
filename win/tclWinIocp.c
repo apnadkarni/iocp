@@ -1020,8 +1020,6 @@ static IocpTclCode IocpProcessInit(ClientData clientdata)
         return TCL_ERROR;
     }
 
-    BT_InitAPI();
-
     iocpModuleState.completion_thread =
         CreateThread(NULL, 0, IocpCompletionThread, iocpModuleState.completion_port, 0, NULL);
     if (iocpModuleState.completion_thread == NULL) {
@@ -2043,6 +2041,11 @@ Iocp_StatsObjCmd (
     stats[n++] = IOCP_STATS_GET(Iocp ## field_); \
 } while (0)
 
+    if (objc != 1) {
+        Tcl_WrongNumArgs(interp, 1, objv, "");
+        return TCL_ERROR;
+    }
+
     n = 0;
     ADDSTATS(ChannelAllocs);
     ADDSTATS(ChannelFrees);
@@ -2055,6 +2058,21 @@ Iocp_StatsObjCmd (
 
     Tcl_SetObjResult(interp, Tcl_NewListObj(n, stats));
     return TCL_OK;
+}
+
+/* Loads and initializes the Bluetooth component */
+IocpTclCode
+Iocp_BtInitObjCmd (
+    ClientData notUsed,			/* Not used. */
+    Tcl_Interp *interp,			/* Current interpreter. */
+    int objc,				/* Number of arguments. */
+    Tcl_Obj *CONST objv[])		/* Argument objects. */
+{
+    if (objc != 1) {
+        Tcl_WrongNumArgs(interp, 1, objv, "");
+        return TCL_ERROR;
+    }
+    return BT_ModuleInitialize(interp);
 }
 
 int
@@ -2077,8 +2095,8 @@ Iocp_Init (Tcl_Interp *interp)
 
     if (Tcp_ModuleInitialize(interp) != TCL_OK)
         return TCL_ERROR;
-    if (BT_ModuleInitialize(interp) != TCL_OK)
-        return TCL_ERROR;
+
+    Tcl_CreateObjCommand(interp, "iocp::bt_init", Iocp_BtInitObjCmd, 0L, 0L);
 
     Tcl_CreateObjCommand(interp, "iocp::stats", Iocp_StatsObjCmd, 0L, 0L);
 

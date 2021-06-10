@@ -4,6 +4,9 @@
 #
 # See the file LICENSE for license
 
+package require iocp
+iocp::bt_init
+
 namespace eval iocp::bt {
     variable script_dir [file dirname [info script]]
     variable version

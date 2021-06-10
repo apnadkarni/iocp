@@ -42,6 +42,7 @@ typedef BOOL (WINAPI BluetoothIsDiscoverableProc)(HANDLE hRadio);
 typedef BOOL (WINAPI BluetoothEnableIncomingConnectionsProc)(HANDLE hRadio, BOOL fEnabled);
 typedef BOOL (WINAPI BluetoothIsConnectableProc)(HANDLE hRadio);
 static struct BT_API {
+    BOOL initialized;
     BluetoothFindFirstRadioProc *pBluetoothFindFirstRadio;
     BluetoothFindNextRadioProc *pBluetoothFindNextRadio;
     BluetoothFindRadioCloseProc *pBluetoothFindRadioClose;
@@ -56,7 +57,7 @@ static struct BT_API {
     BluetoothIsDiscoverableProc *pBluetoothIsDiscoverable;
     BluetoothEnableIncomingConnectionsProc *pBluetoothEnableIncomingConnections;
     BluetoothIsConnectableProc *pBluetoothIsConnectable;
-} gBtAPI;
+} gBtAPI; /* Default initialized to 0's */
 
 static Tcl_Obj *ObjFromSYSTEMTIME(const SYSTEMTIME *timeP);
 static Tcl_Obj *ObjFromBLUETOOTH_ADDRESS (const BLUETOOTH_ADDRESS *addrPtr);
@@ -73,42 +74,6 @@ static Tcl_Obj *ObjFromBLUETOOTH_DEVICE_INFO (const BLUETOOTH_DEVICE_INFO *infoP
         if (gBtAPI.p##fnname_ == NULL)             \
             return BT_ReportGetProcError(interp_); \
     } while (0)
-
-/*
- * Initializes the dynamically loaded API for bluetooth. Does NOT error
- * out if not available. Is expected to be called exactly once per process
- * and caller is responsible for thread synchronization.
- */
-void BT_InitAPI()
-{
-    static HMODULE btDllH;
-
-    /* gBtAPI statically 0's so no need to init here */
-
-    /* Note since called exactly once, no need to check for already init'ed */
-    btDllH = LoadLibraryA("Bthprops.cpl");
-    if (btDllH == NULL)
-        return;
-
-#define INITPROC(x) \
-	gBtAPI.p ## x = (x ## Proc *)(void *)GetProcAddress(btDllH, #x)
-
-    INITPROC(BluetoothFindFirstRadio);
-    INITPROC(BluetoothFindNextRadio);
-    INITPROC(BluetoothFindRadioClose);
-    INITPROC(BluetoothGetRadioInfo);
-    INITPROC(BluetoothFindFirstDevice);
-    INITPROC(BluetoothFindNextDevice);
-    INITPROC(BluetoothFindDeviceClose);
-    INITPROC(BluetoothGetDeviceInfo);
-    INITPROC(BluetoothRemoveDevice);
-    INITPROC(BluetoothEnumerateInstalledServices);
-    INITPROC(BluetoothEnableDiscovery);
-    INITPROC(BluetoothIsDiscoverable);
-    INITPROC(BluetoothEnableIncomingConnections);
-    INITPROC(BluetoothIsConnectable);
-#undef INITPROC
-}
 
 static IocpTclCode
 BT_ReportGetProcError(Tcl_Interp *interp)
@@ -1732,6 +1697,61 @@ BT_LookupServiceNextObjCmd (
 }
 
 /*
+ * Initialization function to be called exactly once *per process* to
+ * initialize the Bluetooth module.
+ * Caller responsible to ensure it's called only once in a thread-safe manner.
+ * It initializes the Bluetooth function table by dynamically loading
+ * the bthprops dll and looking up the function addresses.
+ *
+ * Returns TCL_OK if the table was successfully initialized, TCL_ERROR on error.
+ */
+Iocp_DoOnceState btProcessInitFlag;
+static IocpTclCode BT_InitAPI(ClientData clientdata)
+{
+    static HMODULE btDllH;
+
+    /* gBtAPI statically 0's so no need to init here */
+
+    /* Note since called exactly once, no need to check for already init'ed */
+    btDllH = LoadLibraryA("Bthprops.cpl");
+    if (btDllH == NULL) {
+        gBtAPI.initialized = -1;
+        return TCL_ERROR;
+    }
+
+    /*
+     * Note that if the DLL is available we mark state as successfully
+     * initialized even though some of the calls below might fail. This
+     * is because we want at least those calls that are available to be
+     * accessible. Conversely, all calls via the function table check to
+     * make sure the pointer is not NULL before invocation.
+     */
+    gBtAPI.initialized = 1;
+
+#define INITPROC(x) \
+	gBtAPI.p ## x = (x ## Proc *)(void *)GetProcAddress(btDllH, #x)
+
+    INITPROC(BluetoothFindFirstRadio);
+    INITPROC(BluetoothFindNextRadio);
+    INITPROC(BluetoothFindRadioClose);
+    INITPROC(BluetoothGetRadioInfo);
+    INITPROC(BluetoothFindFirstDevice);
+    INITPROC(BluetoothFindNextDevice);
+    INITPROC(BluetoothFindDeviceClose);
+    INITPROC(BluetoothGetDeviceInfo);
+    INITPROC(BluetoothRemoveDevice);
+    INITPROC(BluetoothEnumerateInstalledServices);
+    INITPROC(BluetoothEnableDiscovery);
+    INITPROC(BluetoothIsDiscoverable);
+    INITPROC(BluetoothEnableIncomingConnections);
+    INITPROC(BluetoothIsConnectable);
+#undef INITPROC
+
+    return TCL_OK;
+}
+
+
+/*
  *------------------------------------------------------------------------
  *
  * BT_ModuleInitialize --
@@ -1749,6 +1769,12 @@ BT_LookupServiceNextObjCmd (
 IocpTclCode
 BT_ModuleInitialize(Tcl_Interp *interp)
 {
+    if (Iocp_DoOnce(&btProcessInitFlag, BT_InitAPI, NULL) != TCL_OK
+        || gBtAPI.initialized < 0) {
+        Tcl_SetResult( interp, "Unable to initialize Bluetooth API.", TCL_STATIC);
+        return TCL_ERROR;
+    }
+
     Tcl_CreateObjCommand(
         interp, "iocp::bt::CloseHandle", BT_CloseHandleObjCmd, 0L, 0L);
     Tcl_CreateObjCommand(
