@@ -152,7 +152,7 @@ namespace eval iocp::bt {
         list.
 
         ``````
-        set addrs [iocp::bt::device_address "APN Phone"]
+        set addrs [iocp::bt::device addresses "APN Phone"]
         set addr  [lindex $addrs 0]
         ``````
 
@@ -161,7 +161,7 @@ namespace eval iocp::bt {
         the service of interest.
 
         ``````
-        set port [iocp::bt::service_port $addr OBEXObjectPush]
+        set port [iocp::bt::service port $addr OBEXObjectPush]
         ``````
 
         Finally, a connection is established to the service using the
@@ -212,10 +212,10 @@ namespace eval iocp::bt::sdr {
         commands in the namespace.
 
         ``````
-        set dev  [iocp::bt::device_address "APN Phone"]
-        set recs [iocp::bt::services $dev]
+        set dev  [iocp::bt::device address "APN Phone"]
+        set recs [iocp::bt::device services $dev]
         set sdr  [iocp::bt::sdr::decode [lindex $recs 0]]
-        set service_classes [iocp::bt::sdr::service_classes $sdr]
+        set service_classes [iocp::bt::sdr::attribute get $sdr ServiceClassIDList]
         ``````
     }
 }

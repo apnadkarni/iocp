@@ -46,8 +46,13 @@ proc iocp::bt::sdr::attribute::exists {sdr attr_id {varname {}}} {
     # sdr - a decoded service discovery record in the form returned by
     #       [decode].
     # attr_id - attribute integer id or Bluetooth universal attribute name
-    # varname - optional. If not the empty string, the raw attribute value is
-    #           stored in a variable of this name in the caller's context.
+    # varname - If not the empty string, the attribute
+    #           value is stored in a variable of this name in the
+    #           caller's context.
+    #
+    # The value returned in $varname is the attribute type-independent data
+    # value. To get the value formatted for the attribute type, use the
+    # [attribute get] command.
     #
     # Returns 1 if the attribute exists, and 0 otherwise.
 
@@ -60,7 +65,7 @@ proc iocp::bt::sdr::attribute::exists {sdr attr_id {varname {}}} {
     if {[dict exists $sdr $key]} {
         if {$varname ne ""} {
             upvar 1 $varname value
-            set value [dict get $sdr $attr_id]
+            set value [dict get $sdr $key]
         }
         return 1
     }
@@ -73,7 +78,7 @@ proc iocp::bt::sdr::attributes {sdr} {
     # sdr - a decoded service discovery record in the form returned by
     #       [decode].
     # Returns a list of numeric attribute ids.
-    return [lmap {attr val} $sdr {set attr}]
+    return [dict keys $sdr]
 }
 
 proc iocp::bt::sdr::attribute::raw {sdr attr_id} {
@@ -112,14 +117,14 @@ proc iocp::bt::sdr::attribute::get {sdr attr_id {varname {}}} {
     #  - If the attribute is present, the command returns its value.
     #  - If the attribute is not present, the command raises an error.
     #
-    # The attribute value is decoded from its raw format into a
-    # attribute type-dependent format.
+    # The attribute value is decoded into a attribute type-dependent format.
     #
     # The $attr_id argument must be one of those defined in
     # the *Universal Attributes* section in the
     # [Bluetooth Assigned Numbers](https://www.bluetooth.com/specifications/assigned-numbers/service-discovery/)
-    # specification. These are listed below. Refer to the Bluetooth
-    # specification for their exact semantics.
+    # specification. Otherwise an error is raised. The recognized attributes
+    # are listed below. Refer to the Bluetooth specification for their
+    # exact semantics.
     #
     # AdditionalProtocolDescriptorList - List of protocol stacks. This
     #    supplements the `ProtocolDescriptorList` attribute.
@@ -227,7 +232,7 @@ proc iocp::bt::sdr::attribute::text {sdr attr_id lang {varname {}}} {
     #  attr_id - Universal attribute name or numeric identifier.
     #  lang - language identifier as specified in iso639, e.g. `en` for
     #         english, `fr` for french etc. or the keyword `primary`.
-    #  varname - Optional name of variable in caller's context.
+    #  varname - Name of variable in caller's context.
     #
     # If $varname is not the empty string, it should be the name of
     # a variable in the caller's context.

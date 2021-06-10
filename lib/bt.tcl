@@ -264,7 +264,19 @@ proc iocp::bt::devices {args} {
     return $devices
 }
 
-interp alias {} iocp::bt::device::address {} iocp::bt::device::addresses
+proc iocp::bt::device::address {name args} {
+    # Returns a Bluetooth address for a given name.
+    #  name - name of device of interest
+    #  args - Options to control device enquiry. See [devices].
+    # If a device has multiple addresses, the command may return any one
+    # them. If no addresses are found for the device, an error is raised.
+    set addrs [addresses $name {*}$args]
+    if {[llength $addrs]} {
+        return [lindex $addrs 0]
+    }
+    error "Could not find address for device \"$name\"."
+}
+
 proc iocp::bt::device::addresses {name args} {
     # Returns a list of Bluetooth addresses for a given name.
     # name - name of device of interest

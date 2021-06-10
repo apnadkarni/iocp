@@ -27,7 +27,7 @@ namespace eval iocp::test {
             return 0
         }
         foreach elem $result {
-            if {![regexp $re $result]} {
+            if {![regexp $re $elem]} {
                 return 0
             }
         }
@@ -179,19 +179,26 @@ namespace eval iocp::test {
     testnumargs device "::iocp::bt::device" "subcommand" "?arg ...?"
 
     ###
-    # device addresses
+    # device addresses, device address
 
     testbadopt device-addresses "::iocp::bt::device addresses \"$TARGET\"" "-authenticated, -remembered, -unknown, -connected, -inquire, -timeout, or -hradio"
     testnumargs device-addresses "::iocp::bt::device addresses" "name" "?arg ...?"
+    testnumargs device-address "::iocp::bt::device address" "name" "?arg ...?"
     set num -1
-    test device-addresses-[incr num] {Get device address} -body {
+    test device-addresses-[incr num] {Get device addresses} -body {
         iocp::bt::device addresses $TARGET
     } -result "^$BTADDRRE\$" -match lregexp
+    test device-address-[incr num] {Get device address} -body {
+        iocp::bt::device addresses $TARGET
+    } -result "^$BTADDRRE\$" -match regexp
 
     foreach opt {-authenticated -inquire -remembered {-timeout 1000 -inquire}} {
         test device-addresses-[incr num] "device addresses $opt" -body {
             iocp::bt::device addresses $TARGET {*}$opt
         } -result "^$BTADDRRE\$" -match lregexp
+        test device-address-$num "device address $opt" -body {
+            iocp::bt::device address $TARGET {*}$opt
+        } -result "^$BTADDRRE\$" -match regexp
     }
 
     # Options that may not have any matching devices
@@ -207,12 +214,12 @@ namespace eval iocp::test {
         } -result 1
     }
 
-    ###
-    # device address is alias for device addresses for backward compatibility
-    testnumargs device-address "::iocp::bt::device address" "name" "?arg ...?"
-    test device-address-0 {Get device address} -body {
-        iocp::bt::device address $TARGET
-    } -result "^$BTADDRRE\$" -match regexp
+    foreach opt {{} {-timeout 1000 -inquire}} {
+        test device-addresses-[incr num] "Address for unknown" -body {
+            iocp::bt::device addresses nosuchdevice {*}$opt
+        } -result {}
+    }
+
 
     ###
     # device port
@@ -548,6 +555,318 @@ namespace eval iocp::test {
             [fconfigure $so -blocking 1] \
             [fconfigure $so -blocking]
     } -result [list {} {} {} 1]
+
+
+    ################################################################
+    # sdr
+
+    proc getsdrs {} {
+        variable TARGET
+        variable SDRS
+        if {![info exists SDRS]} {
+            set dev  [iocp::bt::device address $TARGET]
+            set SDRS [iocp::bt::device services $dev]
+        }
+        return $SDRS
+    }
+    proc getsdr {} {
+        variable SDR
+        if {[info exists SDR]} {
+            return $SDR
+        }
+        foreach sdr [getsdrs] {
+            set decoded [iocp::bt::sdr::decode $sdr]
+            if {[iocp::bt::sdr::attribute get $decoded ServiceClassIDList idlist]} {
+                foreach svc $idlist {
+                    if {[dict get $svc Name] eq "OBEXObjectPush"} {
+                        set SDR $sdr
+                        return $sdr
+                    }
+                }
+            }
+        }
+        error "Could not get SDR for OBEXObjectPush"
+    }
+
+    ###
+    # sdr decode
+
+    testnumargs sdr-decode "::iocp::bt::sdr::decode" "binsdr" ""
+    test sdr-decode-0 {sdr decode} -body {
+        # Just basic tests here that no errors are generated in decoding.
+        # The attribute tests will do the hard work
+        foreach sdr [getsdrs] {
+            iocp::bt::sdr::decode $sdr
+        }
+    } -result {}
+
+    ###
+    # sdr attribute exists
+    testnumargs sdr-attribute-exists "::iocp::bt::sdr::attribute exists" "sdr attr_id" "?varname?"
+    test sdr-attribute-exists-0 "SDR attribute exists" -body {
+        set sdr [iocp::bt::sdr::decode [getsdr]]
+        iocp::bt::sdr::attribute exists $sdr ServiceClassIDList
+    } -result 1
+    test sdr-attribute-exists-1 "SDR attribute exists" -body {
+        set sdr [iocp::bt::sdr::decode [getsdr]]
+        # 1 -> ServiceClassIdList
+        iocp::bt::sdr::attribute exists $sdr 1
+    } -result 1
+    test sdr-attribute-exists-2 "SDR attribute does not exist" -body {
+        set sdr [iocp::bt::sdr::decode [getsdr]]
+        iocp::bt::sdr::attribute exists $sdr 99
+    } -result 0
+    test sdr-attribute-exists-3 "SDR attribute exists var" -body {
+        set sdr [iocp::bt::sdr::decode [getsdr]]
+        list [iocp::bt::sdr::attribute exists $sdr ServiceClassIDList x] $x
+    } -result [list 1 {sequence {{uuid 00001105-0000-1000-8000-00805f9b34fb}}}]
+    test sdr-attribute-exists-4 "SDR attribute exists var" -body {
+        set sdr [iocp::bt::sdr::decode [getsdr]]
+        # 1 -> ServiceClassIdList
+        list [iocp::bt::sdr::attribute exists $sdr 1 x] $x
+    } -result [list 1 {sequence {{uuid 00001105-0000-1000-8000-00805f9b34fb}}}]
+    test sdr-attribute-exists-error-0 "SDR attribute unknown name" -body {
+        set sdr [iocp::bt::sdr::decode [getsdr]]
+        iocp::bt::sdr::attribute exists $sdr xxx
+    } -result {key "xxx" not known in dictionary} -returnCodes error
+
+    ###
+    # sdr attribute raw
+    testnumargs sdr-attribute-raw "::iocp::bt::sdr::attribute raw" "sdr attr_id" ""
+    test sdr-attribute-raw-0 "SDR attribute raw" -body {
+        set sdr [iocp::bt::sdr::decode [getsdr]]
+        iocp::bt::sdr::attribute raw $sdr ServiceClassIDList
+    } -result {sequence {{uuid 00001105-0000-1000-8000-00805f9b34fb}}}
+    test sdr-attribute-raw-1 "SDR attribute raw - numeric id" -body {
+        set sdr [iocp::bt::sdr::decode [getsdr]]
+        iocp::bt::sdr::attribute raw $sdr 1
+    } -result {sequence {{uuid 00001105-0000-1000-8000-00805f9b34fb}}}
+    test sdr-attribute-raw-error-0 "SDR attribute unknown name" -body {
+        set sdr [iocp::bt::sdr::decode [getsdr]]
+        iocp::bt::sdr::attribute raw $sdr xxx
+    } -result {key "xxx" not known in dictionary} -returnCodes error
+    test sdr-attribute-raw-error-1 "SDR attribute missing attribute" -body {
+        set sdr [iocp::bt::sdr::decode [getsdr]]
+        iocp::bt::sdr::attribute raw $sdr 99
+    } -result {Attribute with id "99" not found.} -returnCodes error
+
+
+    ###
+    # sdr attribute get
+    testnumargs sdr-attribute-get "::iocp::bt::sdr::attribute get" "sdr attr_id" "?varname?"
+    test sdr-attribute-get-0 "SDR attribute get" -body {
+        set sdr [iocp::bt::sdr::decode [getsdr]]
+        iocp::bt::sdr::attribute get $sdr ServiceClassIDList
+    } -result {{Uuid 00001105-0000-1000-8000-00805f9b34fb Name OBEXObjectPush}}
+    test sdr-attribute-get-1 "SDR attribute get numeric id" -body {
+        set sdr [iocp::bt::sdr::decode [getsdr]]
+        iocp::bt::sdr::attribute get $sdr 1
+    } -result {{Uuid 00001105-0000-1000-8000-00805f9b34fb Name OBEXObjectPush}}
+    test sdr-attribute-get-2 "SDR attribute get var" -body {
+        set sdr [iocp::bt::sdr::decode [getsdr]]
+        list \
+            [iocp::bt::sdr::attribute get $sdr ServiceClassIDList x] \
+            $x
+    } -result [list 1 {{Uuid 00001105-0000-1000-8000-00805f9b34fb Name OBEXObjectPush}}]
+    test sdr-attribute-get-3 "SDR attribute get numeric id var" -body {
+        set sdr [iocp::bt::sdr::decode [getsdr]]
+        list \
+            [iocp::bt::sdr::attribute get $sdr 1 x] \
+            $x
+    } -result [list 1 {{Uuid 00001105-0000-1000-8000-00805f9b34fb Name OBEXObjectPush}}]
+    test sdr-attribute-get-4 "SDR attribute get numeric id var - not present" -body {
+        set sdr [iocp::bt::sdr::decode [getsdr]]
+        set x unchanged
+        list \
+            [iocp::bt::sdr::attribute get $sdr IconURL x] \
+            $x
+    } -result [list 0 unchanged]
+    test sdr-attribute-get-error-0 "SDR attribute get missing" -body {
+        set sdr [iocp::bt::sdr::decode [getsdr]]
+        # 12 -> IconURL
+        iocp::bt::sdr::attribute get $sdr IconURL
+    } -result {Attribute with id "12" not found.} -returnCodes error
+    test sdr-attribute-get-error-1 "SDR attribute get unknown name" -body {
+        set sdr [iocp::bt::sdr::decode [getsdr]]
+        iocp::bt::sdr::attribute get $sdr xxx
+    } -result {Unknown attribute "xxx".} -returnCodes error
+    test sdr-attribute-get-error-2 "SDR attribute get unknown name var" -body {
+        set sdr [iocp::bt::sdr::decode [getsdr]]
+        iocp::bt::sdr::attribute get $sdr xxx var
+    } -result {Unknown attribute "xxx".} -returnCodes error
+
+    ###
+    # sdr attribute text
+    testnumargs sdr-attribute-text "::iocp::bt::sdr::attribute text" "sdr attr_id lang" "?varname?"
+    test sdr-attribute-text-0 "attribute text" -body {
+        set sdr [iocp::bt::sdr::decode [getsdr]]
+        iocp::bt::sdr::attribute text $sdr ServiceName primary
+    } -result "OBEX Object Push"
+    test sdr-attribute-text-1 "attribute text en" -body {
+        set sdr [iocp::bt::sdr::decode [getsdr]]
+        iocp::bt::sdr::attribute text $sdr ServiceName en
+    } -result "OBEX Object Push"
+    test sdr-attribute-text-2 "attribute text fr" -body {
+        set sdr [iocp::bt::sdr::decode [getsdr]]
+        # If lang does not exist, returns primary
+        iocp::bt::sdr::attribute text $sdr ServiceName fr
+    } -result "OBEX Object Push"
+    test sdr-attribute-text-3 "attribute text numeric" -body {
+        set sdr [iocp::bt::sdr::decode [getsdr]]
+        iocp::bt::sdr::attribute text $sdr 256 primary
+    } -result "OBEX Object Push"
+    test sdr-attribute-text-4 "attribute text var" -body {
+        set sdr [iocp::bt::sdr::decode [getsdr]]
+        list \
+            [iocp::bt::sdr::attribute text $sdr ServiceName primary x] \
+            $x
+    } -result [list 1 "OBEX Object Push"]
+    test sdr-attribute-text-5 "attribute text var - missing" -body {
+        set sdr [iocp::bt::sdr::decode [getsdr]]
+        set x unchanged
+        list \
+            [iocp::bt::sdr::attribute text $sdr ProviderName primary x] \
+            $x
+    } -result [list 0 unchanged]
+    test sdr-attribute-text-error-0 "attribute text - missing" -body {
+        set sdr [iocp::bt::sdr::decode [getsdr]]
+        iocp::bt::sdr::attribute text $sdr ProviderName primary
+    } -result "Attribute not found in SDR." -returnCodes error
+    test sdr-attribute-text-error-0 "attribute text - missing" -body {
+        set sdr [iocp::bt::sdr::decode [getsdr]]
+        iocp::bt::sdr::attribute text $sdr ServiceClassIDList primary
+    } -result {Invalid text attribute id "ServiceClassIDList".} -returnCodes error
+
+    ###
+    # sdr attributes
+    testnumargs sdr-attributes "::iocp::bt::sdr::attributes" "sdr" ""
+    test sdr-attributes-0 "sdr attributes" -body {
+        set sdr [iocp::bt::sdr::decode [getsdr]]
+        iocp::bt::sdr::attributes $sdr
+    } -result {^\d+$} -match lregexp
+
+    ###
+    # sdr print
+    testnumargs sdr-print "::iocp::bt::sdr::print" "rec" "?attrfilter?"
+    test sdr-print-0 "sdr print" -body {
+        iocp::bt::sdr::print [getsdr]
+        # Order may be random so cannot really match more detail
+    } -output "ServiceClassIDList: sequence.*00001105-0000-1000-8000-00805f9b34fb OBEXObjectPush" -match regexp
+    test sdr-print-1 "sdr print attrfilter" -body {
+        iocp::bt::sdr::print [getsdr] ServiceClass*
+    } -output "ServiceClassIDList: sequence\n    00001105-0000-1000-8000-00805f9b34fb OBEXObjectPush\n"
+
+    testnumargs sdr-printn "::iocp::bt::sdr::printn" "recs" "?attrfilter?"
+    test sdr-printn-0 "sdr printn" -body {
+        iocp::bt::sdr::printn [getsdrs]
+        # Order may be random so cannot really match more detail
+    } -output "(ServiceClassIDList.*\n-+\n)+.*" -match regexp
+    test sdr-printn-1 "sdr printn attrfilter" -body {
+        iocp::bt::sdr::printn [getsdrs] ServiceClass*
+    } -output "(ServiceClassIDList.*\n-+\n)+.*" -match regexp
+
+    ###
+    # names attribute_id
+
+    testnumargs names-attribute_id "::iocp::bt::names::attribute_id" "name" ""
+    test names-attribute_id-0 "attribute id of name" -body {
+        iocp::bt::names::attribute_id ServiceClassIDList
+    } -result 1
+    test names-attribute_id-1 "attribute id of id" -body {
+        iocp::bt::names::attribute_id 1
+    } -result 1
+    test names-attribute_id-2 "attribute id of localized text attribute" -body {
+        iocp::bt::names::attribute_id ServiceName
+    } -result 256
+
+    ###
+    # names attribute_name
+    testnumargs names-attribute_name "::iocp::bt::names::attribute_name" "attr_id" ""
+    test names-attribute_name-0 "attribute name of name" -body {
+        iocp::bt::names::attribute_name ServiceClassIDList
+    } -result ServiceClassIDList
+    test names-attribute_name-1 "attribute name of id" -body {
+        iocp::bt::names::attribute_name 1
+    } -result ServiceClassIDList
+    test names-attribute_name-2 "attribute name of loclaized text id" -body {
+        iocp::bt::names::attribute_name 256
+    } -result ServiceName
+
+    ###
+    # names profile_name
+    testnumargs names-profile_name "::iocp::bt::names::profile_name" "uuid" ""
+    test names-profile_name-0 "Profile name - short uuid" -body {
+        iocp::bt::names::profile_name 1134
+    } -result "Message Access Profile"
+    test names-profile_name-1 "Profile name - uuid" -body {
+        iocp::bt::names::profile_name 00001134-0000-1000-8000-00805f9b34fb
+    } -result "Message Access Profile"
+
+    ###
+    # names protocol_name
+    testnumargs names-protocol_name "::iocp::bt::names::protocol_name" "uuid" ""
+    test names-protocol_name-0 "protocol name - short uuid" -body {
+        iocp::bt::names::protocol_name 0003
+    } -result RFCOMM
+    test names-protocol_name-1 "protocol name - uuid" -body {
+        iocp::bt::names::protocol_name 00000003-0000-1000-8000-00805f9b34fb
+    } -result RFCOMM
+
+    ###
+    # names protcol_uuid
+    testnumargs names-protocol_uuid "::iocp::bt::names::protocol_uuid" "name" ""
+    test names-protocol_uuid-0 "protocol uuid - name" -body {
+        iocp::bt::names::protocol_uuid RFCOMM
+    } -result 00000003-0000-1000-8000-00805f9b34fb
+    test names-protocol_uuid-1 "protocol uuid - uuid" -body {
+        iocp::bt::names::protocol_uuid 00000003-0000-1000-8000-00805f9b34fb
+    } -result 00000003-0000-1000-8000-00805f9b34fb
+
+    ###
+    # names service_class_name
+    testnumargs names-service_class_name "::iocp::bt::names::service_class_name" "uuid" ""
+    test names-service_class_name-0 "service_class name - short uuid" -body {
+        iocp::bt::names::service_class_name 110a
+    } -result "AudioSource"
+    test names-service_class_name-1 "service_class name - uuid" -body {
+        iocp::bt::names::service_class_name 0000110A-0000-1000-8000-00805F9B34FB
+    } -result "AudioSource"
+
+    ###
+    # names service_class_uuid
+    testnumargs names-service_class_uuid "::iocp::bt::names::service_class_uuid" "name" ""
+    test names-service_class_uuid-0 "service_class uuid - name" -body {
+        iocp::bt::names::service_class_uuid AudioSource
+    } -result 0000110a-0000-1000-8000-00805f9b34fb
+    test names-service_class_uuid-1 "service_class uuid - uuid" -body {
+        iocp::bt::names::service_class_uuid 0000110a-0000-1000-8000-00805f9b34fb
+    } -result 0000110a-0000-1000-8000-00805f9b34fb
+
+    ###
+    # to_uuid
+    testnumargs names-to_uuid "::iocp::bt::names::to_uuid" "name_or_uuid" ""
+    test names-to_uuid-0 "to_uuid - service class name" -body {
+        iocp::bt::names::to_uuid AudioSource
+    } -result 0000110a-0000-1000-8000-00805f9b34fb
+    test names-to_uuid-1 "to_uuid - protocol name" -body {
+        iocp::bt::names::to_uuid RFCOMM
+    } -result 00000003-0000-1000-8000-00805f9b34fb
+
+    ###
+    # names to_name
+    testnumargs names-to_name "::iocp::bt::names::to_name" "uuid" ""
+    test names-to_name-0 "to_name service class short uuid" -body {
+        iocp::bt::names::to_name 110a
+    } -result "AudioSource"
+    test names-to_name-1 "to_name service class short uuid" -body {
+        iocp::bt::names::to_name 0000110A-0000-1000-8000-00805F9B34FB
+    } -result "AudioSource"
+    test names-to_name-2 "to_name protocol short uuid" -body {
+        iocp::bt::names::to_name 0003
+    } -result "RFCOMM"
+    test names-to_name-3 "to_name protocol uuid" -body {
+        iocp::bt::names::to_name 00000003-0000-1000-8000-00805f9b34fb
+    } -result "RFCOMM"
 
     ################################################################
     ::tcltest::cleanupTests

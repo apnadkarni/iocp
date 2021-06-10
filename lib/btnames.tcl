@@ -136,6 +136,10 @@ namespace eval iocp::bt::names {
 
 }
 
+proc iocp::bt::names::is_uuid {uuid} {
+    regexp {^[[:xdigit:]]{8}-([[:xdigit:]]{4}-){3}[[:xdigit:]]{12}$} $uuid
+}
+
 proc iocp::bt::names::to_name {uuid} {
     # Map a UUID to a name.
     #  uuid - Bluetooth UUID
@@ -145,7 +149,7 @@ proc iocp::bt::names::to_name {uuid} {
     # Returns the mapped name or the uuid if no mapping is possible.
 
     set name [service_class_name $uuid]
-    if {$name ne $uuid} {
+    if {$name ne $uuid && ![is_uuid $name]} {
         return $name
     }
     return [protocol_name $uuid]
