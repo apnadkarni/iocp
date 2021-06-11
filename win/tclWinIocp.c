@@ -2068,11 +2068,18 @@ Iocp_BtInitObjCmd (
     int objc,				/* Number of arguments. */
     Tcl_Obj *CONST objv[])		/* Argument objects. */
 {
+#if IOCP_ENABLE_BLUETOOTH
     if (objc != 1) {
         Tcl_WrongNumArgs(interp, 1, objv, "");
         return TCL_ERROR;
     }
     return BT_ModuleInitialize(interp);
+#else
+    Tcl_SetResult(interp,
+                  "The extension has been compiled without Bluetooth support.",
+                  TCL_STATIC);
+    return TCL_ERROR;
+#endif
 }
 
 int

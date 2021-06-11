@@ -7,10 +7,11 @@
 #   nmake /f makefile.vc INSTALLDIR=c:\tcl test
 #   nmake /f makefile.vc INSTALLDIR=c:\tcl install
 #
-# For other build options (debug, static etc.),
+# For other build options using OPTS= (debug, static etc.),
 # See TIP 477 (https://core.tcl.tk/tips/doc/trunk/tip/477.md) for
 # detailed documentation.
 #
+# To leave out Bluetooth support include nobt in OPTS= command line option.
 # To do a debug tracing build include iocpdebug in the OPTS= command line option.
 #
 # See the file "license.terms" for information on usage and redistribution
@@ -21,6 +22,7 @@
 PROJECT	= iocp
 
 !include "rules-ext.vc"
+
 
 PRJ_OBJS = \
     $(TMP_DIR)\tclWinIocp.obj \
@@ -35,6 +37,14 @@ PRJ_OBJS = \
 
 PRJ_DEFINES = /D_WIN32_WINNT=_WIN32_WINNT_WIN7 /DTCLH_SHORTNAMES
 
+!if [nmakehlp -f $(OPTS) "nobt"]
+!message *** Disabling Bluetooth
+ENABLE_BLUETOOTH = 0
+!else
+ENABLE_BLUETOOTH = 1
+!endif
+PRJ_DEFINES = $(PRJ_DEFINES) /DIOCP_ENABLE_BLUETOOTH=$(ENABLE_BLUETOOTH)
+
 !if [nmakehlp -f $(OPTS) "iocptrace"]
 !message *** Doing a tracing build
 PRJ_OBJS = $(PRJ_OBJS) $(TMP_DIR)\tclWinIocpTrace.obj
@@ -47,7 +57,6 @@ PRJ_DEFINES = $(PRJ_DEFINES) /DIOCP_ENABLE_ASSERT /DIOCP_DEBUG
 !endif
 
 PRJ_LIBS  = ws2_32.lib rpcrt4.lib
-#PRJ_LIBS  = ws2_32.lib Bthprops.lib rpcrt4.lib
 
 "$(WIN_DIR)\tclWinIocp.h" : "$(WIN_DIR)\tclhPointer.h"
 $(PRJ_OBJS) : "$(WIN_DIR)\tclWinIocp.h" "$(WIN_DIR)\makefile.vc"
@@ -60,9 +69,9 @@ DISABLE_TARGET_install = 1
 
 # Override binary installation directory
 !if "$(ARCH)" == "AMD64"
-BIN_INSTALL_DIR = $(SCRIPT_INSTALL_DIR)\win32-x86_64
+BIN_INSTALL_DIR = $(SCRIPT_INSTALL_DIR)\amd64
 !else
-BIN_INSTALL_DIR = $(SCRIPT_INSTALL_DIR)\win32-ix86
+BIN_INSTALL_DIR = $(SCRIPT_INSTALL_DIR)\x86
 !endif
 
 install:  pkgindex default-install-docs-html
@@ -70,7 +79,9 @@ install:  pkgindex default-install-docs-html
 	@if not exist "$(SCRIPT_INSTALL_DIR)" mkdir "$(SCRIPT_INSTALL_DIR)"
 	@if not exist "$(BIN_INSTALL_DIR)" mkdir "$(BIN_INSTALL_DIR)"
 	@$(CPY) $(PRJLIB) "$(BIN_INSTALL_DIR)" >NUL
+!if $(ENABLE_BLUETOOTH)
 	@$(CPY) $(LIBDIR)\*.tcl "$(SCRIPT_INSTALL_DIR)"
+!endif
 	@$(CPY) $(OUT_DIR)\pkgIndex.tcl "$(SCRIPT_INSTALL_DIR)"
 	@$(CPY) $(ROOT)\LICENSE "$(SCRIPT_INSTALL_DIR)"
 pkgindex: default-pkgindex-tea

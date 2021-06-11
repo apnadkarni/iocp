@@ -16,7 +16,10 @@ package ifneeded @PACKAGE_NAME@ @PACKAGE_VERSION@ \
 # iocp_inet doesn't need anything other than core iocp
 package ifneeded @PACKAGE_NAME@_inet @PACKAGE_VERSION@ \
     "package require @PACKAGE_NAME@"
-# iocp_bt needs supporting script files
-package ifneeded @PACKAGE_NAME@_bt @PACKAGE_VERSION@ \
+
+if {@ENABLE_BLUETOOTH@} {
+    # iocp_bt needs supporting script files
+    package ifneeded @PACKAGE_NAME@_bt @PACKAGE_VERSION@ \
         "[list source [file join $dir bt.tcl]]"
+}
 

@@ -72,6 +72,27 @@ TEA_ADD_LIBS([])
 TEA_ADD_STUB_SOURCES([])
 
 #--------------------------------------------------------------------
+# Check whether --enable-bluetooth was given.
+# Do this before adding sources.
+#--------------------------------------------------------------------
+
+AC_MSG_CHECKING([enabling of bluetooth support])
+AC_ARG_ENABLE(bluetooth,
+              AC_HELP_STRING([--enable-bluetooth],
+                             [enabling of bluetooth support (default: yes)]),
+              [tcl_ok=$enableval], [tcl_ok=yes])
+AC_MSG_RESULT("$tcl_ok")
+if test "$tcl_ok" = "no"; then
+    ENABLE_BLUETOOTH=0
+elif test "$tcl_ok" = "yes"; then
+    ENABLE_BLUETOOTH=1
+else
+    ENABLE_BLUETOOTH=1
+    AC_MSG_WARN([unsupporte value $tcl_ok for enable-bluetooth, expected yes or no])
+fi
+AC_SUBST(ENABLE_BLUETOOTH)
+
+#--------------------------------------------------------------------
 # You can add more files to clean if your extension creates any extra
 # files by extending CLEANFILES.
 # Add pkgIndex.tcl if it is generated in the Makefile instead of ./configure
@@ -81,7 +102,6 @@ TEA_ADD_STUB_SOURCES([])
 # TEA_ADD_* any platform specific compiler/build info here.
 #--------------------------------------------------------------------
 
-#CLEANFILES="$CLEANFILES twapi_entry.tcl"
 if test "${TEA_PLATFORM}" = "windows" ; then
 
     TEA_ADD_INCLUDES([-I.])
@@ -94,20 +114,24 @@ if test "${TEA_PLATFORM}" = "windows" ; then
                        win/tclPolyfill.c
                        win/tclWinIocpWinsock.c
                        win/tclWinIocpTcp.c
-                       win/tclWinIocpBT.c
                        win/tclWinIocpUtil.c
     ])
+    if test "${ENABLE_BLUETOOTH}" == "1" ; then
+        TEA_ADD_SOURCES([win/tclWinIocpBT.c])
+    fi
 # Bloat - win/tclWinIocpBTNames.c
 
     TEA_ADD_LIBS([
                     ws2_32.lib rpcrt4.lib
 		])
 
-    TEA_ADD_TCL_SOURCES([
-                           lib/bt.tcl
-                           lib/btnames.tcl
-                           lib/btsdr.tcl
-    ])
+    if test "${ENABLE_BLUETOOTH}" == "1" ; then
+        TEA_ADD_TCL_SOURCES([
+                               lib/bt.tcl
+                               lib/btnames.tcl
+                               lib/btsdr.tcl
+                           ])
+    fi
 
 else
     # Ensure no empty else clauses
@@ -153,16 +177,19 @@ TEA_ENABLE_SHARED
 
 TEA_CONFIG_CFLAGS
 
+#--------------------------------------------------------------------
+# Enable/disable Bluetooth support
+#--------------------------------------------------------------------
+CFLAGS="${CFLAGS} -DIOCP_ENABLE_BLUETOOTH=${ENABLE_BLUETOOTH}"
+
 # Set the architecture specific subdirectory. This extension is Windows only so
-# hard code the values which correspond to the values in tcl_platform(platform)
-# platform::identify command. This has to come after TEA_CONFIG_CFLAGS because that
-# sets the do64bit variable.
+# hard code the values as checked by pkgIndex.tcl. This has to come after
+# TEA_CONFIG_CFLAGS because that sets the do64bit variable.
 AS_IF([test "$do64bit" = "yes"], [
 	  AC_SUBST(PLATFORM_IDENTIFY, "amd64")
       ], [
 	  AC_SUBST(PLATFORM_IDENTIFY, "x86")
       ])
-
 
 #--------------------------------------------------------------------
 # Set the default compiler switches based on the --enable-symbols option.

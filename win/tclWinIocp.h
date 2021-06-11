@@ -11,14 +11,24 @@
  * of this file, and for a DISCLAIMER OF ALL WARRANTIES.
  */
 
+#ifndef IOCP_ENABLE_BLUETOOTH
+#define IOCP_ENABLE_BLUETOOTH 1
+#endif
 
+/* These need to precede windows.h in older compilers for reasons I forget */
 #include <winsock2.h>
 #include <mswsock.h>
 #include <ws2tcpip.h>
+#if IOCP_ENABLE_BLUETOOTH
 #include <ws2bth.h>
+#endif
+
 #include <windows.h>
+
+#if IOCP_ENABLE_BLUETOOTH
 #include <Bthsdpdef.h>
 #include <BluetoothAPIs.h>
+#endif
 
 #include "tcl.h"
 #include <errno.h>
@@ -674,9 +684,11 @@ DWORD WINAPI IocpCompletionThread (LPVOID lpParam);
 
 #ifdef TBD
 /* Currently not included as too much bloat */
+#if IOCP_ENABLE_BLUETOOTH
 const char *BT_MapiCompanyIdToName(
     unsigned int companyId
     );
+#endif
 #endif
 
 /* If building as an extension, polyfill internal Tcl routines. */
@@ -699,7 +711,9 @@ void AcceptCallbackProc(ClientData callbackData, Tcl_Channel chan,
 
 /* Module initializations */
 IocpTclCode Tcp_ModuleInitialize(Tcl_Interp *interp);
+#if IOCP_ENABLE_BLUETOOTH
 IocpTclCode BT_ModuleInitialize(Tcl_Interp *interp);
+#endif
 
 /* Script level commands */
 Tcl_ObjCmdProc	Iocp_StatsObjCmd;

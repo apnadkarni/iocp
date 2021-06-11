@@ -9,14 +9,14 @@ To build using mingw/gcc, 64-bits
 
    mkdir build64
    cd build64
-   ../configure --libdir=/d/tcl/8610-mingw/x64 --enable-threads --enable-64bit --with-tcl=/d/tcl/8610-mingw/x64/lib
+   ../configure --libdir=/d/tcl/mingw-8610/x64 --enable-threads --enable-64bit --with-tcl=/d/tcl/mingw-8610/x64/lib
    make
    make install
 
 To build using mingw/gcc, 32-bits
    mkdir build32
    cd build32
-   ../configure --libdir=/d/tcl/8610-mingw/x86 --enable-threads --with-tcl=/d/tcl/8610-mingw/x86/lib
+   ../configure --libdir=/d/tcl/mingw-8610/x86 --enable-threads --with-tcl=/d/tcl/mingw-8610/x86/lib
    make
    make install
 
@@ -30,6 +30,6 @@ To generate documentation,
    cd doc
    tclsh doc.tcl
 
-The ruff and iocp packages need to be in the Tcl auto_path.
+The ruff and iocp packages need to be in Tcl's auto_path.
 
 

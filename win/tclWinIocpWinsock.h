@@ -8,7 +8,7 @@
  */
 
 /*
- * Copied from Tcl - 
+ * Copied from Tcl -
  * This is needed to comply with the strict aliasing rules of GCC, but it also
  * simplifies casting between the different sockaddr types.
  */
@@ -18,7 +18,9 @@ typedef union {
     struct sockaddr_in      sa4;
     struct sockaddr_in6     sa6;
     struct sockaddr_storage sas;
+#if IOCP_ENABLE_BLUETOOTH
     SOCKADDR_BTH            sabt;
+#endif
 } IocpSockaddr;
 #ifndef IN6_ARE_ADDR_EQUAL
 #define IN6_ARE_ADDR_EQUAL IN6_ADDR_EQUAL
@@ -50,10 +52,12 @@ typedef struct WinsockClient {
             struct addrinfo *local;   /* Local address in use
                                        * Points into localAddrList */
         } inet;                       /* AF_INET or AF_INET6 */
+#if IOCP_ENABLE_BLUETOOTH
         struct {
             SOCKADDR_BTH remote;      /* Remote address */
             SOCKADDR_BTH local;       /* Local address */
         } bt;                         /* AF_BTH */
+#endif
     } addresses;
     int flags;                        /* Miscellaneous flags */
 #define IOCP_WINSOCK_CONNECT_ASYNC 0x1 /* Async connect */
@@ -119,6 +123,7 @@ IocpTclCode  WinsockClientSetOption (IocpChannel *lockedChanPtr,
                                      Tcl_Interp *interp, int optIndex,
                                      const char *valuePtr);
 
+#if IOCP_ENABLE_BLUETOOTH
 /*
  * Bluetooth exports
  */
@@ -126,5 +131,6 @@ char *StringFromBLUETOOTH_ADDRESS(
     const BLUETOOTH_ADDRESS *addrPtr,
     char  *bufPtr,
     int    bufSize); /* Should be at least 18 bytes, else truncated */
+#endif
 
 #endif /* TCLIOCPWINSOCK_H */

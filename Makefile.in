@@ -62,6 +62,8 @@ PKG_STUB_LIB_FILE = @PKG_STUB_LIB_FILE@
 
 # IOCP-specific to install into architecture-specific subdirectories
 PLATFORM_IDENTIFY = @PLATFORM_IDENTIFY@
+# Whether Bluetooth is enabled
+ENABLE_BLUETOOTH = @ENABLE_BLUETOOTH@
 
 lib_BINARIES	= $(PKG_LIB_FILE)
 BINARIES	= $(lib_BINARIES)
@@ -236,6 +238,9 @@ install-doc: doc
 #	done
 
 test: binaries libraries
+ifeq ($(ENABLE_BLUETOOTH), 1)
+	@cp $(srcdir)/lib/*.tcl .
+endif
 	$(TCLSH) `@CYGPATH@ $(srcdir)/tests/all.tcl` $(TESTFLAGS)
 
 shell: binaries libraries

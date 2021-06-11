@@ -648,6 +648,7 @@ TCL_THREADS
 TCL_INCLUDES
 PKG_OBJECTS
 PKG_SOURCES
+ENABLE_BLUETOOTH
 MATH_LIBS
 EGREP
 GREP
@@ -733,6 +734,7 @@ ac_subst_files=''
 ac_user_opts='
 enable_option_checking
 with_tcl
+enable_bluetooth
 with_tclinclude
 enable_threads
 enable_shared
@@ -1361,6 +1363,7 @@ Optional Features:
   --disable-option-checking  ignore unrecognized --enable/--with options
   --disable-FEATURE       do not include FEATURE (same as --enable-FEATURE=no)
   --enable-FEATURE[=ARG]  include FEATURE [ARG=yes]
+  --enable-bluetooth      enabling of bluetooth support (default: yes)
   --enable-threads        build with threads
   --enable-shared         build and link with shared libraries (default: on)
   --enable-64bit          enable 64bit support (default: off)
@@ -5317,6 +5320,33 @@ done
 
 
 #--------------------------------------------------------------------
+# Check whether --enable-bluetooth was given.
+# Do this before adding sources.
+#--------------------------------------------------------------------
+
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking enabling of bluetooth support" >&5
+$as_echo_n "checking enabling of bluetooth support... " >&6; }
+# Check whether --enable-bluetooth was given.
+if test "${enable_bluetooth+set}" = set; then :
+  enableval=$enable_bluetooth; tcl_ok=$enableval
+else
+  tcl_ok=yes
+fi
+
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: \"$tcl_ok\"" >&5
+$as_echo "\"$tcl_ok\"" >&6; }
+if test "$tcl_ok" = "no"; then
+    ENABLE_BLUETOOTH=0
+elif test "$tcl_ok" = "yes"; then
+    ENABLE_BLUETOOTH=1
+else
+    ENABLE_BLUETOOTH=1
+    { $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: unsupporte value $tcl_ok for enable-bluetooth, expected yes or no" >&5
+$as_echo "$as_me: WARNING: unsupporte value $tcl_ok for enable-bluetooth, expected yes or no" >&2;}
+fi
+
+
+#--------------------------------------------------------------------
 # You can add more files to clean if your extension creates any extra
 # files by extending CLEANFILES.
 # Add pkgIndex.tcl if it is generated in the Makefile instead of ./configure
@@ -5326,7 +5356,6 @@ done
 # TEA_ADD_* any platform specific compiler/build info here.
 #--------------------------------------------------------------------
 
-#CLEANFILES="$CLEANFILES twapi_entry.tcl"
 if test "${TEA_PLATFORM}" = "windows" ; then
 
 
@@ -5349,7 +5378,6 @@ if test "${TEA_PLATFORM}" = "windows" ; then
                        win/tclPolyfill.c
                        win/tclWinIocpWinsock.c
                        win/tclWinIocpTcp.c
-                       win/tclWinIocpBT.c
                        win/tclWinIocpUtil.c
     "
     for i in $vars; do
@@ -5385,6 +5413,43 @@ if test "${TEA_PLATFORM}" = "windows" ; then
 
 
 
+    if test "${ENABLE_BLUETOOTH}" == "1" ; then
+
+    vars="win/tclWinIocpBT.c"
+    for i in $vars; do
+	case $i in
+	    \$*)
+		# allow $-var names
+		PKG_SOURCES="$PKG_SOURCES $i"
+		PKG_OBJECTS="$PKG_OBJECTS $i"
+		;;
+	    *)
+		# check for existence - allows for generic/win/unix VPATH
+		# To add more dirs here (like 'src'), you have to update VPATH
+		# in Makefile.in as well
+		if test ! -f "${srcdir}/$i" -a ! -f "${srcdir}/generic/$i" \
+		    -a ! -f "${srcdir}/win/$i" -a ! -f "${srcdir}/unix/$i" \
+		    -a ! -f "${srcdir}/macosx/$i" \
+		    ; then
+		    as_fn_error $? "could not find source file '$i'" "$LINENO" 5
+		fi
+		PKG_SOURCES="$PKG_SOURCES $i"
+		# this assumes it is in a VPATH dir
+		i=`basename $i`
+		# handle user calling this before or after TEA_SETUP_COMPILER
+		if test x"${OBJEXT}" != x ; then
+		    j="`echo $i | sed -e 's/\.[^.]*$//'`.${OBJEXT}"
+		else
+		    j="`echo $i | sed -e 's/\.[^.]*$//'`.\${OBJEXT}"
+		fi
+		PKG_OBJECTS="$PKG_OBJECTS $j"
+		;;
+	esac
+    done
+
+
+
+    fi
 # Bloat - win/tclWinIocpBTNames.c
 
 
@@ -5401,12 +5466,13 @@ if test "${TEA_PLATFORM}" = "windows" ; then
 
 
 
+    if test "${ENABLE_BLUETOOTH}" == "1" ; then
 
     vars="
-                           lib/bt.tcl
-                           lib/btnames.tcl
-                           lib/btsdr.tcl
-    "
+                               lib/bt.tcl
+                               lib/btnames.tcl
+                               lib/btsdr.tcl
+                           "
     for i in $vars; do
 	# check for existence, be strict because it is installed
 	if test ! -f "${srcdir}/$i" ; then
@@ -5416,6 +5482,7 @@ if test "${TEA_PLATFORM}" = "windows" ; then
     done
 
 
+    fi
 
 else
     # Ensure no empty else clauses
@@ -8385,10 +8452,14 @@ $as_echo "no" >&6; }
 
 
 
+#--------------------------------------------------------------------
+# Enable/disable Bluetooth support
+#--------------------------------------------------------------------
+CFLAGS="${CFLAGS} -DIOCP_ENABLE_BLUETOOTH=${ENABLE_BLUETOOTH}"
+
 # Set the architecture specific subdirectory. This extension is Windows only so
-# hard code the values which correspond to the values in tcl_platform(platform)
-# platform::identify command. This has to come after TEA_CONFIG_CFLAGS because that
-# sets the do64bit variable.
+# hard code the values as checked by pkgIndex.tcl. This has to come after
+# TEA_CONFIG_CFLAGS because that sets the do64bit variable.
 if test "$do64bit" = "yes"; then :
 
 	  PLATFORM_IDENTIFY="amd64"
@@ -8400,7 +8471,6 @@ else
 
 
 fi
-
 
 #--------------------------------------------------------------------
 # Set the default compiler switches based on the --enable-symbols option.
