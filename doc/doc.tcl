@@ -243,12 +243,14 @@ proc iocp::Document {outfile args} {
     set namespaces [list ${ns}::inet ${ns}::bt ${ns}::bt::sdr ${ns}::bt::names]
     ruff::document $namespaces -autopunctuate 1 -excludeprocs {^[_A-Z]} \
         -recurse 0 -preamble $_preamble -pagesplit namespace \
-        -navigation fixed -output $outfile -includesource 1 \
-        -title "iocp package reference (V[package present iocp])" \
+        -navigation sticky \
+        -outdir html -outfile $outfile -includesource 0 \
+        -title "iocp" \
+        -version "[package present iocp]" \
         {*}$args
 }
 
 if {[file normalize $argv0] eq [file normalize [info script]]} {
     cd [file dirname [info script]]
-    iocp::Document iocp.html {*}$argv
+    iocp::Document iocp.html -copyright "Ashok P. Nadkarni" {*}$argv
 }
