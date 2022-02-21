@@ -13,7 +13,7 @@
             <button id="ruffNavMove" onclick="ruffMoveNavPane()"></button>
             <button id="ruffToggleTheme" onclick="ruffNextTheme()"></button>
             </div>
-        </header><main class='ruff-layout-main ruff-bd'><h1 class='ruff'><a name='::iocp::bt::sdr'></a>::iocp::bt::sdr<span class='ruff-uplink'><a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp_docindex.html#'>Index</a></span></h1>
+        </header><main class='ruff-layout-main ruff-bd'><h1 class='ruff'><a name='::iocp::bt::sdr'></a>::iocp::bt::sdr<span class='ruff-uplink'><a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h1>
 <div style='clear:both;'></div>
 <p class='ruff'>The <code>iocp::bt::sdr</code> namespace contains commands for parsing Bluetooth <strong>Service Discovery Records</strong> (SDR) as returned by the <a href="iocp-iocp-bt.html#::iocp::bt::device services" title="::iocp::bt::device services" class='ruff_cmd'>::iocp::bt::device services</a> and <a href="iocp-iocp-bt.html#::iocp::bt::device service_references" title="::iocp::bt::device service_references" class='ruff_cmd'>::iocp::bt::device service_references</a> commands. These return a list of binary records which must be first parsed with the <a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr::decode" title="decode" class='ruff_cmd'>decode</a> command. Individual service attributes can then be retrieved from the decoded records using the other commands in the namespace.</p>
 <pre class='ruff'>
@@ -22,12 +22,24 @@ set recs [iocp::bt::device services $dev]
 set sdr  [iocp::bt::sdr::decode [lindex $recs 0]]
 set service_classes [iocp::bt::sdr::attribute get $sdr ServiceClassIDList]
 </pre>
-<h2 class='ruff'><a name='::iocp::bt::sdr-Commands'></a>Commands<span class='ruff-uplink'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr'>sdr</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp_docindex.html#'>Index</a></span></h2>
+<h2 class='ruff'><a name='::iocp::bt::sdr-Commands'></a>Commands<span class='ruff-uplink'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr'>sdr</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h2>
 <div style='clear:both;'></div>
-<h4 class='ruffproc'><a name='::iocp::bt::sdr::attribute exists'>attribute exists</a><span class='ns_scope'> [<a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr" title="::iocp::bt::sdr" class='ruff_cmd'>::iocp::bt::sdr</a>]</span><span class='ruff-uplink'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr'>sdr</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp_docindex.html#'>Index</a></span></h4>
+<h3 class='ruffproc'><a name='::iocp::bt::sdr::attribute'>attribute</a><span class='ns_scope'> [<a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr" title="::iocp::bt::sdr" class='ruff_cmd'>::iocp::bt::sdr</a>]</span><span class='ruff-uplink'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr'>sdr</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
+<div style='clear:both;'></div>
+<p class='ruff'>A command ensemble.</p>
+<div class='ruff_synopsis'><span class='ruff_cmd'>attribute</span> <span class='ruff_arg'>subcommand ...</span></div>
+<h5 class='ruff'>Description</h5><p class='ruff'>The ensemble supports the following subcommands:</p>
+<table class='ruff_deflist'>
+<tr><td><a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr::attribute exists" title="exists" class='ruff_cmd'>exists</a></td><td>Checks if an attribute exists in a service discovery record.</td></tr>
+<tr><td><a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr::attribute get" title="get" class='ruff_cmd'>get</a></td><td>Get the value of an universal attribute from a service discovery record.</td></tr>
+<tr><td><a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr::attribute raw" title="raw" class='ruff_cmd'>raw</a></td><td>Get an attribute value from an service discovery record.</td></tr>
+<tr><td><a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr::attribute text" title="text" class='ruff_cmd'>text</a></td><td>Get the value of an text attribute in the specified language from a service discovery record.</td></tr>
+</table>
+<p class='ruff'>Refer to the documentation of each subcommand for details.</p>
+<h3 class='ruffproc'><a name='::iocp::bt::sdr::attribute exists'>attribute exists</a><span class='ns_scope'> [<a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr" title="::iocp::bt::sdr" class='ruff_cmd'>::iocp::bt::sdr</a>]</span><span class='ruff-uplink'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr'>sdr</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
 <div style='clear:both;'></div>
 <p class='ruff'>Checks if an attribute exists in a service discovery record</p>
-<div class='ruff_synopsis'><span class='ruff_cmd'>attribute exists</span> <span class='ruff_arg'>sdr attr_id ?varname?</span><br></div>
+<div class='ruff_synopsis'><span class='ruff_cmd'>attribute exists</span> <span class='ruff_arg'>sdr attr_id ?varname?</span></div>
 <h5 class='ruff'>Parameters</h5><table class='ruff_deflist'>
 <tr><td><code>sdr</code></td><td>A decoded service discovery record in the form returned by <a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr::decode" title="decode" class='ruff_cmd'>decode</a>.</td></tr>
 <tr><td><code>attr_id</code></td><td>Attribute integer id or Bluetooth universal attribute name.</td></tr>
@@ -35,10 +47,10 @@ set service_classes [iocp::bt::sdr::attribute get $sdr ServiceClassIDList]
 </table>
 <h5 class='ruff'>Description</h5><p class='ruff'>The value returned in <code>$varname</code> is the attribute type-independent data value. To get the value formatted for the attribute type, use the <a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr::attribute get" title="attribute get" class='ruff_cmd'>attribute get</a> command.</p>
 <h5 class='ruff'>Return value</h5><p class='ruff'>Returns 1 if the attribute exists, and 0 otherwise.</p>
-<h4 class='ruffproc'><a name='::iocp::bt::sdr::attribute get'>attribute get</a><span class='ns_scope'> [<a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr" title="::iocp::bt::sdr" class='ruff_cmd'>::iocp::bt::sdr</a>]</span><span class='ruff-uplink'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr'>sdr</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp_docindex.html#'>Index</a></span></h4>
+<h3 class='ruffproc'><a name='::iocp::bt::sdr::attribute get'>attribute get</a><span class='ns_scope'> [<a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr" title="::iocp::bt::sdr" class='ruff_cmd'>::iocp::bt::sdr</a>]</span><span class='ruff-uplink'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr'>sdr</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
 <div style='clear:both;'></div>
 <p class='ruff'>Get the value of an universal attribute from a service discovery record.</p>
-<div class='ruff_synopsis'><span class='ruff_cmd'>attribute get</span> <span class='ruff_arg'>sdr attr_id ?varname?</span><br></div>
+<div class='ruff_synopsis'><span class='ruff_cmd'>attribute get</span> <span class='ruff_arg'>sdr attr_id ?varname?</span></div>
 <h5 class='ruff'>Parameters</h5><table class='ruff_deflist'>
 <tr><td><code>sdr</code></td><td>Decoded service discovery record.</td></tr>
 <tr><td><code>attr_id</code></td><td>Universal attribute name or numeric identifier.</td></tr>
@@ -83,20 +95,20 @@ set service_classes [iocp::bt::sdr::attribute get $sdr ServiceClassIDList]
 </table>
 <p class='ruff'>In the case of LanguageBaseAttributeIDList, the attribute value is a dictionary indexed by language identifiers as defined in ISO639, e.g. <code>en</code>, <code>fr</code> etc. The corresponding value is itself a dictionary with keys <code>BaseOffset</code> and <code>Encoding</code>. See the Bluetooth specification for the former. The latter is either a Tcl encoding name or in case the encoding is not supported by Tcl, an integer value that identifies an encoding as per the Bluetooth specification.</p>
 <h5 class='ruff'>Return value</h5><p class='ruff'>Returns a boolean or the decoded attribute value.</p>
-<h4 class='ruffproc'><a name='::iocp::bt::sdr::attribute raw'>attribute raw</a><span class='ns_scope'> [<a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr" title="::iocp::bt::sdr" class='ruff_cmd'>::iocp::bt::sdr</a>]</span><span class='ruff-uplink'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr'>sdr</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp_docindex.html#'>Index</a></span></h4>
+<h3 class='ruffproc'><a name='::iocp::bt::sdr::attribute raw'>attribute raw</a><span class='ns_scope'> [<a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr" title="::iocp::bt::sdr" class='ruff_cmd'>::iocp::bt::sdr</a>]</span><span class='ruff-uplink'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr'>sdr</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
 <div style='clear:both;'></div>
 <p class='ruff'>Get an attribute value from an service discovery record.</p>
-<div class='ruff_synopsis'><span class='ruff_cmd'>attribute raw</span> <span class='ruff_arg'>sdr attr_id</span><br></div>
+<div class='ruff_synopsis'><span class='ruff_cmd'>attribute raw</span> <span class='ruff_arg'>sdr attr_id</span></div>
 <h5 class='ruff'>Parameters</h5><table class='ruff_deflist'>
 <tr><td><code>sdr</code></td><td>A decoded service discovery record in the form returned by sdr_decode.</td></tr>
 <tr><td><code>attr_id</code></td><td>Attribute integer id.</td></tr>
 </table>
 <h5 class='ruff'>Description</h5><p class='ruff'>The command will raise an error if the attribute does not exist in the sdr.</p>
 <h5 class='ruff'>Return value</h5><p class='ruff'>Returns the attribute value as a pair consisting of the type and the raw data element value.</p>
-<h4 class='ruffproc'><a name='::iocp::bt::sdr::attribute text'>attribute text</a><span class='ns_scope'> [<a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr" title="::iocp::bt::sdr" class='ruff_cmd'>::iocp::bt::sdr</a>]</span><span class='ruff-uplink'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr'>sdr</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp_docindex.html#'>Index</a></span></h4>
+<h3 class='ruffproc'><a name='::iocp::bt::sdr::attribute text'>attribute text</a><span class='ns_scope'> [<a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr" title="::iocp::bt::sdr" class='ruff_cmd'>::iocp::bt::sdr</a>]</span><span class='ruff-uplink'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr'>sdr</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
 <div style='clear:both;'></div>
 <p class='ruff'>Get the value of an text attribute in the specified language from a service discovery record.</p>
-<div class='ruff_synopsis'><span class='ruff_cmd'>attribute text</span> <span class='ruff_arg'>sdr attr_id lang ?varname?</span><br></div>
+<div class='ruff_synopsis'><span class='ruff_cmd'>attribute text</span> <span class='ruff_arg'>sdr attr_id lang ?varname?</span></div>
 <h5 class='ruff'>Parameters</h5><table class='ruff_deflist'>
 <tr><td><code>sdr</code></td><td>Decoded service discovery record.</td></tr>
 <tr><td><code>attr_id</code></td><td>Universal attribute name or numeric identifier.</td></tr>
@@ -115,35 +127,35 @@ set service_classes [iocp::bt::sdr::attribute get $sdr ServiceClassIDList]
 </ul>
 <p class='ruff'>If the record does not contain a value for the specified language, the value for the primary language will be retrieved.</p>
 <h5 class='ruff'>Return value</h5><p class='ruff'>Returns a boolean or the attribute text value.</p>
-<h4 class='ruffproc'><a name='::iocp::bt::sdr::attributes'>attributes</a><span class='ns_scope'> [<a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr" title="::iocp::bt::sdr" class='ruff_cmd'>::iocp::bt::sdr</a>]</span><span class='ruff-uplink'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr'>sdr</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp_docindex.html#'>Index</a></span></h4>
+<h3 class='ruffproc'><a name='::iocp::bt::sdr::attributes'>attributes</a><span class='ns_scope'> [<a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr" title="::iocp::bt::sdr" class='ruff_cmd'>::iocp::bt::sdr</a>]</span><span class='ruff-uplink'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr'>sdr</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
 <div style='clear:both;'></div>
 <p class='ruff'>Get the list of attributes in a service discovery record</p>
-<div class='ruff_synopsis'><span class='ruff_cmd'>attributes</span> <span class='ruff_arg'>sdr</span><br></div>
+<div class='ruff_synopsis'><span class='ruff_cmd'>attributes</span> <span class='ruff_arg'>sdr</span></div>
 <h5 class='ruff'>Parameters</h5><table class='ruff_deflist'>
 <tr><td><code>sdr</code></td><td>A decoded service discovery record in the form returned by <a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr::decode" title="decode" class='ruff_cmd'>decode</a>.</td></tr>
 </table>
 <h5 class='ruff'>Return value</h5><p class='ruff'>Returns a list of numeric attribute ids.</p>
-<h4 class='ruffproc'><a name='::iocp::bt::sdr::decode'>decode</a><span class='ns_scope'> [<a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr" title="::iocp::bt::sdr" class='ruff_cmd'>::iocp::bt::sdr</a>]</span><span class='ruff-uplink'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr'>sdr</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp_docindex.html#'>Index</a></span></h4>
+<h3 class='ruffproc'><a name='::iocp::bt::sdr::decode'>decode</a><span class='ns_scope'> [<a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr" title="::iocp::bt::sdr" class='ruff_cmd'>::iocp::bt::sdr</a>]</span><span class='ruff-uplink'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr'>sdr</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
 <div style='clear:both;'></div>
 <p class='ruff'>Decodes a binary service discovery record</p>
-<div class='ruff_synopsis'><span class='ruff_cmd'>decode</span> <span class='ruff_arg'>binsdr</span><br></div>
+<div class='ruff_synopsis'><span class='ruff_cmd'>decode</span> <span class='ruff_arg'>binsdr</span></div>
 <h5 class='ruff'>Parameters</h5><table class='ruff_deflist'>
 <tr><td><code>binsdr</code></td><td>A raw Bluetooth service discovery record in binary form.</td></tr>
 </table>
 <h5 class='ruff'>Description</h5><p class='ruff'>The returned value should be treated as opaque. The attributes stored in the record should be accessed with the commands in the <code>sdr</code> namespace.</p>
 <h5 class='ruff'>Return value</h5><p class='ruff'>Returns a container of attributes stored in the record.</p>
-<h4 class='ruffproc'><a name='::iocp::bt::sdr::print'>print</a><span class='ns_scope'> [<a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr" title="::iocp::bt::sdr" class='ruff_cmd'>::iocp::bt::sdr</a>]</span><span class='ruff-uplink'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr'>sdr</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp_docindex.html#'>Index</a></span></h4>
+<h3 class='ruffproc'><a name='::iocp::bt::sdr::print'>print</a><span class='ns_scope'> [<a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr" title="::iocp::bt::sdr" class='ruff_cmd'>::iocp::bt::sdr</a>]</span><span class='ruff-uplink'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr'>sdr</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
 <div style='clear:both;'></div>
 <p class='ruff'>Prints a SDP record to a more human readable form.</p>
-<div class='ruff_synopsis'><span class='ruff_cmd'>print</span> <span class='ruff_arg'>rec ?attrfilter?</span><br></div>
+<div class='ruff_synopsis'><span class='ruff_cmd'>print</span> <span class='ruff_arg'>rec ?attrfilter?</span></div>
 <h5 class='ruff'>Parameters</h5><table class='ruff_deflist'>
 <tr><td><code>rec</code></td><td>A binary SDP record in the form returned by <a href="iocp-iocp-bt.html#::iocp::bt::device services" title="::iocp::bt::device services" class='ruff_cmd'>::iocp::bt::device services</a> or <a href="iocp-iocp-bt.html#::iocp::bt::device service_references" title="::iocp::bt::device service_references" class='ruff_cmd'>::iocp::bt::device service_references</a>.</td></tr>
 <tr><td><code>attrfilter</code></td><td>If specified, only attribute names matching the filter using <code>string match</code> are printed. Optional, default <code>*</code>.</td></tr>
 </table>
-<h4 class='ruffproc'><a name='::iocp::bt::sdr::printn'>printn</a><span class='ns_scope'> [<a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr" title="::iocp::bt::sdr" class='ruff_cmd'>::iocp::bt::sdr</a>]</span><span class='ruff-uplink'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr'>sdr</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp_docindex.html#'>Index</a></span></h4>
+<h3 class='ruffproc'><a name='::iocp::bt::sdr::printn'>printn</a><span class='ns_scope'> [<a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr" title="::iocp::bt::sdr" class='ruff_cmd'>::iocp::bt::sdr</a>]</span><span class='ruff-uplink'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr'>sdr</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
 <div style='clear:both;'></div>
 <p class='ruff'>Prints a SDP record to a more human readable form.</p>
-<div class='ruff_synopsis'><span class='ruff_cmd'>printn</span> <span class='ruff_arg'>recs ?attrfilter?</span><br></div>
+<div class='ruff_synopsis'><span class='ruff_cmd'>printn</span> <span class='ruff_arg'>recs ?attrfilter?</span></div>
 <h5 class='ruff'>Parameters</h5><table class='ruff_deflist'>
 <tr><td><code>recs</code></td><td>A list of binary SDP records in the form returned by <a href="iocp-iocp-bt.html#::iocp::bt::device services" title="::iocp::bt::device services" class='ruff_cmd'>::iocp::bt::device services</a> or <a href="iocp-iocp-bt.html#::iocp::bt::device service_references" title="::iocp::bt::device service_references" class='ruff_cmd'>::iocp::bt::device service_references</a>.</td></tr>
 <tr><td><code>attrfilter</code></td><td>If specified, only attribute names matching the filter using <code>string match</code> are printed. Optional, default <code>*</code>.</td></tr>
@@ -155,13 +167,14 @@ set service_classes [iocp::bt::sdr::attribute get $sdr ServiceClassIDList]
 <li class='ruff-toc1'><a href='iocp-iocp-bt-names.html'>iocp::bt::names</a></li>
 <li class='ruff-toc1'><a class='ruff-highlight' href='iocp-iocp-bt-sdr.html'>iocp::bt::sdr</a></li>
 <li class='ruff-toc1'><a href='iocp-iocp-inet.html'>iocp::inet</a></li>
-<hr><li class='ruff-toc1'><a href='#::iocp::bt::sdr'>iocp::bt::sdr</a></li><li class='ruff-toc2'><a href='#::iocp::bt::sdr-Commands'>Commands</a></li><li class='ruff-toc4 ruff-tip'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr::attribute exists'>attribute exists</a><span class='ruff-tiptext'>Checks if an attribute exists in a service discovery record
-</span></li><li class='ruff-toc4 ruff-tip'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr::attribute get'>attribute get</a><span class='ruff-tiptext'>Get the value of an universal attribute from a service discovery record.
-</span></li><li class='ruff-toc4 ruff-tip'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr::attribute raw'>attribute raw</a><span class='ruff-tiptext'>Get an attribute value from an service discovery record.
-</span></li><li class='ruff-toc4 ruff-tip'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr::attribute text'>attribute text</a><span class='ruff-tiptext'>Get the value of an text attribute in the specified language from a service discovery record.
-</span></li><li class='ruff-toc4 ruff-tip'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr::attributes'>attributes</a><span class='ruff-tiptext'>Get the list of attributes in a service discovery record
-</span></li><li class='ruff-toc4 ruff-tip'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr::decode'>decode</a><span class='ruff-tiptext'>Decodes a binary service discovery record
-</span></li><li class='ruff-toc4 ruff-tip'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr::print'>print</a><span class='ruff-tiptext'>Prints a SDP record to a more human readable form.
-</span></li><li class='ruff-toc4 ruff-tip'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr::printn'>printn</a><span class='ruff-tiptext'>Prints a SDP record to a more human readable form.
+<hr><li class='ruff-toc2'><a href='#::iocp::bt::sdr-Commands'>Commands</a></li><li class='ruff-toc3 ruff-tip'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr::attribute'>attribute</a><span class='ruff-tiptext'><pre><span class='ruff_cmd'>attribute</span> <span class='ruff_arg'>subcommand ...</span></pre>A command ensemble.
+</span></li><li class='ruff-toc3 ruff-tip'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr::attribute exists'><span style='visibility:hidden'>&nbsp;&nbsp;&nbsp;</span> exists</a><span class='ruff-tiptext'><pre><span class='ruff_cmd'>attribute exists</span> <span class='ruff_arg'>sdr attr_id ?varname?</span></pre>Checks if an attribute exists in a service discovery record
+</span></li><li class='ruff-toc3 ruff-tip'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr::attribute get'><span style='visibility:hidden'>&nbsp;&nbsp;&nbsp;</span> get</a><span class='ruff-tiptext'><pre><span class='ruff_cmd'>attribute get</span> <span class='ruff_arg'>sdr attr_id ?varname?</span></pre>Get the value of an universal attribute from a service discovery record.
+</span></li><li class='ruff-toc3 ruff-tip'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr::attribute raw'><span style='visibility:hidden'>&nbsp;&nbsp;&nbsp;</span> raw</a><span class='ruff-tiptext'><pre><span class='ruff_cmd'>attribute raw</span> <span class='ruff_arg'>sdr attr_id</span></pre>Get an attribute value from an service discovery record.
+</span></li><li class='ruff-toc3 ruff-tip'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr::attribute text'><span style='visibility:hidden'>&nbsp;&nbsp;&nbsp;</span> text</a><span class='ruff-tiptext'><pre><span class='ruff_cmd'>attribute text</span> <span class='ruff_arg'>sdr attr_id lang ?varname?</span></pre>Get the value of an text attribute in the specified language from a service discovery record.
+</span></li><li class='ruff-toc3 ruff-tip'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr::attributes'>attributes</a><span class='ruff-tiptext'><pre><span class='ruff_cmd'>attributes</span> <span class='ruff_arg'>sdr</span></pre>Get the list of attributes in a service discovery record
+</span></li><li class='ruff-toc3 ruff-tip'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr::decode'>decode</a><span class='ruff-tiptext'><pre><span class='ruff_cmd'>decode</span> <span class='ruff_arg'>binsdr</span></pre>Decodes a binary service discovery record
+</span></li><li class='ruff-toc3 ruff-tip'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr::print'>print</a><span class='ruff-tiptext'><pre><span class='ruff_cmd'>print</span> <span class='ruff_arg'>rec ?attrfilter?</span></pre>Prints a SDP record to a more human readable form.
+</span></li><li class='ruff-toc3 ruff-tip'><a href='iocp-iocp-bt-sdr.html#::iocp::bt::sdr::printn'>printn</a><span class='ruff-tiptext'><pre><span class='ruff_cmd'>printn</span> <span class='ruff_arg'>recs ?attrfilter?</span></pre>Prints a SDP record to a more human readable form.
 </span></li></ul></nav><footer class='ruff-layout-footer ruff-ft'><div style='float: right;'>Document generated by <a href='https://ruff.magicsplat.com'>Ruff!</a></div><div>&copy; Ashok P. Nadkarni</div></footer>
 </div></body></html>
