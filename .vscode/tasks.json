@@ -4,18 +4,27 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "debug",
+            "label": "debug90",
             "type": "shell",
-            "command": "win\\build.bat OPTS=iocptrace,iocpdebug,pdbs INSTALLDIR=D:\\tcl\\debug\\x64 cdebug=\"-Zi -Od\"",
+            "command": "win\\build.bat OPTS=iocptrace,iocpdebug,pdbs INSTALLDIR=D:\\tcl\\90\\x64-debug cdebug=\"-Zi -Od\"",
             "problemMatcher": [
                 "$msCompile"
             ],
             "group": "build"
         },
         {
-            "label": "debug-install",
+            "label": "debug90-install",
             "type": "shell",
-            "command": "win\\build.bat OPTS=iocptrace,iocpdebug,pdbs INSTALLDIR=D:\\tcl\\debug\\x64 cdebug=\"-Zi -Od\" install",
+            "command": "win\\build.bat OPTS=iocptrace,iocpdebug,pdbs INSTALLDIR=D:\\tcl\\90\\x64-debug cdebug=\"-Zi -Od\" install",
+            "problemMatcher": [
+                "$msCompile"
+            ],
+            "group": "build"
+        },
+        {
+            "label": "debug86",
+            "type": "shell",
+            "command": "win\\build86.bat OPTS=iocptrace,iocpdebug,pdbs INSTALLDIR=D:\\tcl\\86\\x64-debug cdebug=\"-Zi -Od\"",
             "problemMatcher": [
                 "$msCompile"
             ],
