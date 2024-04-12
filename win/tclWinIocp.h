@@ -59,7 +59,7 @@
 typedef int   IocpTclCode;      /* TCL_OK etc. */
 typedef DWORD IocpWinError;     /* Windows error codes */
 typedef int   IocpPosixError;   /* POSIX error codes */
-typedef int   IocpSizeT;        /* Signed type to hold Tcl string lengths */
+typedef Tclh_SSizeT   IocpSizeT;        /* Signed type to hold Tcl string lengths */
 
 /*
  * We may use either critical sections or SRWLocks. The latter are lighter
@@ -588,6 +588,7 @@ extern IocpStats iocpStats;
 
 #ifdef BUILD_iocp
 
+#if TCL_MAJOR_VERSION < 9
 /*
  * We need to access platform-dependent internal stubs. For
  * example, the Tcl channel system relies on specific values to be used
@@ -603,6 +604,7 @@ struct IocpTcl85IntPlatStubs {
 };
 extern struct IocpTcl85IntPlatStubs *tclIntPlatStubsPtr;
 #define IOCP_TCL85_INTERNAL_PLATFORM_STUB(fn_) (((struct IocpTcl85IntPlatStubs *)tclIntPlatStubsPtr)->fn_)
+#endif
 
 #endif /* BUILD_iocp */
 
@@ -610,6 +612,9 @@ extern struct IocpTcl85IntPlatStubs *tclIntPlatStubsPtr;
  * Prototypes for IOCP internal functions.
  */
 IocpTclCode Iocp_DoOnce(Iocp_DoOnceState *stateP, Iocp_DoOnceProc *once_fn, ClientData clientdata);
+
+/* String utilities */
+Tcl_Obj *IocpNewWincharObj(WCHAR *wstr, IocpSizeT len);
 
 /* List utilities */
 void IocpListAppend(IocpList *listPtr, IocpLink *linkPtr);

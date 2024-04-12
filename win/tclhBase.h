@@ -37,27 +37,27 @@
 #if TCL_MAJOR_VERSION <= 8
 typedef int Tclh_SSizeT;
 #else
-#error Define Tclh_SSizeT for Tcl 9
+typedef Tcl_Size Tclh_SSizeT;
 #endif
 
-TCLH_INLINE char *Tclh_memdup(void *from, int len) {
+TCLH_INLINE char *Tclh_memdup(void *from, Tclh_SSizeT len) {
     void *to = ckalloc(len);
     memcpy(to, from, len);
     return to;
 }
 
 TCLH_INLINE Tclh_SSizeT Tclh_strlen(const char *s) {
-    return (int) strlen(s);
+    return (Tclh_SSizeT) strlen(s);
 }
 
 TCLH_INLINE char *Tclh_strdup(const char *from) {
-    int len = Tclh_strlen(from) + 1;
+    Tclh_SSizeT len = Tclh_strlen(from) + 1;
     char *to = ckalloc(len);
     memcpy(to, from, len);
     return to;
 }
 
-TCLH_INLINE char *Tclh_strdupn(const char *from, int len) {
+TCLH_INLINE char *Tclh_strdupn(const char *from, Tclh_SSizeT len) {
     char *to = ckalloc(len+1);
     memcpy(to, from, len);
     to[len] = '\0';

@@ -675,10 +675,10 @@ WinsockClientGetOption(
             winError = WSAGetLastError();
         else {
             /* Note original length in case we need to revert after modification */
-            int dsLen = Tcl_DStringLength(dsPtr);
+            Tcl_Size dsLen = Tcl_DStringLength(dsPtr);
             winError = WinsockListifyAddress(&addr, addrSize, noRDNS, dsPtr);
             if (winError != ERROR_SUCCESS)
-                Tcl_DStringTrunc(dsPtr, dsLen); /* Restore */
+                Tcl_DStringSetLength(dsPtr, dsLen); /* Restore */
         }
         if (winError == 0)
             return TCL_OK;

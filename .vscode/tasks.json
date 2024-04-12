@@ -49,9 +49,9 @@
             "group": "build"
         },
         {
-            "label": "clean",
+            "label": "realclean",
             "type": "shell",
-            "command": "win\\build.bat INSTALLDIR=D:\\tcl\\debug\\x64 clean",
+            "command": "win\\build.bat realclean",
             "problemMatcher": [],
             "group": "build"
         }

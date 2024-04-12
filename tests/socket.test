@@ -70,6 +70,12 @@ namespace import -force ::tcltest::*
 testConstraint thread [expr {0 == [catch {package require Thread 2.7-}]}]
 testConstraint exec [llength [info commands exec]]
 
+set soOptions {-blocking -buffering -buffersize -connecting -encoding -eofchar -error -maxpendingaccepts -maxpendingreads -maxpendingwrites -sockname -sorcvbuf -sosndbuf -translation}
+if {[package vsatisfies [package require Tcl] 9-]} {
+    lappend soOptions -profile
+}
+set soOptions [lsort $soOptions]
+
 # Produce a random port number in the Dynamic/Private range
 # from 49152 through 65535.
 proc randport {} {
@@ -1049,7 +1055,7 @@ test socket_$af-7.3 {testing iocp::inet::socket specific options} -constraints [
     close $s
     update
     lsort [dict keys $l]
-} -result {-blocking -buffering -buffersize -connecting -encoding -eofchar -error -maxpendingaccepts -maxpendingreads -maxpendingwrites -sockname -sorcvbuf -sosndbuf -translation}
+} -result $soOptions
 test socket_$af-7.4 {testing iocp::inet::socket specific options} -constraints [list supported_$af] -setup {
     set timer [after 10000 "set x timed_out"]
     set l ""
@@ -2087,7 +2093,7 @@ test socket-14.7.2 {pending [iocp::inet::socket -async] and blocking [gets], no 
     list $x [fconfigure $sock -error] [fconfigure $sock -error]
 } -constraints {notOSX} -cleanup {
     catch {close $sock}
-} -match glob -result {{error reading "tcp*": socket is not connected} {connection refused} {}}
+} -match glob -result {{error reading "tcp*": * is not connected} {connection refused} {}}
 test socket-14.8.0 {pending [iocp::inet::socket -async] and nonblocking [gets], server is IPv4} -setup {
     set server_code "$iocp_load_command\n"
     append server_code {
@@ -2150,7 +2156,7 @@ test socket-14.8.2 {pending [iocp::inet::socket -async] and nonblocking [gets], 
     list $x [fconfigure $sock -error] [fconfigure $sock -error]
 } -cleanup {
     catch {close $sock}
-} -match glob -result {{error reading "tcp*": socket is not connected} {connection refused} {}}
+} -match glob -result {{error reading "tcp*": * is not connected} {connection refused} {}}
 test socket-14.9.0 {pending [iocp::inet::socket -async] and blocking [puts], server is IPv4} -setup {
     set server_code "$iocp_load_command\n"
     append server_code {
@@ -2272,7 +2278,7 @@ test socket-14.11.0 {pending [iocp::inet::socket -async] and nonblocking [puts],
     after cancel $after
     catch {close $sock}
     unset -nocomplain x
-} -result {socket is not connected} -returnCodes 1
+} -result {* is not connected} -returnCodes 1 -match glob
 test socket-14.11.1 {pending [iocp::inet::socket -async] and nonblocking [puts], no listener, flush} -setup {
     set after [after $latency set x timeout]
 } -body {
@@ -2287,7 +2293,7 @@ test socket-14.11.1 {pending [iocp::inet::socket -async] and nonblocking [puts],
     after cancel $timeout
     catch {close $sock}
     unset -nocomplain x
-} -result {socket is not connected} -returnCodes 1
+} -result {* is not connected} -returnCodes 1 -match glob
 test socket-14.12 {[iocp::inet::socket -async] background progress triggered by [fconfigure -error]} -body {
     set s [iocp::inet::socket -async localhost [randport]]
     for {set i 0} {$i < 50} {incr i} {

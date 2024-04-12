@@ -1233,8 +1233,8 @@ IocpTclCode TcpListenerGetOption(
 {
     TcpListener *lockedTcpPtr  = IocpChannelToTcpListener(lockedChanPtr);
     IocpSockaddr addr;
-    IocpWinError    winError;
-    int  dsLen;
+    IocpWinError winError;
+    Tcl_Size dsLen;
     int  listenerIndex;
     int  addrSize;
     char integerSpace[TCL_INTEGER_SPACE];
@@ -1259,7 +1259,7 @@ IocpTclCode TcpListenerGetOption(
         if (lockedTcpPtr->base.winError != ERROR_SUCCESS) {
             Tcl_Obj *objPtr = Iocp_MapWindowsError(lockedTcpPtr->base.winError,
                                                    NULL, NULL);
-            int      nbytes;
+            Tcl_Size nbytes;
             char    *emessage = Tcl_GetStringFromObj(objPtr, &nbytes);
             Tcl_DStringAppend(dsPtr, emessage, nbytes);
             Tcl_DecrRefCount(objPtr);
@@ -1285,7 +1285,7 @@ IocpTclCode TcpListenerGetOption(
                 break;
         }
         if (winError != ERROR_SUCCESS) {
-            Tcl_DStringTrunc(dsPtr, dsLen); /* Restore original length */
+            Tcl_DStringSetLength(dsPtr, dsLen); /* Restore original length */
             return Iocp_ReportWindowsError(interp, winError, NULL);
         } else {
             return TCL_OK;
@@ -1704,10 +1704,10 @@ Tcp_SocketObjCmd (
     IocpSizeT           len;
     char               *copyScript;
 
-        len        = Tclh_strlen(script) + 1;
-        copyScript = ckalloc(len);
+    len        = Tclh_strlen(script) + 1;
+    copyScript = ckalloc(len);
     memcpy(copyScript, script, len);
-        acceptCallbackPtr         = ckalloc(sizeof(*acceptCallbackPtr));
+    acceptCallbackPtr         = ckalloc(sizeof(*acceptCallbackPtr));
     acceptCallbackPtr->script = copyScript;
     acceptCallbackPtr->interp = interp;
 

@@ -127,7 +127,7 @@ static void StringFromUuidObj(Tcl_Obj *objP)
 #ifdef _WIN32
     UUID *uuidP = IntrepGetUuid(objP);
     unsigned char *uuidStr;
-    int  len;
+    Tclh_SSizeT  len;
     if (UuidToStringA(uuidP, &uuidStr) != RPC_S_OK) {
         TCLH_PANIC("Out of memory stringifying UUID.");
     }

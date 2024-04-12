@@ -124,6 +124,7 @@ Tcl_Obj *Iocp_MapWindowsError(
                             (WCHAR *) &winErrorMessagePtr,
                             0, NULL);
     if (length > 0) {
+        Tcl_Obj *winErrorObj;
         /* Strip trailing CR LF if any */
         if (winErrorMessagePtr[length-1] == L'\n')
             --length;
@@ -131,7 +132,9 @@ Tcl_Obj *Iocp_MapWindowsError(
             if (winErrorMessagePtr[length-1] == L'\r')
                 --length;
         }
-        Tcl_AppendUnicodeToObj(objPtr, winErrorMessagePtr, length);
+        winErrorObj = IocpNewWincharObj(winErrorMessagePtr, length);
+        Tcl_AppendObjToObj(objPtr, winErrorObj);
+        Tcl_DecrRefCount(winErrorObj);
         LocalFree(winErrorMessagePtr);
     } else {
         Tcl_AppendPrintfToObj(objPtr, "Windows error code %ld", winError);
@@ -186,7 +189,11 @@ IocpTclCode Iocp_ReportLastWindowsError(
  */
 void IocpSetTclErrnoFromWin32(IocpWinError winError)
 {
+#if TCL_MAJOR_VERSION < 9
     IOCP_TCL85_INTERNAL_PLATFORM_STUB(tclWinConvertError)(winError);
+#else
+    Tcl_WinConvertError(winError);
+#endif
 }
 
 /*
@@ -715,20 +722,40 @@ void __cdecl Iocp_Panic(
     ...
     )
 {
+    char buf[1024];
     va_list args;
 
     va_start(args, formatStr);
+    _vsnprintf_s(buf, sizeof(buf), _TRUNCATE, formatStr, args);
+    va_end(args);
+    buf[sizeof(buf) - 1] = '\0';
     if (IsDebuggerPresent()) {
-        char buf[1024];
-        _vsnprintf_s(buf, sizeof(buf), _TRUNCATE, formatStr, args);
-        va_end(args);
-        buf[sizeof(buf)-1] = '\0';
         OutputDebugStringA(buf);
         __debugbreak();
     } else {
-        Tcl_PanicVA(formatStr, args);
-        va_end(args); /* Not reached but... */
+        Tcl_Panic("%s", buf);
     }
 }
 
-
+/* Function: IocpNewWincharObj
+ * Returns a Tcl_Obj containing a WCHAR string
+ *
+ * Parameters:
+ * wstr - WCHAR string
+ * len - length of string or -1 if nul terminated
+ *
+ * Returns:
+ * A Tcl_Obj
+ */
+Tcl_Obj *
+IocpNewWincharObj(WCHAR *wstr, IocpSizeT len)
+{
+#if TCL_MAJOR_VERSION < 9
+    return Tcl_NewUnicodeObj(wstr, len);
+#else
+    Tcl_DString ds;
+    Tcl_DStringInit(&ds);
+    (void)Tcl_Char16ToUtfDString(wstr, len, &ds);
+    return Tcl_DStringToObj(&ds);
+#endif
+}

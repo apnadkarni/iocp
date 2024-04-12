@@ -1044,7 +1044,9 @@ static IocpTclCode IocpProcessInit(ClientData clientdata)
  * IocpChannelDispatch
  * Defines the dispatch table for IOCP data channels.
  */
+#if TCL_MAJOR_VERSION < 9
 static Tcl_DriverCloseProc	IocpChannelClose;
+#endif
 static Tcl_DriverInputProc	IocpChannelInput;
 static Tcl_DriverOutputProc	IocpChannelOutput;
 static Tcl_DriverSetOptionProc	IocpChannelSetOption;
@@ -1057,8 +1059,12 @@ static Tcl_DriverThreadActionProc IocpChannelThreadAction;
 
 Tcl_ChannelType IocpChannelDispatch = {
     "iocpconnection", /* Channel type name */
-    TCL_CHANNEL_VERSION_4,
+    (Tcl_ChannelTypeVersion)TCL_CHANNEL_VERSION_5,
+#if TCL_MAJOR_VERSION < 9
     IocpChannelClose,
+#else
+    NULL,
+#endif
     IocpChannelInput,
     IocpChannelOutput,
     NULL, /* No Seek ability */
@@ -1072,6 +1078,7 @@ Tcl_ChannelType IocpChannelDispatch = {
     NULL, /* HandlerProc. Only valid for stacked channels */
     NULL, /* WideSeekProc. */
     IocpChannelThreadAction,
+    NULL  /* Truncate */
 };
 
 static int

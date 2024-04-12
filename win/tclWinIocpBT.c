@@ -747,7 +747,7 @@ static Tcl_Obj *ObjFromBLUETOOTH_RADIO_INFO (const BLUETOOTH_RADIO_INFO *infoPtr
     objs[0] = STRING_LITERAL_OBJ("Address");
     objs[1] = ObjFromBLUETOOTH_ADDRESS(&infoPtr->address);
     objs[2] = STRING_LITERAL_OBJ("Name");
-    objs[3] = Tcl_NewUnicodeObj(infoPtr->szName, -1);
+    objs[3] = IocpNewWincharObj(infoPtr->szName, -1);
     objs[4] = STRING_LITERAL_OBJ("Class");
     objs[5] = Tcl_NewWideIntObj(infoPtr->ulClassofDevice);
     objs[6] = STRING_LITERAL_OBJ("Subversion");
@@ -765,7 +765,7 @@ static Tcl_Obj *ObjFromBLUETOOTH_DEVICE_INFO (const BLUETOOTH_DEVICE_INFO *infoP
     objs[0] = STRING_LITERAL_OBJ("Address");
     objs[1] = ObjFromBLUETOOTH_ADDRESS(&infoPtr->Address);
     objs[2] = STRING_LITERAL_OBJ("Name");
-    objs[3] = Tcl_NewUnicodeObj(infoPtr->szName, -1);
+    objs[3] = IocpNewWincharObj(infoPtr->szName, -1);
     objs[4] = STRING_LITERAL_OBJ("Class");
     objs[5] = Tcl_NewWideIntObj(infoPtr->ulClassofDevice);
     objs[6] = STRING_LITERAL_OBJ("Connected");
@@ -1508,11 +1508,14 @@ int BT_LookupServiceBeginObjCmd (
 {
     HANDLE      lookupH;
     int         flags;
-    int         len;
     Tclh_UUID   serviceUuid;
     Tcl_Obj    *objP;
     WSAQUERYSETW      qs;
     BLUETOOTH_ADDRESS btAddr;
+    Tcl_DString ds, ds2;
+    Tcl_Size utf8len;
+    const char *utf8;
+    int tclResult;
 
     /* LookupServiceBegin device_address service_guid ?service_name? */
     if (objc < 3 || objc > 4) {
@@ -1526,11 +1529,19 @@ int BT_LookupServiceBeginObjCmd (
         return TCL_ERROR;
     }
 
+    Tcl_DStringInit(&ds);
+    Tcl_DStringInit(&ds2);
     ZeroMemory(&qs, sizeof(qs));
 
-    /* Note we extract the Unicode string last, so no shimmering issues. */
-    if (objc == 4)
-        qs.lpszQueryString = Tcl_GetUnicodeFromObj(objv[3], &len);
+    if (objc == 4) {
+#if TCL_MAJOR_VERSION < 9
+        /* Note we extract the Unicode string last, so no shimmering issues. */
+        qs.lpszQueryString = Tcl_GetUnicodeFromObj(objv[3], NULL);
+#else
+        utf8 = Tcl_GetStringFromObj(objv[3], &utf8len);
+        qs.lpszQueryString = Tcl_UtfToChar16DString(utf8, utf8len, &ds);
+#endif
+    }
 
     /*
      * Only these fields need to be set for Bluetooth.
@@ -1539,18 +1550,28 @@ int BT_LookupServiceBeginObjCmd (
     qs.dwSize              = sizeof(qs);
     qs.lpServiceClassId    = &serviceUuid;
     qs.dwNameSpace         = NS_BTH;
-    qs.lpszContext         = Tcl_GetUnicodeFromObj(objv[1], &len);
+#if TCL_MAJOR_VERSION < 9
+    qs.lpszContext         = Tcl_GetUnicodeFromObj(objv[1], NULL);
+#else
+    utf8 = Tcl_GetStringFromObj(objv[3], &utf8len);
+    qs.lpszContext = Tcl_UtfToChar16DString(utf8, utf8len, &ds2);
+#endif
 
     flags = LUP_FLUSHCACHE;
     if (WSALookupServiceBeginW(&qs, flags, &lookupH) != 0)
-        return Iocp_ReportWindowsError(
+        tclResult = Iocp_ReportWindowsError(
             interp, WSAGetLastError(), "Bluetooth service search failed. ");
-    if (PointerRegister(interp, lookupH, "HWSALOOKUPSERVICE", &objP) != TCL_OK) {
-        CloseHandle(lookupH);
-        return TCL_ERROR;
+    else {
+        tclResult =
+            PointerRegister(interp, lookupH, "HWSALOOKUPSERVICE", &objP);
+        if (tclResult != TCL_OK)
+            CloseHandle(lookupH);
+        else
+            Tcl_SetObjResult(interp, objP);
     }
-    Tcl_SetObjResult(interp, objP);
-    return TCL_OK;
+    Tcl_DStringFree(&ds);
+    Tcl_DStringFree(&ds2);
+    return tclResult;
 }
 
 static IocpTclCode
@@ -1651,7 +1672,7 @@ BT_LookupServiceNextObjCmd (
 
         if (flags & LUP_RETURN_NAME && qsP->lpszServiceInstanceName) {
             objs[i++] = STRING_LITERAL_OBJ("ServiceInstanceName");
-            objs[i++] = Tcl_NewUnicodeObj(qsP->lpszServiceInstanceName, -1);
+            objs[i++] = IocpNewWincharObj(qsP->lpszServiceInstanceName, -1);
         }
 
         if (flags & LUP_RETURN_ADDR && qsP->lpcsaBuffer) {
@@ -1665,7 +1686,7 @@ BT_LookupServiceNextObjCmd (
 
         if (flags & LUP_RETURN_COMMENT && qsP->lpszComment) {
             objs[i++] = STRING_LITERAL_OBJ("Comment");
-            objs[i++] = Tcl_NewUnicodeObj(qsP->lpszComment, -1);
+            objs[i++] = IocpNewWincharObj(qsP->lpszComment, -1);
         }
 
         if (flags & LUP_RETURN_TYPE && qsP->lpServiceClassId) {

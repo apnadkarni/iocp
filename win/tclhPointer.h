@@ -327,7 +327,7 @@ Tcl_Obj *Tclh_WrapPointer(void *pointerValue, Tclh_TypeTag tag)
     Tcl_InvalidateStringRep(objP);
     PointerValueSet(objP, pointerValue);
     if (tag) {
-        int len = Tclh_strlen(tag) + 1;
+        Tclh_SSizeT len = Tclh_strlen(tag) + 1;
         char *tag2 = ckalloc(len);
         memcpy(tag2, tag, len);
         PointerTypeSet(objP, tag2);
@@ -410,7 +410,7 @@ static void UpdatePointerTypeString(Tcl_Obj *objP)
     Tcl_Obj *listObj;
     const char *s;
     Tclh_TypeTag tag;
-    int len;
+    Tcl_Size len;
 
     TCLH_ASSERT(objP->bytes == NULL);
     TCLH_ASSERT(objP->typePtr == &gPointerType);
@@ -454,7 +454,7 @@ static void DupPointerType(Tcl_Obj *srcP, Tcl_Obj *dstP)
     PointerValueSet(dstP, PointerValueGet(srcP));
     tag = PointerTypeGet(srcP);
     if (tag) {
-        int len = Tclh_strlen(tag) + 1;
+        Tclh_SSizeT len = Tclh_strlen(tag) + 1;
         char *tag2 = ckalloc(len);
         memcpy(tag2, tag, len);
         PointerTypeSet(dstP, tag2);
@@ -464,13 +464,13 @@ static void DupPointerType(Tcl_Obj *srcP, Tcl_Obj *dstP)
 
 static int SetPointerFromAny(Tcl_Interp *interp, Tcl_Obj *objP)
 {
-    Tcl_Obj     **objs;
-    int           nobjs;
-    void         *pv;
-    char         *tag;
-    char         *s;
-    Tcl_WideInt   value;
-    int           len;
+    Tcl_Obj **objs;
+    Tcl_Size nobjs;
+    void *pv;
+    char *tag;
+    char *s;
+    Tcl_WideInt value;
+    Tcl_Size len;
 
     if (objP->typePtr == &gPointerType)
         return TCL_OK;
