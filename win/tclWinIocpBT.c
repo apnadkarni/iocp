@@ -1513,8 +1513,10 @@ int BT_LookupServiceBeginObjCmd (
     WSAQUERYSETW      qs;
     BLUETOOTH_ADDRESS btAddr;
     Tcl_DString ds, ds2;
+#if TCL_MAJOR_VERSION > 8
     Tcl_Size utf8len;
     const char *utf8;
+#endif
     int tclResult;
 
     /* LookupServiceBegin device_address service_guid ?service_name? */

@@ -2,9 +2,9 @@
 package ifneeded @PACKAGE_NAME@ @PACKAGE_VERSION@ \
     [list apply [list {dir} {
         if {$::tcl_platform(machine) eq "amd64"} {
-            set path [file join $dir amd64 "@PKG_LIB_FILE@"]
+            set path [file join $dir win32-x86_64 "@PKG_LIB_FILE@"]
         } else {
-            set path [file join $dir x86 "@PKG_LIB_FILE@"]
+            set path [file join $dir win32-ix86 "@PKG_LIB_FILE@"]
         }
         if {![file exists $path]} {
             # To accomodate make test

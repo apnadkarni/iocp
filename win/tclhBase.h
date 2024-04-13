@@ -29,16 +29,24 @@
 #endif
 #endif
 
+/* Tcl < 8.7, not quite right for Tcl 7 etc but who cares... */
+#if TCL_MAJOR_VERSION < 9 && TCL_MINOR_VERSION < 7
+#ifdef Tcl_Size
+# undef Tcl_Size
+#endif
+typedef int Tcl_Size;
+# define Tcl_GetSizeIntFromObj Tcl_GetIntFromObj
+# define Tcl_NewSizeIntObj Tcl_NewIntObj
+# define TCL_SIZE_MAX      INT_MAX
+# define TCL_SIZE_MODIFIER ""
+#endif
+
 /*
  * Typedef: Tclh_SSizeT
  * This typedef is used to store max lengths of Tcl strings.
  * Its use is primarily to avoid compiler warnings with downcasting from size_t.
  */
-#if TCL_MAJOR_VERSION <= 8
-typedef int Tclh_SSizeT;
-#else
 typedef Tcl_Size Tclh_SSizeT;
-#endif
 
 TCLH_INLINE char *Tclh_memdup(void *from, Tclh_SSizeT len) {
     void *to = ckalloc(len);

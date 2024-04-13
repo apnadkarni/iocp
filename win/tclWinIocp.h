@@ -589,6 +589,7 @@ extern IocpStats iocpStats;
 #ifdef BUILD_iocp
 
 #if TCL_MAJOR_VERSION < 9
+
 /*
  * We need to access platform-dependent internal stubs. For
  * example, the Tcl channel system relies on specific values to be used

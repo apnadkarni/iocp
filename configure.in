@@ -16,7 +16,7 @@ dnl	to configure the system for the local environment.
 # this case) so that we create the export library with the dll.
 #-----------------------------------------------------------------------
 
-AC_INIT([iocp], [1.1.0])
+AC_INIT([iocp], [2.0a0])
 
 #--------------------------------------------------------------------
 # Call TEA_INIT as the first TEA_ macro to set up initial vars.
@@ -186,9 +186,9 @@ CFLAGS="${CFLAGS} -DIOCP_ENABLE_BLUETOOTH=${ENABLE_BLUETOOTH}"
 # hard code the values as checked by pkgIndex.tcl. This has to come after
 # TEA_CONFIG_CFLAGS because that sets the do64bit variable.
 AS_IF([test "$do64bit" = "yes"], [
-	  AC_SUBST(PLATFORM_IDENTIFY, "amd64")
+	  AC_SUBST(PLATFORM_IDENTIFY, "win32-x86_64")
       ], [
-	  AC_SUBST(PLATFORM_IDENTIFY, "x86")
+	  AC_SUBST(PLATFORM_IDENTIFY, "win32-ix86")
       ])
 
 #--------------------------------------------------------------------
