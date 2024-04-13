@@ -29,6 +29,7 @@ DLLSUBDIR = win32-x86_64
 !else
 DLLSUBDIR = win32-ix86
 !endif
+BIN_INSTALL_DIR = $(SCRIPT_INSTALL_DIR)\$(DLLSUBDIR)
 
 PRJ_OBJS = \
     $(TMP_DIR)\tclWinIocp.obj \
@@ -76,8 +77,8 @@ DISABLE_TARGET_install = 1
 install:  pkgindex default-install-docs-html
 	@echo Installing to '$(SCRIPT_INSTALL_DIR)'
 	@if not exist "$(SCRIPT_INSTALL_DIR)" mkdir "$(SCRIPT_INSTALL_DIR)"
-	@if not exist "$(LIB_INSTALL_DIR)\$(DLLSUBDIR)" mkdir "$(LIB_INSTALL_DIR)\$(DLLSUBDIR)"
-	@$(CPY) $(PRJLIB) "$(LIB_INSTALL_DIR)\$(DLLSUBDIR)" >NUL
+	@if not exist "$(BIN_INSTALL_DIR)" mkdir "$(BIN_INSTALL_DIR)"
+	@$(CPY) $(PRJLIB) "$(BIN_INSTALL_DIR)" >NUL
 !if $(ENABLE_BLUETOOTH)
 	@$(CPY) $(LIBDIR)\*.tcl "$(SCRIPT_INSTALL_DIR)"
 !endif
