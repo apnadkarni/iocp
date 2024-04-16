@@ -615,7 +615,7 @@ extern struct IocpTcl85IntPlatStubs *tclIntPlatStubsPtr;
 IocpTclCode Iocp_DoOnce(Iocp_DoOnceState *stateP, Iocp_DoOnceProc *once_fn, ClientData clientdata);
 
 /* String utilities */
-Tcl_Obj *IocpNewWincharObj(WCHAR *wstr, IocpSizeT len);
+Tcl_Obj *IocpNewWincharObj(const WCHAR *wstr, IocpSizeT len);
 
 /* List utilities */
 void IocpListAppend(IocpList *listPtr, IocpLink *linkPtr);

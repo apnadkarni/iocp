@@ -5,7 +5,7 @@
 #include "tclhBase.h"
 #include <string.h>
 
-typedef const char *Tclh_TypeTag;
+typedef char *Tclh_TypeTag;
 
 /* Section: Registered Pointers
  *

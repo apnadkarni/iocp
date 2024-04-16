@@ -1,16 +1,27 @@
 # Core iocp package
 package ifneeded @PACKAGE_NAME@ @PACKAGE_VERSION@ \
     [list apply [list {dir} {
-        if {$::tcl_platform(machine) eq "amd64"} {
-            set path [file join $dir win32-x86_64 "@PKG_LIB_FILE@"]
+        package require platform
+        set initName [string totitle @PACKAGE_NAME@]
+        if {[package vsatisfies [package require Tcl] 9]} {
+            set fileName "@PKG_LIB_FILE9@"
         } else {
-            set path [file join $dir win32-ix86 "@PKG_LIB_FILE@"]
+            set fileName "@PKG_LIB_FILE8@"
         }
-        if {![file exists $path]} {
-            # To accomodate make test
-            set path [file join $dir "@PKG_LIB_FILE@"]
+        set platformId [platform::identify]
+        set searchPaths [list [file join $dir $platformId] \
+                             {*}[lmap platformId [platform::patterns $platformId] {
+                                 file join $dir $platformId
+                             }] \
+                             $dir]
+        foreach path $searchPaths {
+            set lib [file join $path $fileName]
+            if {[file exists $lib]} {
+                uplevel #0 [list load $lib $initName]
+                return
+            }
         }
-        uplevel #0 [list load $path]
+        error "Could not locate $fileName in directories [join $searchPaths {, }]"
     }] $dir]
 
 # iocp_inet doesn't need anything other than core iocp

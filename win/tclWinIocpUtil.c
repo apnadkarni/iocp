@@ -748,7 +748,7 @@ void __cdecl Iocp_Panic(
  * A Tcl_Obj
  */
 Tcl_Obj *
-IocpNewWincharObj(WCHAR *wstr, IocpSizeT len)
+IocpNewWincharObj(const WCHAR *wstr, IocpSizeT len)
 {
 #if TCL_MAJOR_VERSION < 9
     return Tcl_NewUnicodeObj(wstr, len);

@@ -90,6 +90,9 @@ pkgincludedir	= $(includedir)/$(PKG_DIR)
 
 top_builddir	= .
 
+INSTALL_STRIP_PROGRAM	= strip
+INSTALL_STRIP_LIBRARY	= strip -x
+
 INSTALL		= @INSTALL@
 INSTALL_PROGRAM	= @INSTALL_PROGRAM@
 INSTALL_LIBRARY	= @INSTALL_PROGRAM@
@@ -208,6 +211,12 @@ doc:
 #	@echo "        xml2html sample.xml > sample.html"
 
 install: all install-binaries install-libraries install-doc
+	cp -p $(srcdir)/README* $(srcdir)/LICENSE $(pkglibdir)
+
+install-strip:
+	$(MAKE) install \
+		INSTALL_PROGRAM="STRIPPROG='${INSTALL_STRIP_PROGRAM}' $(INSTALL_PROGRAM) -s" \
+		INSTALL_LIBRARY="STRIPPROG='${INSTALL_STRIP_LIBRARY}' $(INSTALL_LIBRARY) -s"
 
 install-binaries: binaries install-lib-binaries install-bin-binaries
 

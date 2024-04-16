@@ -4,11 +4,18 @@ Tcl extension implementing TCP and Bluetooth channels based on
 I/O completion ports. The iocp_inet package is API-compatible
 with Tcl sockets while offering much higher performance.
 
-Requires Tcl 8.6 and Windows 7 or later. 
+Requires Tcl 8.6 or Tcl 9 and Windows 7 or later. 
 
 Binary downloads are at https://sourceforge.net/projects/magicsplat/files/iocp/.
 
 Documentation at https://iocp.magicsplat.com.
+
+## Changes in 2.0a0
+
+- Support for Tcl 9
+
+No functional or API changes.
+
 
 ## Changes in 1.1.0
 
