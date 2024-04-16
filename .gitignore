@@ -334,6 +334,7 @@ ASALocalRun/
 # Executables
 *.dll
 *.exe
+!vswhere.exe
 
 [Dd]ebug*/
 [Rr]elease*/
