@@ -1,0 +1,82 @@
+name: Mingw
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - {tclbranch: main, sys: mingw64, arch: x86_64}
+          - {tclbranch: main, sys: mingw32, arch: i686}
+          - {tclbranch: core-8-6-13, sys: mingw64, arch: x86_64}
+          - {tclbranch: core-8-6-13, sys: mingw32, arch: i686}
+    env:
+      TCLSUBDIR: ${{ matrix.sys }}-${{ matrix.tclbranch }}
+      TCLDIR: C:/tcl/${{ matrix.sys }}-${{ matrix.tclbranch }}
+      MSYSTCLDIR: /c/tcl/${{ matrix.sys }}-${{ matrix.tclbranch }}
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+    - name: Checkout tcl-cffi
+      uses: actions/checkout@v4
+      with:
+        submodules: true
+
+    - name: Set up msys2
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: ${{ matrix.sys }}
+        path-type: minimal
+        release: true
+        update: false
+        install: mingw-w64-${{matrix.arch}}-gcc make mingw-w64-${{matrix.arch}}-libtommath 
+
+    - name: Verify toolchain
+      run: |
+        gcc -v
+        make -v
+
+    - name: Cache Tcl build
+      id: tcl-cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ env.TCLDIR }}
+        key: ${{ runner.os }}-tcl-${{ env.TCLSUBDIR }}
+
+    - name: Checkout Tcl
+      if: steps.tcl-cache.outputs.cache-hit != 'true'
+      uses: actions/checkout@v4
+      with:
+        repository: tcltk/tcl
+        ref: ${{ matrix.tclbranch }}
+        path: tcl-${{ matrix.tclbranch }}
+
+    - name: Build Tcl
+      if: steps.tcl-cache.outputs.cache-hit != 'true'
+      working-directory: tcl-${{ matrix.tclbranch }}/win
+      run: |
+        mkdir build
+        cd build
+        ../configure --prefix=${{ env.MSYSTCLDIR }} || (cat config.log && exit 1)
+        make
+        make install
+
+    - name: Configure
+      run: |
+        mkdir build
+        cd build
+        ../configure --with-tcl=${{ env.MSYSTCLDIR }}/lib --with-tclinclude=${{ env.MSYSTCLDIR }}/include
+
+    - name: Make
+      run: |
+        cd build
+        make
+
+    - name: Test with libffi
+      run: |
+        cd build
+        make test
