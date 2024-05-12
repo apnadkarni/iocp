@@ -1,16 +1,12 @@
 # all.tcl --
 #
-# This file contains a top-level script to run all of the Tcl
-# tests.  Execute it by invoking "source all.test" when running tcltest
-# in this directory.
-#
-# Copyright (c) 1998-1999 by Scriptics Corporation.
-# Copyright (c) 2000 by Ajuba Solutions
+# This file contains a script to run all of the Tcl8 http
+# tests.  It is called from the top level all.tcl.
 #
 # See the file "license.terms" for information on usage and redistribution
 # of this file, and for a DISCLAIMER OF ALL WARRANTIES.
 
-package require Tcl 8.5-
+package require Tcl 8.6-
 package require tcltest 2.5
 namespace import ::tcltest::*
 
@@ -19,13 +15,6 @@ configure {*}$argv -testdir [file dirname [file dirname [file normalize [
 
 # Avoid running temp Emacs and others
 configure -notfile "*#*"
-if {[package vsatisfies [package require Tcl] 9]} {
-    configure -relateddir tcl9
-    configure -asidefromdir tcl8
-} else {
-    configure -relateddir tcl8
-    configure -asidefromdir tcl9
-}
 
 if {[singleProcess]} {
     interp debug {} -frame 1

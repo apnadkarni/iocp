@@ -170,7 +170,9 @@ namespace eval iocp::test {
 namespace eval iocp::test {
     namespace import ::tcltest::test
 
-    puts "Testing with Bluetooth device = $TARGET"
+    if {[tcltest::testConstraint bt]} {
+        puts "Testing with Bluetooth device = $TARGET"
+    }
 
     test bt-version-0 "iocp_bt version" -constraints bt -body {
         package require iocp_bt
