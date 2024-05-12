@@ -38,7 +38,7 @@ namespace eval iocp::test {
     proc testbadopt {label cmd optphrase args} {
         set message "bad option \"-badopt\": must be $optphrase"
         test $label-badopt-0 "$label bad option" \
-            -body "$cmd -badopt" \
+            -constraints bt -body "$cmd -badopt" \
             -result $message -returnCodes error \
             {*}$args
     }
@@ -63,12 +63,12 @@ namespace eval iocp::test {
         if {$minargs > 0} {
             set arguments [lrepeat [expr {$minargs-1}] x]
             test $label-minargs-0 "$label no arguments" \
-                -body "$cmd" \
+                -constraints bt -body "$cmd" \
                 -result $message -returnCodes error \
                 {*}$args
             if {$minargs > 1} {
                 test $label-minargs-1 "$label missing arguments" \
-                    -body "$cmd $arguments" \
+                    -constraints bt -body "$cmd $arguments" \
                     -result $message -returnCodes error \
                     {*}$args
             }
@@ -76,7 +76,7 @@ namespace eval iocp::test {
         if {[info exists maxargs]} {
             set arguments [lrepeat [expr {$maxargs+1}] x]
             test $label-maxargs-0 "$label extra arguments" \
-                -body "$cmd $arguments" \
+                -constraints bt -body "$cmd $arguments" \
                 -result $message -returnCodes error \
                 {*}$args
         }
@@ -172,7 +172,7 @@ namespace eval iocp::test {
 
     puts "Testing with Bluetooth device = $TARGET"
 
-    test bt-version-0 "iocp_bt version" -body {
+    test bt-version-0 "iocp_bt version" -constraints bt -body {
         package require iocp_bt
     } -result 2.0a0
 
@@ -185,18 +185,18 @@ namespace eval iocp::test {
     testnumargs device-addresses "::iocp::bt::device addresses" "name" "?arg ...?"
     testnumargs device-address "::iocp::bt::device address" "name" "?arg ...?"
     set num -1
-    test device-addresses-[incr num] {Get device addresses} -body {
+    test device-addresses-[incr num] {Get device addresses} -constraints bt -body {
         iocp::bt::device addresses $TARGET
     } -result "^$BTADDRRE\$" -match lregexp
-    test device-address-[incr num] {Get device address} -body {
+    test device-address-[incr num] {Get device address} -constraints bt -body {
         iocp::bt::device addresses $TARGET
     } -result "^$BTADDRRE\$" -match regexp
 
     foreach opt {-authenticated -inquire -remembered {-timeout 1000 -inquire}} {
-        test device-addresses-[incr num] "device addresses $opt" -body {
+        test device-addresses-[incr num] "device addresses $opt" -constraints bt -body {
             iocp::bt::device addresses $TARGET {*}$opt
         } -result "^$BTADDRRE\$" -match lregexp
-        test device-address-$num "device address $opt" -body {
+        test device-address-$num "device address $opt" -constraints bt -body {
             iocp::bt::device address $TARGET {*}$opt
         } -result "^$BTADDRRE\$" -match regexp
     }
@@ -205,7 +205,7 @@ namespace eval iocp::test {
     # For some reason -connected always returns empty. Not clear
     # what connected means
     foreach opt {-connected} {
-        test device-addresses-[incr num] "device addresses $opt" -body {
+        test device-addresses-[incr num] "device addresses $opt" -constraints bt -body {
             set result [iocp::bt::device addresses $TARGET {*}$opt]
             expr {
                   [llength $result] == 0 ||
@@ -215,7 +215,7 @@ namespace eval iocp::test {
     }
 
     foreach opt {{} {-timeout 1000 -inquire}} {
-        test device-addresses-[incr num] "Address for unknown" -body {
+        test device-addresses-[incr num] "Address for unknown" -constraints bt -body {
             iocp::bt::device addresses nosuchdevice {*}$opt
         } -result {}
     }
@@ -224,36 +224,36 @@ namespace eval iocp::test {
     ###
     # device port
     testnumargs device-port "::iocp::bt::device port" "device service_class"
-    test device-port-0 {get device service port} -body {
+    test device-port-0 {get device service port} -constraints bt -body {
         iocp::bt::device port $TARGET OBEXObjectPush
     } -result {^\d+$} -match regexp
-    test device-port-1 {get device service port from address} -body {
+    test device-port-1 {get device service port from address} -constraints bt -body {
         iocp::bt::device port [daddr $TARGET] OBEXObjectPush
     } -result {^\d+$} -match regexp
-    test device-port-2 {get device service port from service uuid} -body {
+    test device-port-2 {get device service port from service uuid} -constraints bt -body {
         iocp::bt::device port [daddr $TARGET] 00001105-0000-1000-8000-00805f9b34fb
     } -result {^\d+$} -match regexp
 
     ###
     # device print
     testnumargs device-print "::iocp::bt::device print" "devinfo"
-    test device-print-0 {device print} -body {
+    test device-print-0 {device print} -constraints bt -body {
         iocp::bt::device print [lindex [iocp::bt::devices] 0]
     } -output {^Device .*\nAddress: .*\nClass: .*\nDevice categories: .*\nAuthenticated: .*\nRemembered: (0|1)\nConnected: (0|1)\nLast seen: .*\nLast used: .*$} -match regexp
 
     ###
     # device printn
     testnumargs device-printn "::iocp::bt::device printn" "dinfolist" "?detailed?"
-    test device-printn-0 {device printn} -body {
+    test device-printn-0 {device printn} -constraints bt -body {
         iocp::bt::device printn [iocp::bt::devices]
     } -output {^(([[:xdigit:]]{2}:){5}[[:xdigit:]]{2} .+\n)+\s*$} -match regexp
-    test device-printn-1 {device printn nodetail} -body {
+    test device-printn-1 {device printn nodetail} -constraints bt -body {
         iocp::bt::device printn [iocp::bt::devices] 0
     } -output {^(([[:xdigit:]]{2}:){5}[[:xdigit:]]{2} .+\n)+\s*$} -match regexp
-    test device-printn-2 {device printn detail} -body {
+    test device-printn-2 {device printn detail} -constraints bt -body {
         iocp::bt::device printn [iocp::bt::devices] 1
     } -output {^(Device .*\nAddress: .*\nClass: .*\nDevice categories: .*\nAuthenticated: .*\nRemembered: (0|1)\nConnected: (0|1)\nLast seen: .*\nLast used: .*\n-*)+\s*$} -match regexp
-    test device-printn-error-0 {device printn error} -body {
+    test device-printn-error-0 {device printn error} -constraints bt -body {
         iocp::bt::device printn [iocp::bt::devices] notanint
     } -result {expected boolean value but got "notanint"} -returnCodes error
 
@@ -263,13 +263,13 @@ namespace eval iocp::test {
     testnumargs device-remove "::iocp::bt::device remove" "device" ""
     test device-remove-0 "device remove name" -setup {
         set victim [find_victim -remembered]
-    } -body {
+    } -constraints bt -body {
         iocp::bt::device remove $victim
         expr {$victim in [dnames -remembered]}
     } -result 0
     test device-remove-1 "device remove address" -setup {
         set victim [find_victim -remembered]
-    } -body {
+    } -constraints bt -body {
         iocp::bt::device remove [daddr $TARGET]
         expr {$victim in [dnames -remembered]}
     } -result 0
@@ -277,22 +277,22 @@ namespace eval iocp::test {
     ###
     # device service_references
     testnumargs device-service_references "::iocp::bt::device service_references" "device service" ""
-    test device-service_references-0 "device service_references name" -body {
+    test device-service_references-0 "device service_references name" -constraints bt -body {
         expr {[llength [iocp::bt::device service_references $TARGET OBEXObjectPush]] > 0}
     } -result 1
-    test device-service_references-1 "device service_references address" -body {
+    test device-service_references-1 "device service_references address" -constraints bt -body {
         expr {[llength [iocp::bt::device service_references [daddr $TARGET] OBEXObjectPush]] > 0}
     } -result 1
-    test device-service_references-2 "device service_references name uuid" -body {
+    test device-service_references-2 "device service_references name uuid" -constraints bt -body {
         expr {[llength [iocp::bt::device service_references $TARGET 00001105-0000-1000-8000-00805f9b34fb]] > 0}
     } -result 1
-    test device-service_references-error-0 "device service_references bad name" -body {
+    test device-service_references-error-0 "device service_references bad name" -constraints bt -body {
         iocp::bt::device service_references NOSUCHDEVICE OBEXObjectPush
     } -result {Could not resolve Bluetooth device name "NOSUCHDEVICE".} -returnCodes error
-    test device-service_references-error-1 "device service_references bad address" -body {
+    test device-service_references-error-1 "device service_references bad address" -constraints bt -body {
         iocp::bt::device service_references $UNKNOWNADDR OBEXObjectPush
     } -result {Bluetooth service search failed. No such service is known. The service cannot be found in the specified name space. } -returnCodes error
-    test device-service_references-error-2 "device service_references bad service" -body {
+    test device-service_references-error-2 "device service_references bad service" -constraints bt -body {
         iocp::bt::device service_references $TARGET NoSuchService
     } -result {Name "NoSuchService" could not be mapped to a UUID} -returnCodes error
 
@@ -300,16 +300,16 @@ namespace eval iocp::test {
     # device services
     # More rigorous testing in the sdr tests
     testnumargs device-services "::iocp::bt::device services" "device" ""
-    test device-services-0 "device services name" -body {
+    test device-services-0 "device services name" -constraints bt -body {
         expr {[llength [iocp::bt::device services $TARGET]] > 0}
     } -result 1
-    test device-services-1 "device services addr" -body {
+    test device-services-1 "device services addr" -constraints bt -body {
         expr {[llength [iocp::bt::device services [daddr $TARGET]]] > 0}
     } -result 1
-    test device-services-error-0 "device services bad name" -body {
+    test device-services-error-0 "device services bad name" -constraints bt -body {
         iocp::bt::device services NOSUCHDEVICE
     } -result {Could not resolve Bluetooth device name "NOSUCHDEVICE".} -returnCodes error
-    test device-services-error-1 "device services bad name" -body {
+    test device-services-error-1 "device services bad name" -constraints bt -body {
         iocp::bt::device services $UNKNOWNADDR
     } -result {Bluetooth service search failed. No such service is known. The service cannot be found in the specified name space. } -returnCodes error
 
@@ -322,7 +322,7 @@ namespace eval iocp::test {
     set num -1
     foreach opt {{} -authenticated -inquire -remembered {-timeout 1000 -inquire}} {
         incr num
-        test devices-$num "devices $opt" -body {
+        test devices-$num "devices $opt" -constraints bt -body {
             foreach dev [iocp::bt::devices {*}$opt] {
                 append results [btdevinfocheck $dev]
             }
@@ -331,7 +331,7 @@ namespace eval iocp::test {
             }
             set results
         } -result {}
-        test radio-devices-$num "radio devices $opt" -body {
+        test radio-devices-$num "radio devices $opt" -constraints bt -body {
             foreach dev [iocp::bt::radio devices [testradio] {*}$opt] {
                 append results [btdevinfocheck $dev]
             }
@@ -347,14 +347,14 @@ namespace eval iocp::test {
     # what connected means
     foreach opt {-connected} {
         incr num
-        test devices-$num "devices $opt" -body {
+        test devices-$num "devices $opt" -constraints bt -body {
             set results ""
             foreach dev [iocp::bt::devices {*}$opt] {
                 append results [btdevinfocheck $dev]
             }
             set results
         } -result ""
-        test radio-devices-$num "radio devices $opt" -body {
+        test radio-devices-$num "radio devices $opt" -constraints bt -body {
             set results ""
             foreach dev [iocp::bt::radio devices [testradio] {*}$opt] {
                 append results [btdevinfocheck $dev]
@@ -363,7 +363,7 @@ namespace eval iocp::test {
         } -result ""
     }
 
-    test radio-devices-error-0 "radio devices bad radio" -body {
+    test radio-devices-error-0 "radio devices bad radio" -constraints bt -body {
         iocp::bt::radio devices $UNKNOWNADDR
     } -result {Radio not found.} -returnCodes error
 
@@ -371,13 +371,13 @@ namespace eval iocp::test {
     # radios
 
     testnumargs radios "::iocp::bt::radios" "" "?detailed?"
-    test radios-0 {Get radios} -body {
+    test radios-0 {Get radios} -constraints bt -body {
         iocp::bt::radios
     } -result "^$BTADDRRE\$" -match lregexp
-    test radios-1 {Get radios nodetail} -body {
+    test radios-1 {Get radios nodetail} -constraints bt -body {
         iocp::bt::radios 0
     } -result "^$BTADDRRE\$" -match lregexp
-    test radios-2 "radions detail" -body {
+    test radios-2 "radions detail" -constraints bt -body {
         foreach dev [iocp::bt::radios 1] {
             append results [btradioinfocheck $dev]
         }
@@ -386,20 +386,20 @@ namespace eval iocp::test {
         }
         set results
     } -result {}
-    test radios-error-0 {Get radios arg error} -body {
+    test radios-error-0 {Get radios arg error} -constraints bt -body {
         iocp::bt::radios x
     } -result {expected boolean value but got "x"} -returnCodes error
 
     ###
     # radio info
     testnumargs radio-info "::iocp::bt::radio info" "" "?radio?"
-    test radio-info-0 "radio info" -body {
+    test radio-info-0 "radio info" -constraints bt -body {
         btradioinfocheck [iocp::bt::radio info]
     } -result ""
-    test radio-info-1 "radio info radio" -body {
+    test radio-info-1 "radio info radio" -constraints bt -body {
         btradioinfocheck [iocp::bt::radio info [testradio]]
     } -result ""
-    test radio-info-1 "radio info radio" -body {
+    test radio-info-1 "radio info radio" -constraints bt -body {
         btradioinfocheck [iocp::bt::radio info $UNKNOWNADDR]
     } -result "Radio not found." -returnCodes error
 
@@ -411,7 +411,7 @@ namespace eval iocp::test {
         set settings [iocp::bt::radio configure $r]
     } -cleanup {
         iocp::bt::radio configure $r {*}$settings
-    } -body {
+    } -constraints bt -body {
         # This test will often fail - Windows bug - see google as
         # it does not reliable turn BT discoverability off
         list \
@@ -427,12 +427,12 @@ namespace eval iocp::test {
 
     test bt-socket-0 "Basic socket connect" -setup {
         set port [::iocp::bt::device port $TARGET OBEXObjectPush]
-    } -body {
+    } -constraints bt -body {
         close [::iocp::bt::socket [daddr $TARGET] $port]
     } -result ""
     test bt-socket-1 "Basic socket connect -async" -setup {
         set port [::iocp::bt::device port $TARGET OBEXObjectPush]
-    } -body {
+    } -constraints bt -body {
         set so [::iocp::bt::socket -async [daddr $TARGET] $port]
         fileevent $so writable [list apply {{so} {
             fileevent $so writable ""
@@ -442,10 +442,10 @@ namespace eval iocp::test {
         vwait ::gate
         set ::gate
     } -result 0
-    test bt-socket-error-0 "Basic socket fail to connect" -body {
+    test bt-socket-error-0 "Basic socket fail to connect" -constraints bt -body {
         ::iocp::bt::socket $UNKNOWNADDR 7
     } -result {couldn't open socket: connection timed out} -returnCodes error
-    test bt-socket-error-1 "Basic socket connect -async" -body {
+    test bt-socket-error-1 "Basic socket connect -async" -constraints bt -body {
         set so [::iocp::bt::socket -async $UNKNOWNADDR 7]
         fileevent $so writable [list apply {{so} {
             fileevent $so writable ""
@@ -455,7 +455,7 @@ namespace eval iocp::test {
         vwait ::gate
         set ::gate
     } -result [list 0 {connection timed out}]
-    test bt-socket-error-2 "Basic socket bad port" -body {
+    test bt-socket-error-2 "Basic socket bad port" -constraints bt -body {
         ::iocp::bt::socket [daddr $TARGET] 25
     } -result {couldn't open socket: host is down} -returnCodes error
 
@@ -469,7 +469,7 @@ namespace eval iocp::test {
         set so [::iocp::bt::socket [daddr $TARGET] $port]
     } -cleanup {
         close $so
-    } -body {
+    } -constraints bt -body {
         lsort [dict keys [fconfigure $so]]
     } -result [lsort {-blocking -buffering -buffersize -encoding -eofchar -translation -peername -sockname -error -connecting -maxpendingreads -maxpendingwrites -maxpendingaccepts -sosndbuf -sorcvbuf -nagle}]
 
@@ -478,7 +478,7 @@ namespace eval iocp::test {
         set so [::iocp::bt::socket [daddr $TARGET] $port]
     } -cleanup {
         close $so
-    } -body {
+    } -constraints bt -body {
         set result {}
         foreach {opt vals} {
             -buffering {none line full}
@@ -507,7 +507,7 @@ namespace eval iocp::test {
         set so [::iocp::bt::socket [daddr $TARGET] $port]
     } -cleanup {
         close $so
-    } -body {
+    } -constraints bt -body {
         set result {}
         set myaddr [dict get [iocp::bt::radio info] Address]
         foreach {opt expected} [list \
@@ -529,7 +529,7 @@ namespace eval iocp::test {
         set so [::iocp::bt::socket [daddr $TARGET] $port]
     } -cleanup {
         close $so
-    } -body {
+    } -constraints bt -body {
         set myaddr [dict get [iocp::bt::radio info] Address]
         fconfigure $so -keepalive
     } -result {getsockopt failed: An unknown, invalid, or unsupported option or level was specified in a getsockopt or setsockopt call. } -returnCodes error
@@ -538,7 +538,7 @@ namespace eval iocp::test {
         set so [::iocp::bt::socket [daddr $TARGET] $port]
     } -cleanup {
         close $so
-    } -body {
+    } -constraints bt -body {
         set myaddr [dict get [iocp::bt::radio info] Address]
         fconfigure $so -nosuchoption
     } -result {bad option "-nosuchoption": should be one of -blocking, -buffering, -buffersize, -encoding, -eofchar, -translation, -peername, -sockname, -error, -connecting, -maxpendingreads, -maxpendingwrites, -maxpendingaccepts, -sosndbuf, -sorcvbuf, -keepalive, or -nagle} -returnCodes error
@@ -548,7 +548,7 @@ namespace eval iocp::test {
         set so [::iocp::bt::socket [daddr $TARGET] $port]
     } -cleanup {
        close $so
-    } -body {
+    } -constraints bt -body {
         list \
             [fconfigure $so -blocking 0] \
             [read $so] \
@@ -592,7 +592,7 @@ namespace eval iocp::test {
     # sdr decode
 
     testnumargs sdr-decode "::iocp::bt::sdr::decode" "binsdr" ""
-    test sdr-decode-0 {sdr decode} -body {
+    test sdr-decode-0 {sdr decode} -constraints bt -body {
         # Just basic tests here that no errors are generated in decoding.
         # The attribute tests will do the hard work
         foreach sdr [getsdrs] {
@@ -603,29 +603,29 @@ namespace eval iocp::test {
     ###
     # sdr attribute exists
     testnumargs sdr-attribute-exists "::iocp::bt::sdr::attribute exists" "sdr attr_id" "?varname?"
-    test sdr-attribute-exists-0 "SDR attribute exists" -body {
+    test sdr-attribute-exists-0 "SDR attribute exists" -constraints bt -body {
         set sdr [iocp::bt::sdr::decode [getsdr]]
         iocp::bt::sdr::attribute exists $sdr ServiceClassIDList
     } -result 1
-    test sdr-attribute-exists-1 "SDR attribute exists" -body {
+    test sdr-attribute-exists-1 "SDR attribute exists" -constraints bt -body {
         set sdr [iocp::bt::sdr::decode [getsdr]]
         # 1 -> ServiceClassIdList
         iocp::bt::sdr::attribute exists $sdr 1
     } -result 1
-    test sdr-attribute-exists-2 "SDR attribute does not exist" -body {
+    test sdr-attribute-exists-2 "SDR attribute does not exist" -constraints bt -body {
         set sdr [iocp::bt::sdr::decode [getsdr]]
         iocp::bt::sdr::attribute exists $sdr 99
     } -result 0
-    test sdr-attribute-exists-3 "SDR attribute exists var" -body {
+    test sdr-attribute-exists-3 "SDR attribute exists var" -constraints bt -body {
         set sdr [iocp::bt::sdr::decode [getsdr]]
         list [iocp::bt::sdr::attribute exists $sdr ServiceClassIDList x] $x
     } -result [list 1 {sequence {{uuid 00001105-0000-1000-8000-00805f9b34fb}}}]
-    test sdr-attribute-exists-4 "SDR attribute exists var" -body {
+    test sdr-attribute-exists-4 "SDR attribute exists var" -constraints bt -body {
         set sdr [iocp::bt::sdr::decode [getsdr]]
         # 1 -> ServiceClassIdList
         list [iocp::bt::sdr::attribute exists $sdr 1 x] $x
     } -result [list 1 {sequence {{uuid 00001105-0000-1000-8000-00805f9b34fb}}}]
-    test sdr-attribute-exists-error-0 "SDR attribute unknown name" -body {
+    test sdr-attribute-exists-error-0 "SDR attribute unknown name" -constraints bt -body {
         set sdr [iocp::bt::sdr::decode [getsdr]]
         iocp::bt::sdr::attribute exists $sdr xxx
     } -result {key "xxx" not known in dictionary} -returnCodes error
@@ -633,19 +633,19 @@ namespace eval iocp::test {
     ###
     # sdr attribute raw
     testnumargs sdr-attribute-raw "::iocp::bt::sdr::attribute raw" "sdr attr_id" ""
-    test sdr-attribute-raw-0 "SDR attribute raw" -body {
+    test sdr-attribute-raw-0 "SDR attribute raw" -constraints bt -body {
         set sdr [iocp::bt::sdr::decode [getsdr]]
         iocp::bt::sdr::attribute raw $sdr ServiceClassIDList
     } -result {sequence {{uuid 00001105-0000-1000-8000-00805f9b34fb}}}
-    test sdr-attribute-raw-1 "SDR attribute raw - numeric id" -body {
+    test sdr-attribute-raw-1 "SDR attribute raw - numeric id" -constraints bt -body {
         set sdr [iocp::bt::sdr::decode [getsdr]]
         iocp::bt::sdr::attribute raw $sdr 1
     } -result {sequence {{uuid 00001105-0000-1000-8000-00805f9b34fb}}}
-    test sdr-attribute-raw-error-0 "SDR attribute unknown name" -body {
+    test sdr-attribute-raw-error-0 "SDR attribute unknown name" -constraints bt -body {
         set sdr [iocp::bt::sdr::decode [getsdr]]
         iocp::bt::sdr::attribute raw $sdr xxx
     } -result {key "xxx" not known in dictionary} -returnCodes error
-    test sdr-attribute-raw-error-1 "SDR attribute missing attribute" -body {
+    test sdr-attribute-raw-error-1 "SDR attribute missing attribute" -constraints bt -body {
         set sdr [iocp::bt::sdr::decode [getsdr]]
         iocp::bt::sdr::attribute raw $sdr 99
     } -result {Attribute with id "99" not found.} -returnCodes error
@@ -654,43 +654,43 @@ namespace eval iocp::test {
     ###
     # sdr attribute get
     testnumargs sdr-attribute-get "::iocp::bt::sdr::attribute get" "sdr attr_id" "?varname?"
-    test sdr-attribute-get-0 "SDR attribute get" -body {
+    test sdr-attribute-get-0 "SDR attribute get" -constraints bt -body {
         set sdr [iocp::bt::sdr::decode [getsdr]]
         iocp::bt::sdr::attribute get $sdr ServiceClassIDList
     } -result {{Uuid 00001105-0000-1000-8000-00805f9b34fb Name OBEXObjectPush}}
-    test sdr-attribute-get-1 "SDR attribute get numeric id" -body {
+    test sdr-attribute-get-1 "SDR attribute get numeric id" -constraints bt -body {
         set sdr [iocp::bt::sdr::decode [getsdr]]
         iocp::bt::sdr::attribute get $sdr 1
     } -result {{Uuid 00001105-0000-1000-8000-00805f9b34fb Name OBEXObjectPush}}
-    test sdr-attribute-get-2 "SDR attribute get var" -body {
+    test sdr-attribute-get-2 "SDR attribute get var" -constraints bt -body {
         set sdr [iocp::bt::sdr::decode [getsdr]]
         list \
             [iocp::bt::sdr::attribute get $sdr ServiceClassIDList x] \
             $x
     } -result [list 1 {{Uuid 00001105-0000-1000-8000-00805f9b34fb Name OBEXObjectPush}}]
-    test sdr-attribute-get-3 "SDR attribute get numeric id var" -body {
+    test sdr-attribute-get-3 "SDR attribute get numeric id var" -constraints bt -body {
         set sdr [iocp::bt::sdr::decode [getsdr]]
         list \
             [iocp::bt::sdr::attribute get $sdr 1 x] \
             $x
     } -result [list 1 {{Uuid 00001105-0000-1000-8000-00805f9b34fb Name OBEXObjectPush}}]
-    test sdr-attribute-get-4 "SDR attribute get numeric id var - not present" -body {
+    test sdr-attribute-get-4 "SDR attribute get numeric id var - not present" -constraints bt -body {
         set sdr [iocp::bt::sdr::decode [getsdr]]
         set x unchanged
         list \
             [iocp::bt::sdr::attribute get $sdr IconURL x] \
             $x
     } -result [list 0 unchanged]
-    test sdr-attribute-get-error-0 "SDR attribute get missing" -body {
+    test sdr-attribute-get-error-0 "SDR attribute get missing" -constraints bt -body {
         set sdr [iocp::bt::sdr::decode [getsdr]]
         # 12 -> IconURL
         iocp::bt::sdr::attribute get $sdr IconURL
     } -result {Attribute with id "12" not found.} -returnCodes error
-    test sdr-attribute-get-error-1 "SDR attribute get unknown name" -body {
+    test sdr-attribute-get-error-1 "SDR attribute get unknown name" -constraints bt -body {
         set sdr [iocp::bt::sdr::decode [getsdr]]
         iocp::bt::sdr::attribute get $sdr xxx
     } -result {Unknown attribute "xxx".} -returnCodes error
-    test sdr-attribute-get-error-2 "SDR attribute get unknown name var" -body {
+    test sdr-attribute-get-error-2 "SDR attribute get unknown name var" -constraints bt -body {
         set sdr [iocp::bt::sdr::decode [getsdr]]
         iocp::bt::sdr::attribute get $sdr xxx var
     } -result {Unknown attribute "xxx".} -returnCodes error
@@ -698,41 +698,41 @@ namespace eval iocp::test {
     ###
     # sdr attribute text
     testnumargs sdr-attribute-text "::iocp::bt::sdr::attribute text" "sdr attr_id lang" "?varname?"
-    test sdr-attribute-text-0 "attribute text" -body {
+    test sdr-attribute-text-0 "attribute text" -constraints bt -body {
         set sdr [iocp::bt::sdr::decode [getsdr]]
         iocp::bt::sdr::attribute text $sdr ServiceName primary
     } -result "OBEX Object Push"
-    test sdr-attribute-text-1 "attribute text en" -body {
+    test sdr-attribute-text-1 "attribute text en" -constraints bt -body {
         set sdr [iocp::bt::sdr::decode [getsdr]]
         iocp::bt::sdr::attribute text $sdr ServiceName en
     } -result "OBEX Object Push"
-    test sdr-attribute-text-2 "attribute text fr" -body {
+    test sdr-attribute-text-2 "attribute text fr" -constraints bt -body {
         set sdr [iocp::bt::sdr::decode [getsdr]]
         # If lang does not exist, returns primary
         iocp::bt::sdr::attribute text $sdr ServiceName fr
     } -result "OBEX Object Push"
-    test sdr-attribute-text-3 "attribute text numeric" -body {
+    test sdr-attribute-text-3 "attribute text numeric" -constraints bt -body {
         set sdr [iocp::bt::sdr::decode [getsdr]]
         iocp::bt::sdr::attribute text $sdr 256 primary
     } -result "OBEX Object Push"
-    test sdr-attribute-text-4 "attribute text var" -body {
+    test sdr-attribute-text-4 "attribute text var" -constraints bt -body {
         set sdr [iocp::bt::sdr::decode [getsdr]]
         list \
             [iocp::bt::sdr::attribute text $sdr ServiceName primary x] \
             $x
     } -result [list 1 "OBEX Object Push"]
-    test sdr-attribute-text-5 "attribute text var - missing" -body {
+    test sdr-attribute-text-5 "attribute text var - missing" -constraints bt -body {
         set sdr [iocp::bt::sdr::decode [getsdr]]
         set x unchanged
         list \
             [iocp::bt::sdr::attribute text $sdr ProviderName primary x] \
             $x
     } -result [list 0 unchanged]
-    test sdr-attribute-text-error-0 "attribute text - missing" -body {
+    test sdr-attribute-text-error-0 "attribute text - missing" -constraints bt -body {
         set sdr [iocp::bt::sdr::decode [getsdr]]
         iocp::bt::sdr::attribute text $sdr ProviderName primary
     } -result "Attribute not found in SDR." -returnCodes error
-    test sdr-attribute-text-error-0 "attribute text - missing" -body {
+    test sdr-attribute-text-error-0 "attribute text - missing" -constraints bt -body {
         set sdr [iocp::bt::sdr::decode [getsdr]]
         iocp::bt::sdr::attribute text $sdr ServiceClassIDList primary
     } -result {Invalid text attribute id "ServiceClassIDList".} -returnCodes error
@@ -740,7 +740,7 @@ namespace eval iocp::test {
     ###
     # sdr attributes
     testnumargs sdr-attributes "::iocp::bt::sdr::attributes" "sdr" ""
-    test sdr-attributes-0 "sdr attributes" -body {
+    test sdr-attributes-0 "sdr attributes" -constraints bt -body {
         set sdr [iocp::bt::sdr::decode [getsdr]]
         iocp::bt::sdr::attributes $sdr
     } -result {^\d+$} -match lregexp
@@ -748,20 +748,20 @@ namespace eval iocp::test {
     ###
     # sdr print
     testnumargs sdr-print "::iocp::bt::sdr::print" "rec" "?attrfilter?"
-    test sdr-print-0 "sdr print" -body {
+    test sdr-print-0 "sdr print" -constraints bt -body {
         iocp::bt::sdr::print [getsdr]
         # Order may be random so cannot really match more detail
     } -output "ServiceClassIDList: sequence.*00001105-0000-1000-8000-00805f9b34fb OBEXObjectPush" -match regexp
-    test sdr-print-1 "sdr print attrfilter" -body {
+    test sdr-print-1 "sdr print attrfilter" -constraints bt -body {
         iocp::bt::sdr::print [getsdr] ServiceClass*
     } -output "ServiceClassIDList: sequence\n    00001105-0000-1000-8000-00805f9b34fb OBEXObjectPush\n"
 
     testnumargs sdr-printn "::iocp::bt::sdr::printn" "recs" "?attrfilter?"
-    test sdr-printn-0 "sdr printn" -body {
+    test sdr-printn-0 "sdr printn" -constraints bt -body {
         iocp::bt::sdr::printn [getsdrs]
         # Order may be random so cannot really match more detail
     } -output "(ServiceClassIDList.*\n-+\n)+.*" -match regexp
-    test sdr-printn-1 "sdr printn attrfilter" -body {
+    test sdr-printn-1 "sdr printn attrfilter" -constraints bt -body {
         iocp::bt::sdr::printn [getsdrs] ServiceClass*
     } -output "(ServiceClassIDList.*\n-+\n)+.*" -match regexp
 
@@ -769,102 +769,102 @@ namespace eval iocp::test {
     # names attribute_id
 
     testnumargs names-attribute_id "::iocp::bt::names::attribute_id" "name" ""
-    test names-attribute_id-0 "attribute id of name" -body {
+    test names-attribute_id-0 "attribute id of name" -constraints bt -body {
         iocp::bt::names::attribute_id ServiceClassIDList
     } -result 1
-    test names-attribute_id-1 "attribute id of id" -body {
+    test names-attribute_id-1 "attribute id of id" -constraints bt -body {
         iocp::bt::names::attribute_id 1
     } -result 1
-    test names-attribute_id-2 "attribute id of localized text attribute" -body {
+    test names-attribute_id-2 "attribute id of localized text attribute" -constraints bt -body {
         iocp::bt::names::attribute_id ServiceName
     } -result 256
 
     ###
     # names attribute_name
     testnumargs names-attribute_name "::iocp::bt::names::attribute_name" "attr_id" ""
-    test names-attribute_name-0 "attribute name of name" -body {
+    test names-attribute_name-0 "attribute name of name" -constraints bt -body {
         iocp::bt::names::attribute_name ServiceClassIDList
     } -result ServiceClassIDList
-    test names-attribute_name-1 "attribute name of id" -body {
+    test names-attribute_name-1 "attribute name of id" -constraints bt -body {
         iocp::bt::names::attribute_name 1
     } -result ServiceClassIDList
-    test names-attribute_name-2 "attribute name of loclaized text id" -body {
+    test names-attribute_name-2 "attribute name of loclaized text id" -constraints bt -body {
         iocp::bt::names::attribute_name 256
     } -result ServiceName
 
     ###
     # names profile_name
     testnumargs names-profile_name "::iocp::bt::names::profile_name" "uuid" ""
-    test names-profile_name-0 "Profile name - short uuid" -body {
+    test names-profile_name-0 "Profile name - short uuid" -constraints bt -body {
         iocp::bt::names::profile_name 1134
     } -result "Message Access Profile"
-    test names-profile_name-1 "Profile name - uuid" -body {
+    test names-profile_name-1 "Profile name - uuid" -constraints bt -body {
         iocp::bt::names::profile_name 00001134-0000-1000-8000-00805f9b34fb
     } -result "Message Access Profile"
 
     ###
     # names protocol_name
     testnumargs names-protocol_name "::iocp::bt::names::protocol_name" "uuid" ""
-    test names-protocol_name-0 "protocol name - short uuid" -body {
+    test names-protocol_name-0 "protocol name - short uuid" -constraints bt -body {
         iocp::bt::names::protocol_name 0003
     } -result RFCOMM
-    test names-protocol_name-1 "protocol name - uuid" -body {
+    test names-protocol_name-1 "protocol name - uuid" -constraints bt -body {
         iocp::bt::names::protocol_name 00000003-0000-1000-8000-00805f9b34fb
     } -result RFCOMM
 
     ###
     # names protcol_uuid
     testnumargs names-protocol_uuid "::iocp::bt::names::protocol_uuid" "name" ""
-    test names-protocol_uuid-0 "protocol uuid - name" -body {
+    test names-protocol_uuid-0 "protocol uuid - name" -constraints bt -body {
         iocp::bt::names::protocol_uuid RFCOMM
     } -result 00000003-0000-1000-8000-00805f9b34fb
-    test names-protocol_uuid-1 "protocol uuid - uuid" -body {
+    test names-protocol_uuid-1 "protocol uuid - uuid" -constraints bt -body {
         iocp::bt::names::protocol_uuid 00000003-0000-1000-8000-00805f9b34fb
     } -result 00000003-0000-1000-8000-00805f9b34fb
 
     ###
     # names service_class_name
     testnumargs names-service_class_name "::iocp::bt::names::service_class_name" "uuid" ""
-    test names-service_class_name-0 "service_class name - short uuid" -body {
+    test names-service_class_name-0 "service_class name - short uuid" -constraints bt -body {
         iocp::bt::names::service_class_name 110a
     } -result "AudioSource"
-    test names-service_class_name-1 "service_class name - uuid" -body {
+    test names-service_class_name-1 "service_class name - uuid" -constraints bt -body {
         iocp::bt::names::service_class_name 0000110A-0000-1000-8000-00805F9B34FB
     } -result "AudioSource"
 
     ###
     # names service_class_uuid
     testnumargs names-service_class_uuid "::iocp::bt::names::service_class_uuid" "name" ""
-    test names-service_class_uuid-0 "service_class uuid - name" -body {
+    test names-service_class_uuid-0 "service_class uuid - name" -constraints bt -body {
         iocp::bt::names::service_class_uuid AudioSource
     } -result 0000110a-0000-1000-8000-00805f9b34fb
-    test names-service_class_uuid-1 "service_class uuid - uuid" -body {
+    test names-service_class_uuid-1 "service_class uuid - uuid" -constraints bt -body {
         iocp::bt::names::service_class_uuid 0000110a-0000-1000-8000-00805f9b34fb
     } -result 0000110a-0000-1000-8000-00805f9b34fb
 
     ###
     # to_uuid
     testnumargs names-to_uuid "::iocp::bt::names::to_uuid" "name_or_uuid" ""
-    test names-to_uuid-0 "to_uuid - service class name" -body {
+    test names-to_uuid-0 "to_uuid - service class name" -constraints bt -body {
         iocp::bt::names::to_uuid AudioSource
     } -result 0000110a-0000-1000-8000-00805f9b34fb
-    test names-to_uuid-1 "to_uuid - protocol name" -body {
+    test names-to_uuid-1 "to_uuid - protocol name" -constraints bt -body {
         iocp::bt::names::to_uuid RFCOMM
     } -result 00000003-0000-1000-8000-00805f9b34fb
 
     ###
     # names to_name
     testnumargs names-to_name "::iocp::bt::names::to_name" "uuid" ""
-    test names-to_name-0 "to_name service class short uuid" -body {
+    test names-to_name-0 "to_name service class short uuid" -constraints bt -body {
         iocp::bt::names::to_name 110a
     } -result "AudioSource"
-    test names-to_name-1 "to_name service class short uuid" -body {
+    test names-to_name-1 "to_name service class short uuid" -constraints bt -body {
         iocp::bt::names::to_name 0000110A-0000-1000-8000-00805F9B34FB
     } -result "AudioSource"
-    test names-to_name-2 "to_name protocol short uuid" -body {
+    test names-to_name-2 "to_name protocol short uuid" -constraints bt -body {
         iocp::bt::names::to_name 0003
     } -result "RFCOMM"
-    test names-to_name-3 "to_name protocol uuid" -body {
+    test names-to_name-3 "to_name protocol uuid" -constraints bt -body {
         iocp::bt::names::to_name 00000003-0000-1000-8000-00805f9b34fb
     } -result "RFCOMM"
 
