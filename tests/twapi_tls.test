@@ -19,6 +19,11 @@ eval tcltest::configure $argv
 # Note tlsecho loads testutil and twapi
 source [file join [file dirname [info script]] tlsecho.tcl]
 
+if {![testConstraint haveTwapi]} {
+    puts "twapi package not found. Skipping tls tests."
+    return
+}
+
 ::tcltest::testConstraint vista [expr {![string match 5.* $::tcl_platform(osVersion)]}]
 
 set http_response {(?i)HTTP.*<HTML.*</HTML>} 
