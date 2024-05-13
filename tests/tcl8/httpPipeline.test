@@ -13,9 +13,13 @@ if {"::tcltest" ni [namespace children]} {
 namespace import -force ::tcltest::*
 }
 
-package require iocp_inet
-rename ::socket ::tcl_socket
-rename ::iocp::inet::socket ::socket
+# Need to protect against this file recursively sourcing itself
+if {[info command ::tcl_socket] eq ""} {
+    package require iocp_inet
+    rename ::socket ::tcl_socket
+    rename ::iocp::inet::socket ::socket
+}
+
 package require http 2.9
 
 set sourcedir [file normalize [file dirname [info script]]]
