@@ -10,9 +10,12 @@
 
 package require Tcl 8.6-
 
-package require iocp_inet
-rename ::socket ::tcl_socket
-rename ::iocp::inet::socket ::socket
+# Need to protect against this file recursively sourcing itself
+if {[info command ::tcl_socket] eq ""} {
+    package require iocp_inet
+    rename ::socket ::tcl_socket
+    rename ::iocp::inet::socket ::socket
+}
 
 proc ::tcl::dict::get? {dict key} {
     if {[dict exists $dict $key]} {
