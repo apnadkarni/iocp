@@ -32,7 +32,8 @@ if {[singleProcess]} {
 }
 
 set ErrorOnFailures [info exists env(ERROR_ON_FAILURES)]
-unset -nocomplain env(ERROR_ON_FAILURES)
+# Do NOT unset ERROR_ON_FAILURES as need to pass to subdirectories
+#unset -nocomplain env(ERROR_ON_FAILURES)
 if {[runAllTests] && $ErrorOnFailures} {exit 1}
 # if calling direct only (avoid rewrite exit if inlined or interactive):
 if { [info exists ::argv0] && [file tail $::argv0] eq [file tail [info script]]
