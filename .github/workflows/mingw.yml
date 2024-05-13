@@ -75,8 +75,10 @@ jobs:
       run: |
         cd build
         make
+      env:
+        ERROR_ON_FAILURES: 1
 
-    - name: Test with libffi
+    - name: Test
       run: |
         cd build
         make test

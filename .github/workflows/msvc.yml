@@ -65,5 +65,7 @@ jobs:
       run: |
         cd win
         nmake /f makefile.vc INSTALLDIR=${{ env.TCLDIR }} test
+      env:
+        ERROR_ON_FAILURES: 1
 
 
