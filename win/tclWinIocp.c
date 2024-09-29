@@ -2093,7 +2093,7 @@ int
 Iocp_Init (Tcl_Interp *interp)
 {
 #ifdef USE_TCL_STUBS
-    if (Tcl_InitStubs(interp, "8.6", 0) == NULL) {
+    if (Tcl_InitStubs(interp, TCL_VERSION, 0) == NULL) {
 	return TCL_ERROR;
     }
 #endif
