@@ -10,11 +10,13 @@ if {[llength [info commands load_twapi_package]] == 0} {
 }
 set argv $__argv
 
-testConstraint haveTwapi 0
+tcltest::testConstraint haveTwapi 0
 if {[llength [info commands ::twapi::tls_socket]] == 0} {
     catch {
-        load_twapi_package twapi_crypto
-        testConstraint haveTwapi 1
+        load_twapi_package twapi
+        if {[file exists [openssl_exe_path]]} {
+            ::tcltest::testConstraint haveTwapi 1
+        }
     }
 }
 

@@ -12,6 +12,8 @@ tcltest::configure {*}$argv
 package require iocp_bt
 
 namespace eval iocp::test {
+    variable opt
+    variable num
     variable TARGET
     if {[info exists ::env(IOCP_BT_TARGET)]} {
         set TARGET $::env(IOCP_BT_TARGET)

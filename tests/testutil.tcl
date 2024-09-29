@@ -26,6 +26,10 @@ proc getenv {envvar {default ""}} {
     }
 }
 
+proc tcl9 {} {
+    return [package vsatisfies [package require Tcl] 9]
+}
+
 # Returns if current system is part of domain
 proc indomain {} {
     if {[info exists ::env(USERDNSDOMAIN)] ||
@@ -100,7 +104,7 @@ proc load_twapi_package {{pkg twapi}} {
     }
 
     # If in source dir, we load that twapi in preference to installed package
-    if {![info exists ::env(TWAPI_TEST_USE_INSTALLED)] && [file exists ../dist] &&
+    if {0 && ![info exists ::env(TWAPI_TEST_USE_INSTALLED)] && [file exists ../dist] &&
         ! [info exists _twapi_test_loaded_packages]} {
         set ::auto_path [linsert $::auto_path 0 [file normalize ../dist]]
     }
@@ -1170,7 +1174,7 @@ proc yesno {question {default "Y"}} {
         # tcltest::runAllTests. I believe this is the same 
         # bug Tcl seems to have with pipes and new lines
         # flushing on Windows (SF buf whatever)
-        puts stdout "$question Type Y/N followed by Enter \[$default\] : "
+        puts -nonewline stdout "$question Type Y/N followed by Enter \[$default\] : "
         flush stdout
         set answer [string trim [gets stdin]]
 #        puts $answer
@@ -1190,7 +1194,7 @@ proc pause {message} {
         twapi::set_foreground_window [twapi::get_console_window]
     }
     # Would like -nonewline here but see comments in proc yesno
-    puts "\n$message Hit Return to continue..."
+    puts -nonewline "\n$message\nHit Return to continue..."
     flush stdout
     gets stdin
     return
@@ -1391,6 +1395,17 @@ proc wish_path {} {
     return $path
 }
 
+proc print_events_in_wish {} {
+    bind . <KeyPress> {
+        puts stdout [list <KeyPress> %k %K]
+    }
+    bind . <KeyRelease> {
+        puts stdout [list <KeyRelease> %k %K]
+    }
+    after 1000 [list exit 0]
+    vwait forever
+}
+
 # Intended to be called as a separate wish process else allocate_console
 # will fail.
 proc allocate_console_in_wish {{title "wish dos console"}} {
@@ -1532,7 +1547,9 @@ proc storewithkeys {} {
 
 # Returns revoked cert. Must be released by caller
 proc revokedcert {} {
-    set enc [read_file [file join [tcltest::testsDirectory] certs grcrevoked.pem] r]
+    set enc [read_file [file join [tcltest::testsDirectory] certs revoked-rsa-dv.ssl.com.pem] r]
+    #set enc [read_file [file join [tcltest::testsDirectory] certs revoked.badssl.com.pem] r]
+    #set enc [read_file [file join [tcltest::testsDirectory] certs grcrevoked.pem] r]
     return [twapi::cert_import $enc]
 }
 
@@ -1541,6 +1558,14 @@ proc yahoocert {} {
     set enc [read_file [file join [tcltest::testsDirectory] certs www.yahoo.com.pem] r]
     return [twapi::cert_import $enc -encoding pem]
 }
+
+# Returns valid cert. Must be released by caller
+proc validcert {} {
+    set enc [read_file [file join [tcltest::testsDirectory] certs test-ev-ecc.ssl.com.pem] r]
+    return [twapi::cert_import $enc -encoding pem]
+}
+
+
 
 # Returns google cert. Must be released by caller
 proc googlecert {} {
@@ -1555,7 +1580,8 @@ proc googleencodedcert {} {
 }
 
 proc expiredcert {} {
-    set enc [read_file [file join [tcltest::testsDirectory] certs www.google.com-expired.pem] r]
+    set enc [read_file [file join [tcltest::testsDirectory] certs expired-rsa-ev.ssl.com.pem] r]
+    # set enc [read_file [file join [tcltest::testsDirectory] certs www.google.com-expired.pem] r]
     return [twapi::cert_import $enc -encoding pem]
 }
 
@@ -1569,7 +1595,8 @@ proc samplecert {{which full}} {
 proc sampleencodedcert {{which full}} {
     variable _sampleencodedcert
     if {![info exists _sampleencodedcert($which)]} {
-        set _sampleencodedcert($which) [read_file [file join [tcltest::testsDirectory] certs twapitest${which}.cer] rb]
+        set bin [read_file [file join [tcltest::testsDirectory] certs twapitest${which}.cer] rb]
+        set _sampleencodedcert($which) [twapi::_pem_decode $bin ""]
     }
     return $_sampleencodedcert($which)
 }
@@ -1643,25 +1670,27 @@ proc pick_cert {hstore {n 4}} {
     return $hcert
 }
 
-proc openssl_path {args} {
-    set path [file join [pwd] .. openssl bin openssl.exe]
-    if {![file exists $path]} {
-        # Try from the source pool. We do it this way because 
-        # of problems loading in VmWare virtual machines from the
-        # host's drive share
-        set path [list ../tools/openssl/bin/openssl.exe]
-        if {![file exists $path]} {
-            error "Could not locate openssl.exe"
-        }
+proc openssl_store_path {args} {
+    return [file normalize [file join [file dirname [file dirname [openssl_exe_path]]] {*}$args]]
+}
+
+proc openssl_exe_path {} {
+    if {[info exists ::env(OPENSSL_EXEPATH)]} {
+        set path $::env(OPENSSL_EXEPATH)
+    } {
+        # mingw latest versions do not support des-cfb etc.
+        #set path {C:\msys64\mingw32\bin\openssl.exe}
+
+        set path [file join [testdir] .. tools openssl bin openssl.exe]
     }
-    return [file normalize [file join [file dirname [file dirname $path]] {*}$args]]
+    return [file normalize $path]
 }
 
 proc openssl {args} {
     # WARNING: exec converts line endings so do not use for binary output
     # Pass openssl the -out option instead in that case
-    set cmd [openssl_path bin openssl.exe]
-    set ::env(OPENSSL_CONF) [openssl_path ssl openssl.cnf]
+    set cmd [openssl_exe_path]
+    set ::env(OPENSSL_CONF) [openssl_store_path ssl openssl.cnf]
     set stderr_temp [file join [temp_crypto_dir_path] twapi-openssl-stderr.tmp]
     set status 0
     if {[catch {exec -keepnewline -- $cmd {*}$args 2> $stderr_temp} stdout options]} {
@@ -1678,8 +1707,8 @@ proc openssl {args} {
 # can be intermixed. Take into consideration when matching data read
 # from the returned channel
 proc openssl& {args} {
-    set cmd [openssl_path bin openssl.exe]
-    set ::env(OPENSSL_CONF) [openssl_path ssl openssl.cnf]
+    set cmd [openssl_exe_path]
+    set ::env(OPENSSL_CONF) [openssl_store_path ssl openssl.cnf]
     set stderr_temp [file join [temp_crypto_dir_path] twapi-openssl-stderr.tmp]
     set status 0
     return [open |[list $cmd {*}$args 2>@1]]
@@ -1692,7 +1721,7 @@ proc openssl_port {} {
 proc openssl_ca_store {} {
     set store [twapi::cert_temporary_store]
     foreach ca {root-ca signing-ca} {
-        set cert [twapi::cert_import [read_file [openssl_path ca ${ca}.crt]] -encoding pem]
+        set cert [twapi::cert_import [read_file [openssl_store_path ca ${ca}.crt]] -encoding pem]
         twapi::cert_release [twapi::cert_store_add_certificate $store $cert]
         twapi::cert_release $cert
     }
@@ -1701,7 +1730,7 @@ proc openssl_ca_store {} {
 }
 
 proc openssl_ca_cert {} {
-    set cert [twapi::cert_import [read_file [openssl_path ca root-ca.crt]] -encoding pem]
+    set cert [twapi::cert_import [read_file [openssl_store_path ca root-ca.crt]] -encoding pem]
     proc openssl_ca_cert {} [list return $cert]
     return $cert
 }
