@@ -47,7 +47,7 @@ proc help {} {
         
         -provider PROVIDER - The socket implementation providers. A pair from
                        tcl, iocp corresponding to native Tcl
-                       sockets or iocp_inet package (tcl) as the socket
+                       sockets or iocp_inet package (default tcl) as the socket
                        provider to use for the client and server
                        If only one is given, it is used for both.
         -payload text|binary - specifies the payload type as text or binary.
@@ -88,10 +88,15 @@ proc help {} {
 
         EXAMPLES
 
+        Default configuration - tests Tcl sockets. Uses localhost
         tclsh netbench.tcl server (on 192.168.1.2)
+        tclsh netbench.tcl client (on 192.168.1.2)
 
-        tclsh netbench.tcl client -server 192.168.1.2 -port 12345 -buffering none
+        Remote server, IOCP
+        tclsh netbench.tcl server -port 12345 (on 192.168.1.2)
+        tclsh netbench.tcl client -server 192.168.1.2 -port 12345 -buffering none -provider iocp
 
+        Batch test
         tclsh netbench.tcl batch -script netbench.test (will use localhost)
 
         Script netbench.test:
@@ -338,6 +343,7 @@ proc client::connect {args} {
         set server(-port) [dict get $args -port]
     }
     # Control channel always uses Tcl sockets
+    puts "Connecting on $server(-addr),$server(-port)"
     set so [socket $server(-addr) $server(-port)]
     fconfigure $so -buffering line
     puts $so PORTS
@@ -584,7 +590,7 @@ proc client::client {args} {
     } else {
         set print_level summary
     }
-    connect $args
+    connect {*}$args
     for {set i 0} {$i < $repeat} {incr i} {
         print [runtest {*}$args] $print_level
     }

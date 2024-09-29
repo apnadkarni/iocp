@@ -6,7 +6,7 @@
 <body>
 <div class='ruff-layout'>
 <header class='ruff-layout-header ruff-hd'>
-<a style='text-decoration:none;' href='iocp.html'>iocp (v1.1.0)</a>
+<a style='text-decoration:none;' href='iocp.html'>iocp (v2.0b1)</a>
 
 
             <div id="ruffButtonBar">
@@ -32,34 +32,40 @@ package require iocp_bt
 <li>Bluetooth LE is not currently supported.</li>
 </ul>
 <p class='ruff'>This documentation is a reference for the package. For an introductory guide, see the <a href="https://www.magicsplat.com/blog/tags/bluetooth/" >tutorials</a>.</p>
-<h2 class='ruff'><a name='::iocp::bt-Device discovery'></a>Device discovery<span class='ruff-uplink'><a href='iocp-iocp-bt.html#::iocp::bt'>bt</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h2>
+<h2 class='ruff'><a name='::iocp::bt-Device discovery'></a>Device discovery<span class='ruff-uplink'><a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h2>
 <div style='clear:both;'></div>
 <p class='ruff'>Remote Bluetooth devices are discovered through <a href="iocp-iocp-bt.html#::iocp::bt::devices" title="devices" class='ruff_cmd'>devices</a> command. It is generally recommended that a new device inquiry be initiated with the <code>-inquire</code> option when using this command as otherwise newly reachable devices will not be discovered. The <a href="iocp-iocp-bt.html#::iocp::bt::device printn" title="device printn" class='ruff_cmd'>device printn</a> command will print the information related to each device in human-readable form.</p>
 <p class='ruff'>Bluetooth radios on the local system can be enumerated with the <a href="iocp-iocp-bt.html#::iocp::bt::radios" title="radios" class='ruff_cmd'>radios</a> command. There is however rarely a need to do this as it is not required for a establishing a Bluetooth connection.</p>
-<h2 class='ruff'><a name='::iocp::bt-Service discovery'></a>Service discovery<span class='ruff-uplink'><a href='iocp-iocp-bt.html#::iocp::bt'>bt</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h2>
+<h2 class='ruff'><a name='::iocp::bt-Service discovery'></a>Service discovery<span class='ruff-uplink'><a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h2>
 <div style='clear:both;'></div>
 <p class='ruff'>A device will generally host multiple services. The <a href="iocp-iocp-bt.html#::iocp::bt::device services" title="device services" class='ruff_cmd'>device services</a> commands will retrieve information about the services advertised by the device. This information is in the form of <em>service discovery records</em>. Commands for parsing these records are contained in the <a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr" title="sdr" class='ruff_cmd'>sdr</a> namespace.</p>
 <p class='ruff'>Services and service classes are identified with UUID's. Most commands will however accept mnemonics for services defined in the standard as they are easier to remember than the UUID's. The <a href="iocp-iocp-bt-names.html#::iocp::bt::names::print" title="names::print" class='ruff_cmd'>names::print</a> command will print the list of mnemonics and the corresponding UUID's.</p>
-<h2 class='ruff'><a name='::iocp::bt-Connection establishment'></a>Connection establishment<span class='ruff-uplink'><a href='iocp-iocp-bt.html#::iocp::bt'>bt</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h2>
+<h2 class='ruff'><a name='::iocp::bt-Connection establishment'></a>Connection establishment<span class='ruff-uplink'><a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h2>
 <div style='clear:both;'></div>
 <p class='ruff'>Establishing a Bluetooth connection involves the following steps.</p>
 <p class='ruff'>First, the device name has to be mapped to its physical address. Unlike the TCP sockets in Tcl, Bluetooth sockets require physical addresses to be specified as device names are ambiguous. The <a href="iocp-iocp-bt.html#::iocp::bt::device addresses" title="device addresses" class='ruff_cmd'>device addresses</a> command can be used to obtain the physical addresses corresponding to a name. Note that there can be multiple devices with the same name so the command returns a list of addresses, one per device. When the list contains more than one address, generally the user needs to be prompted to pick one though below we just assume there is a single address in the list.</p>
-<pre class='ruff'>
+
+<figure  class='ruff-snippet ruff-figure'><pre class='ruff'>
 set addrs [iocp::bt::device addresses &quot;APN Phone&quot;]
 set addr  [lindex $addrs 0]
 </pre>
-<p class='ruff'>Next, the port the service is listening on needs to be resolved with the <a href="iocp-iocp-bt.html#::iocp::bt::device port" title="device port" class='ruff_cmd'>device port</a> command. In the example below, <code>OBEXObjectPush</code> is the service of interest.</p>
-<pre class='ruff'>
+
+</figure><p class='ruff'>Next, the port the service is listening on needs to be resolved with the <a href="iocp-iocp-bt.html#::iocp::bt::device port" title="device port" class='ruff_cmd'>device port</a> command. In the example below, <code>OBEXObjectPush</code> is the service of interest.</p>
+
+<figure  class='ruff-snippet ruff-figure'><pre class='ruff'>
 set port [iocp::bt::service port $addr OBEXObjectPush]
 </pre>
-<p class='ruff'>Finally, a connection is established to the service using the <a href="iocp-iocp-bt.html#::iocp::bt::socket" title="socket" class='ruff_cmd'>socket</a> command.</p>
-<pre class='ruff'>
+
+</figure><p class='ruff'>Finally, a connection is established to the service using the <a href="iocp-iocp-bt.html#::iocp::bt::socket" title="socket" class='ruff_cmd'>socket</a> command.</p>
+
+<figure  class='ruff-snippet ruff-figure'><pre class='ruff'>
 set so [iocp::bt::socket $addr $port]
 </pre>
-<p class='ruff'>Other commands in the namespace provide supporting functions such as device and service discovery.</p>
-<h2 class='ruff'><a name='::iocp::bt-Commands'></a>Commands<span class='ruff-uplink'><a href='iocp-iocp-bt.html#::iocp::bt'>bt</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h2>
+
+</figure><p class='ruff'>Other commands in the namespace provide supporting functions such as device and service discovery.</p>
+<h2 class='ruff'><a name='::iocp::bt-Commands'></a>Commands<span class='ruff-uplink'><a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h2>
 <div style='clear:both;'></div>
-<h3 class='ruffproc'><a name='::iocp::bt::device'>device</a><span class='ns_scope'> [<a href="iocp-iocp-bt.html#::iocp::bt" title="::iocp::bt" class='ruff_cmd'>::iocp::bt</a>]</span><span class='ruff-uplink'><a href='iocp-iocp-bt.html#::iocp::bt'>bt</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
+<h3 class='ruffproc'><a name='::iocp::bt::device'>device</a><span class='ns_scope'> [<a href="iocp-iocp-bt.html#::iocp::bt" title="::iocp::bt" class='ruff_cmd'>::iocp::bt</a>]</span><span class='ruff-uplink'><a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
 <div style='clear:both;'></div>
 <p class='ruff'>A command ensemble.</p>
 <div class='ruff_synopsis'><span class='ruff_cmd'>device</span> <span class='ruff_arg'>subcommand ...</span></div>
@@ -75,7 +81,7 @@ set so [iocp::bt::socket $addr $port]
 <tr><td><a href="iocp-iocp-bt.html#::iocp::bt::device services" title="services" class='ruff_cmd'>services</a></td><td>Retrieve the service discovery records for top level services advertised by a device.</td></tr>
 </table>
 <p class='ruff'>Refer to the documentation of each subcommand for details.</p>
-<h3 class='ruffproc'><a name='::iocp::bt::device address'>device address</a><span class='ns_scope'> [<a href="iocp-iocp-bt.html#::iocp::bt" title="::iocp::bt" class='ruff_cmd'>::iocp::bt</a>]</span><span class='ruff-uplink'><a href='iocp-iocp-bt.html#::iocp::bt'>bt</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
+<h3 class='ruffproc'><a name='::iocp::bt::device address'>device address</a><span class='ns_scope'> [<a href="iocp-iocp-bt.html#::iocp::bt" title="::iocp::bt" class='ruff_cmd'>::iocp::bt</a>]</span><span class='ruff-uplink'><a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
 <div style='clear:both;'></div>
 <p class='ruff'>Returns a Bluetooth address for a given name.</p>
 <div class='ruff_synopsis'><span class='ruff_cmd'>device address</span> <span class='ruff_arg'>name ?args?</span></div>
@@ -85,7 +91,7 @@ set so [iocp::bt::socket $addr $port]
 </table>
 <h5 class='ruff'>Description</h5><p class='ruff'>If a device has multiple addresses, the command may return any one them. If no addresses are found for the device, an error is raised.</p>
 <h5 class='ruff'>Return value</h5><p class='ruff'>Returns a Bluetooth address for a given name.</p>
-<h3 class='ruffproc'><a name='::iocp::bt::device addresses'>device addresses</a><span class='ns_scope'> [<a href="iocp-iocp-bt.html#::iocp::bt" title="::iocp::bt" class='ruff_cmd'>::iocp::bt</a>]</span><span class='ruff-uplink'><a href='iocp-iocp-bt.html#::iocp::bt'>bt</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
+<h3 class='ruffproc'><a name='::iocp::bt::device addresses'>device addresses</a><span class='ns_scope'> [<a href="iocp-iocp-bt.html#::iocp::bt" title="::iocp::bt" class='ruff_cmd'>::iocp::bt</a>]</span><span class='ruff-uplink'><a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
 <div style='clear:both;'></div>
 <p class='ruff'>Returns a list of Bluetooth addresses for a given name.</p>
 <div class='ruff_synopsis'><span class='ruff_cmd'>device addresses</span> <span class='ruff_arg'>name ?args?</span></div>
@@ -94,7 +100,7 @@ set so [iocp::bt::socket $addr $port]
 <tr><td><code>args</code></td><td>Options to control device enquiry. See <a href="iocp-iocp-bt.html#::iocp::bt::devices" title="devices" class='ruff_cmd'>devices</a>.</td></tr>
 </table>
 <h5 class='ruff'>Return value</h5><p class='ruff'>Returns a list of Bluetooth addresses for a given name.</p>
-<h3 class='ruffproc'><a name='::iocp::bt::device port'>device port</a><span class='ns_scope'> [<a href="iocp-iocp-bt.html#::iocp::bt" title="::iocp::bt" class='ruff_cmd'>::iocp::bt</a>]</span><span class='ruff-uplink'><a href='iocp-iocp-bt.html#::iocp::bt'>bt</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
+<h3 class='ruffproc'><a name='::iocp::bt::device port'>device port</a><span class='ns_scope'> [<a href="iocp-iocp-bt.html#::iocp::bt" title="::iocp::bt" class='ruff_cmd'>::iocp::bt</a>]</span><span class='ruff-uplink'><a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
 <div style='clear:both;'></div>
 <p class='ruff'>Resolve the port for a Bluetooth service running over RFCOMM.</p>
 <div class='ruff_synopsis'><span class='ruff_cmd'>device port</span> <span class='ruff_arg'>device service_class</span></div>
@@ -104,14 +110,14 @@ set so [iocp::bt::socket $addr $port]
 </table>
 <h5 class='ruff'>Description</h5><p class='ruff'>In case multiple services of the same service class are available on the device, the port for the first one discovered is returned.</p>
 <h5 class='ruff'>Return value</h5><p class='ruff'>Returns the port number for the service or raises an error if it cannot be resolved.</p>
-<h3 class='ruffproc'><a name='::iocp::bt::device print'>device print</a><span class='ns_scope'> [<a href="iocp-iocp-bt.html#::iocp::bt" title="::iocp::bt" class='ruff_cmd'>::iocp::bt</a>]</span><span class='ruff-uplink'><a href='iocp-iocp-bt.html#::iocp::bt'>bt</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
+<h3 class='ruffproc'><a name='::iocp::bt::device print'>device print</a><span class='ns_scope'> [<a href="iocp-iocp-bt.html#::iocp::bt" title="::iocp::bt" class='ruff_cmd'>::iocp::bt</a>]</span><span class='ruff-uplink'><a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
 <div style='clear:both;'></div>
 <p class='ruff'>Prints device information in human-readable form to stdout.</p>
 <div class='ruff_synopsis'><span class='ruff_cmd'>device print</span> <span class='ruff_arg'>devinfo</span></div>
 <h5 class='ruff'>Parameters</h5><table class='ruff_deflist'>
 <tr><td><code>devinfo</code></td><td>A device information record as returned by the <a href="iocp-iocp-bt.html#::iocp::bt::devices" title="devices" class='ruff_cmd'>devices</a> command.</td></tr>
 </table>
-<h3 class='ruffproc'><a name='::iocp::bt::device printn'>device printn</a><span class='ns_scope'> [<a href="iocp-iocp-bt.html#::iocp::bt" title="::iocp::bt" class='ruff_cmd'>::iocp::bt</a>]</span><span class='ruff-uplink'><a href='iocp-iocp-bt.html#::iocp::bt'>bt</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
+<h3 class='ruffproc'><a name='::iocp::bt::device printn'>device printn</a><span class='ns_scope'> [<a href="iocp-iocp-bt.html#::iocp::bt" title="::iocp::bt" class='ruff_cmd'>::iocp::bt</a>]</span><span class='ruff-uplink'><a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
 <div style='clear:both;'></div>
 <p class='ruff'>Prints device information in human-readable form to stdout.</p>
 <div class='ruff_synopsis'><span class='ruff_cmd'>device printn</span> <span class='ruff_arg'>dinfolist ?detailed?</span></div>
@@ -119,7 +125,7 @@ set so [iocp::bt::socket $addr $port]
 <tr><td><code>dinfolist</code></td><td>A list of device information records as returned by the <a href="iocp-iocp-bt.html#::iocp::bt::devices" title="devices" class='ruff_cmd'>devices</a> command.</td></tr>
 <tr><td><code>detailed</code></td><td>If a true value, detailed information about the device is printed. If false (default), only the address and name are printed in compact form. Optional, default <code>false</code>.</td></tr>
 </table>
-<h3 class='ruffproc'><a name='::iocp::bt::device remove'>device remove</a><span class='ns_scope'> [<a href="iocp-iocp-bt.html#::iocp::bt" title="::iocp::bt" class='ruff_cmd'>::iocp::bt</a>]</span><span class='ruff-uplink'><a href='iocp-iocp-bt.html#::iocp::bt'>bt</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
+<h3 class='ruffproc'><a name='::iocp::bt::device remove'>device remove</a><span class='ns_scope'> [<a href="iocp-iocp-bt.html#::iocp::bt" title="::iocp::bt" class='ruff_cmd'>::iocp::bt</a>]</span><span class='ruff-uplink'><a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
 <div style='clear:both;'></div>
 <p class='ruff'>Removes cached authentication information for a device from the system cache.</p>
 <div class='ruff_synopsis'><span class='ruff_cmd'>device remove</span> <span class='ruff_arg'>device</span></div>
@@ -127,7 +133,7 @@ set so [iocp::bt::socket $addr $port]
 <tr><td><code>device</code></td><td>Bluetooth address or name of a device. if specified as a name, it must resolve to a single address.</td></tr>
 </table>
 <h5 class='ruff'>Description</h5><p class='ruff'>The command will raise an error if <code>$device</code> is a name that cannot be resolved.</p>
-<h3 class='ruffproc'><a name='::iocp::bt::device service_references'>device service_references</a><span class='ns_scope'> [<a href="iocp-iocp-bt.html#::iocp::bt" title="::iocp::bt" class='ruff_cmd'>::iocp::bt</a>]</span><span class='ruff-uplink'><a href='iocp-iocp-bt.html#::iocp::bt'>bt</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
+<h3 class='ruffproc'><a name='::iocp::bt::device service_references'>device service_references</a><span class='ns_scope'> [<a href="iocp-iocp-bt.html#::iocp::bt" title="::iocp::bt" class='ruff_cmd'>::iocp::bt</a>]</span><span class='ruff-uplink'><a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
 <div style='clear:both;'></div>
 <p class='ruff'>Retrieve service discovery records that refer to a specified service.</p>
 <div class='ruff_synopsis'><span class='ruff_cmd'>device service_references</span> <span class='ruff_arg'>device service</span></div>
@@ -137,7 +143,7 @@ set so [iocp::bt::socket $addr $port]
 </table>
 <h5 class='ruff'>Description</h5><p class='ruff'>The command will return all service discovery records that contain an attribute referring to the specified service. The returned service discovery records should be treated as opaque and accessed through the service record decoding commands.</p>
 <h5 class='ruff'>Return value</h5><p class='ruff'>Returns a list of service discovery records.</p>
-<h3 class='ruffproc'><a name='::iocp::bt::device services'>device services</a><span class='ns_scope'> [<a href="iocp-iocp-bt.html#::iocp::bt" title="::iocp::bt" class='ruff_cmd'>::iocp::bt</a>]</span><span class='ruff-uplink'><a href='iocp-iocp-bt.html#::iocp::bt'>bt</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
+<h3 class='ruffproc'><a name='::iocp::bt::device services'>device services</a><span class='ns_scope'> [<a href="iocp-iocp-bt.html#::iocp::bt" title="::iocp::bt" class='ruff_cmd'>::iocp::bt</a>]</span><span class='ruff-uplink'><a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
 <div style='clear:both;'></div>
 <p class='ruff'>Retrieve the service discovery records for top level services advertised by a device.</p>
 <div class='ruff_synopsis'><span class='ruff_cmd'>device services</span> <span class='ruff_arg'>device</span></div>
@@ -147,7 +153,7 @@ set so [iocp::bt::socket $addr $port]
 <h5 class='ruff'>Description</h5><p class='ruff'>The command will return all service discovery records that reference the <code>PublicBrowseRoot</code> service class. This is not necessarily all the services on the device, only those the device advertises as the top-level services.</p>
 <p class='ruff'>The returned service discovery records should be treated as opaque and accessed through the service record decoding commands.</p>
 <h5 class='ruff'>Return value</h5><p class='ruff'>Returns a list of service dscovery records.</p>
-<h3 class='ruffproc'><a name='::iocp::bt::devices'>devices</a><span class='ns_scope'> [<a href="iocp-iocp-bt.html#::iocp::bt" title="::iocp::bt" class='ruff_cmd'>::iocp::bt</a>]</span><span class='ruff-uplink'><a href='iocp-iocp-bt.html#::iocp::bt'>bt</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
+<h3 class='ruffproc'><a name='::iocp::bt::devices'>devices</a><span class='ns_scope'> [<a href="iocp-iocp-bt.html#::iocp::bt" title="::iocp::bt" class='ruff_cmd'>::iocp::bt</a>]</span><span class='ruff-uplink'><a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
 <div style='clear:both;'></div>
 <p class='ruff'>Discover Bluetooth devices.</p>
 <div class='ruff_synopsis'><span class='ruff_cmd'>devices</span> <span class='ruff_arg'>?args?</span></div>
@@ -175,7 +181,7 @@ set so [iocp::bt::socket $addr $port]
 </table>
 <p class='ruff'>The filtering options may be specified to limit the devices returned. If none are specified, all devices are returned.</p>
 <h5 class='ruff'>Return value</h5><p class='ruff'>Returns a list of device information dictionaries.</p>
-<h3 class='ruffproc'><a name='::iocp::bt::radio'>radio</a><span class='ns_scope'> [<a href="iocp-iocp-bt.html#::iocp::bt" title="::iocp::bt" class='ruff_cmd'>::iocp::bt</a>]</span><span class='ruff-uplink'><a href='iocp-iocp-bt.html#::iocp::bt'>bt</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
+<h3 class='ruffproc'><a name='::iocp::bt::radio'>radio</a><span class='ns_scope'> [<a href="iocp-iocp-bt.html#::iocp::bt" title="::iocp::bt" class='ruff_cmd'>::iocp::bt</a>]</span><span class='ruff-uplink'><a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
 <div style='clear:both;'></div>
 <p class='ruff'>A command ensemble.</p>
 <div class='ruff_synopsis'><span class='ruff_cmd'>radio</span> <span class='ruff_arg'>subcommand ...</span></div>
@@ -186,7 +192,7 @@ set so [iocp::bt::socket $addr $port]
 <tr><td><a href="iocp-iocp-bt.html#::iocp::bt::radio info" title="info" class='ruff_cmd'>info</a></td><td>Get detailed information about a radio on the system.</td></tr>
 </table>
 <p class='ruff'>Refer to the documentation of each subcommand for details.</p>
-<h3 class='ruffproc'><a name='::iocp::bt::radio configure'>radio configure</a><span class='ns_scope'> [<a href="iocp-iocp-bt.html#::iocp::bt" title="::iocp::bt" class='ruff_cmd'>::iocp::bt</a>]</span><span class='ruff-uplink'><a href='iocp-iocp-bt.html#::iocp::bt'>bt</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
+<h3 class='ruffproc'><a name='::iocp::bt::radio configure'>radio configure</a><span class='ns_scope'> [<a href="iocp-iocp-bt.html#::iocp::bt" title="::iocp::bt" class='ruff_cmd'>::iocp::bt</a>]</span><span class='ruff-uplink'><a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
 <div style='clear:both;'></div>
 <p class='ruff'>Gets or modifies a radio configuration.</p>
 <div class='ruff_synopsis'><span class='ruff_cmd'>radio configure</span> <span class='ruff_arg'>radio ?args?</span></div>
@@ -198,7 +204,7 @@ set so [iocp::bt::socket $addr $port]
 <p class='ruff'>If exactly one argument is given, it must be the name of an option and the command returns the value of the option.</p>
 <p class='ruff'>Otherwise, the arguments must be a list of option name and values. The radio's options are set accordingly. The command returns an empty string for this case. Note that in case of raised exceptions the state of the radio options is indeterminate.</p>
 <h5 class='ruff'>Return value</h5><p class='ruff'>Returns an option value, a dictionary of options and values, or an empty string.</p>
-<h3 class='ruffproc'><a name='::iocp::bt::radio devices'>radio devices</a><span class='ns_scope'> [<a href="iocp-iocp-bt.html#::iocp::bt" title="::iocp::bt" class='ruff_cmd'>::iocp::bt</a>]</span><span class='ruff-uplink'><a href='iocp-iocp-bt.html#::iocp::bt'>bt</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
+<h3 class='ruffproc'><a name='::iocp::bt::radio devices'>radio devices</a><span class='ns_scope'> [<a href="iocp-iocp-bt.html#::iocp::bt" title="::iocp::bt" class='ruff_cmd'>::iocp::bt</a>]</span><span class='ruff-uplink'><a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
 <div style='clear:both;'></div>
 <p class='ruff'>Discover devices accessible through the specified radio.</p>
 <div class='ruff_synopsis'><span class='ruff_cmd'>radio devices</span> <span class='ruff_arg'>radio ?args?</span></div>
@@ -208,7 +214,7 @@ set so [iocp::bt::socket $addr $port]
 </table>
 <h5 class='ruff'>Description</h5><p class='ruff'>This command has the same functionality as the <a href="iocp-iocp-bt.html#::iocp::bt::devices" title="devices" class='ruff_cmd'>devices</a> command except that it restricts discovery only to those devices accessible through the specified radio.</p>
 <h5 class='ruff'>Return value</h5><p class='ruff'>Returns a list of device information dictionaries. See <a href="iocp-iocp-bt.html#::iocp::bt::devices" title="devices" class='ruff_cmd'>devices</a> for the dictionary format.</p>
-<h3 class='ruffproc'><a name='::iocp::bt::radio info'>radio info</a><span class='ns_scope'> [<a href="iocp-iocp-bt.html#::iocp::bt" title="::iocp::bt" class='ruff_cmd'>::iocp::bt</a>]</span><span class='ruff-uplink'><a href='iocp-iocp-bt.html#::iocp::bt'>bt</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
+<h3 class='ruffproc'><a name='::iocp::bt::radio info'>radio info</a><span class='ns_scope'> [<a href="iocp-iocp-bt.html#::iocp::bt" title="::iocp::bt" class='ruff_cmd'>::iocp::bt</a>]</span><span class='ruff-uplink'><a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
 <div style='clear:both;'></div>
 <p class='ruff'>Get detailed information about a radio on the system</p>
 <div class='ruff_synopsis'><span class='ruff_cmd'>radio info</span> <span class='ruff_arg'>?radio?</span></div>
@@ -227,7 +233,7 @@ set so [iocp::bt::socket $addr $port]
 <tr><td>MinorClassName</td><td>Human readable minor device class name.</td></tr>
 </table>
 <h5 class='ruff'>Return value</h5><p class='ruff'>Returns a dictionary containing information about the radio.</p>
-<h3 class='ruffproc'><a name='::iocp::bt::radios'>radios</a><span class='ns_scope'> [<a href="iocp-iocp-bt.html#::iocp::bt" title="::iocp::bt" class='ruff_cmd'>::iocp::bt</a>]</span><span class='ruff-uplink'><a href='iocp-iocp-bt.html#::iocp::bt'>bt</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
+<h3 class='ruffproc'><a name='::iocp::bt::radios'>radios</a><span class='ns_scope'> [<a href="iocp-iocp-bt.html#::iocp::bt" title="::iocp::bt" class='ruff_cmd'>::iocp::bt</a>]</span><span class='ruff-uplink'><a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
 <div style='clear:both;'></div>
 <p class='ruff'>Enumerate Bluetooth radios on the local system.</p>
 <div class='ruff_synopsis'><span class='ruff_cmd'>radios</span> <span class='ruff_arg'>?detailed?</span></div>
@@ -247,7 +253,7 @@ set so [iocp::bt::socket $addr $port]
 <tr><td>MinorClassName</td><td>Human readable minor device class name.</td></tr>
 </table>
 <h5 class='ruff'>Return value</h5><p class='ruff'>Returns a list of radio addresses or radio information elements.</p>
-<h3 class='ruffproc'><a name='::iocp::bt::socket'>socket</a><span class='ns_scope'> [<a href="iocp-iocp-bt.html#::iocp::bt" title="::iocp::bt" class='ruff_cmd'>::iocp::bt</a>]</span><span class='ruff-uplink'><a href='iocp-iocp-bt.html#::iocp::bt'>bt</a>, <a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
+<h3 class='ruffproc'><a name='::iocp::bt::socket'>socket</a><span class='ns_scope'> [<a href="iocp-iocp-bt.html#::iocp::bt" title="::iocp::bt" class='ruff_cmd'>::iocp::bt</a>]</span><span class='ruff-uplink'><a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
 <div style='clear:both;'></div>
 <p class='ruff'>Returns a client Bluetooth RFCOMM channel.</p>
 <div class='ruff_synopsis'><span class='ruff_cmd'>socket</span> <span class='ruff_arg'>?args?</span></div>
