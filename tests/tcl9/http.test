@@ -18,13 +18,13 @@ if {"::tcltest" ni [namespace children]} {
 
 # Need to protect against this file recursively sourcing itself
 if {[info command ::tcl_socket] eq ""} {
-    package require iocp_inet
+    # Ensure unavailable
     rename ::socket ::tcl_socket
-    rename ::iocp::inet::socket ::socket
 }
 
+package require iocp_inet
 package require http 2.10
-#http::register http 80 ::socket
+http::register http 80 ::iocp::inet::socket
 
 # To write a separate summary for each value of ThreadLevel, set constraint ThreadLevelSummary.
 #testConstraint ThreadLevelSummary 0

@@ -178,7 +178,7 @@ namespace eval iocp::test {
 
     test bt-version-0 "iocp_bt version" -constraints bt -body {
         package require iocp_bt
-    } -result 2.0a0
+    } -result 2.0.2
 
     testnumargs device "::iocp::bt::device" "subcommand" "?arg ...?"
 

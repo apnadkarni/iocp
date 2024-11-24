@@ -281,11 +281,11 @@ proc getPort sock {
     lindex [fconfigure $sock -sockname] 2
 }
 
-# Some tests in this file are known to hang *occasionally* on OSX; stop the
-# worst offenders.
-testConstraint notOSX [expr {$::tcl_platform(os) ne "Darwin"}]
 
 # ----------------------------------------------------------------------
+test inet-version-0 "iocp_inet version" -body {
+    package require iocp_inet
+} -result 2.0.2
 
 test socket_$af-1.1 {arg parsing for iocp::inet::socket command} -constraints [list supported_$af] -body {
     iocp::inet::socket -server
