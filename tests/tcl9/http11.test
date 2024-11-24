@@ -14,12 +14,12 @@ if {"::tcltest" ni [namespace children]} {
 
 # Need to protect against this file recursively sourcing itself
 if {[info command ::tcl_socket] eq ""} {
-    package require iocp_inet
+    # Ensure unavailable
     rename ::socket ::tcl_socket
-    #rename ::iocp::inet::socket ::socket
 }
 
 package require http 2.10
+package require iocp_inet
 http::register http 80 ::iocp::inet::socket
 
 # start the server

@@ -418,7 +418,7 @@ static void UpdatePointerTypeString(Tcl_Obj *objP)
     /* TBD - change this to use DString? */
 
     /* Construct a list string representation */
-    objs[0] = Tcl_NewWideIntObj((Tcl_WideInt) PointerValueGet(objP));
+    objs[0] = Tcl_NewWideIntObj((intptr_t) PointerValueGet(objP));
     tag = PointerTypeGet(objP);
     if (tag)
         objs[1] = Tcl_NewStringObj(tag, -1);
@@ -481,7 +481,7 @@ static int SetPointerFromAny(Tcl_Interp *interp, Tcl_Obj *objP)
         goto invalid_value;
     if (Tcl_GetWideIntFromObj(NULL, objs[0], &value) != TCL_OK)
             goto invalid_value;
-    pv = (void*) value;
+    pv = (void*) (intptr_t) value;
     s = Tcl_GetStringFromObj(objs[1], &len);
     if (len == 0)
         tag = NULL;

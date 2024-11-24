@@ -157,6 +157,13 @@ proc iocp::bt::radio::configure {radio args} {
     # values. The radio's options are set accordingly. The command returns
     # an empty string for this case. Note that in case of raised exceptions
     # the state of the radio options is indeterminate.
+    #
+    # Supported option names are `-discoverable` and `-connectable` both
+    # of which take boolean values. They control whether the Bluetooth radio
+    # is discoverable and connectable from other devices.
+    #
+    # Known bug: the command does not work reliably on all Windows systems.
+    # 
 
     set hradio [Open $radio]
     try {
@@ -187,7 +194,7 @@ proc iocp::bt::radio::configure {radio args} {
                 }
             }
             if {[llength $unchanged]} {
-                error "Options [join $unchanged {, }] could not be modified."
+                error "Option(s) [join $unchanged {, }] could not be modified."
             }
         }
     } finally {

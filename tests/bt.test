@@ -11,6 +11,10 @@ tcltest::configure {*}$argv
 
 package require iocp_bt
 
+proc tcl9 {} {
+    return [package vsatisfies [package require Tcl] 9]
+}
+
 namespace eval iocp::test {
     variable opt
     variable num
@@ -292,7 +296,7 @@ namespace eval iocp::test {
     } -result 1
     test device-service_references-error-0 "device service_references bad name" -constraints bt -body {
         iocp::bt::device service_references NOSUCHDEVICE OBEXObjectPush
-    } -result {Could not resolve Bluetooth device name "NOSUCHDEVICE".} -returnCodes error
+    } -result {Could not find address for device "NOSUCHDEVICE".} -returnCodes error
     test device-service_references-error-1 "device service_references bad address" -constraints bt -body {
         iocp::bt::device service_references $UNKNOWNADDR OBEXObjectPush
     } -result {Bluetooth service search failed. No such service is known. The service cannot be found in the specified name space. } -returnCodes error
@@ -312,7 +316,7 @@ namespace eval iocp::test {
     } -result 1
     test device-services-error-0 "device services bad name" -constraints bt -body {
         iocp::bt::device services NOSUCHDEVICE
-    } -result {Could not resolve Bluetooth device name "NOSUCHDEVICE".} -returnCodes error
+    } -result {Could not find address for device "NOSUCHDEVICE".} -returnCodes error
     test device-services-error-1 "device services bad name" -constraints bt -body {
         iocp::bt::device services $UNKNOWNADDR
     } -result {Bluetooth service search failed. No such service is known. The service cannot be found in the specified name space. } -returnCodes error
@@ -424,7 +428,7 @@ namespace eval iocp::test {
             [iocp::bt::radio configure $r -discoverable] \
             [iocp::bt::radio configure $r -connectable] \
             [iocp::bt::radio configure $r -discoverable 1 -connectable 1] \
-            [iocp::bt::radion configure $r]
+            [iocp::bt::radio configure $r]
     } -result [list {} {} 0 0 {} {-discoverable 1 -connectable 1}]
 
     ################################################################
@@ -475,7 +479,7 @@ namespace eval iocp::test {
         close $so
     } -constraints bt -body {
         lsort [dict keys [fconfigure $so]]
-    } -result [lsort {-blocking -buffering -buffersize -encoding -eofchar -translation -peername -sockname -error -connecting -maxpendingreads -maxpendingwrites -maxpendingaccepts -sosndbuf -sorcvbuf -nagle}]
+    } -result [lsort [expr {[tcl9] ? {-blocking -buffering -buffersize -encoding -eofchar -translation -peername -sockname -error -connecting -maxpendingreads -maxpendingwrites -maxpendingaccepts -profile -sosndbuf -sorcvbuf -nagle} : {-blocking -buffering -buffersize -encoding -eofchar -translation -peername -sockname -error -connecting -maxpendingreads -maxpendingwrites -maxpendingaccepts -sosndbuf -sorcvbuf -nagle}}]]
 
     test bt-socket-configure-1 "socket configure readwrite opts" -setup {
         set port [::iocp::bt::device port $TARGET OBEXObjectPush]
@@ -488,7 +492,7 @@ namespace eval iocp::test {
             -buffering {none line full}
             -buffersize 1024
             -encoding {utf-8 cp1252}
-            -eofchar {{X Y}}
+            -eofchar X
             -translation {{lf lf} {cr cr}}
             -maxpendingreads 3
             -maxpendingwrites 3
@@ -545,7 +549,7 @@ namespace eval iocp::test {
     } -constraints bt -body {
         set myaddr [dict get [iocp::bt::radio info] Address]
         fconfigure $so -nosuchoption
-    } -result {bad option "-nosuchoption": should be one of -blocking, -buffering, -buffersize, -encoding, -eofchar, -translation, -peername, -sockname, -error, -connecting, -maxpendingreads, -maxpendingwrites, -maxpendingaccepts, -sosndbuf, -sorcvbuf, -keepalive, or -nagle} -returnCodes error
+    } -result [expr {[tcl9] ? {bad option "-nosuchoption": should be one of -blocking, -buffering, -buffersize, -encoding, -eofchar, -profile, -translation, -peername, -sockname, -error, -connecting, -maxpendingreads, -maxpendingwrites, -maxpendingaccepts, -sosndbuf, -sorcvbuf, -keepalive, or -nagle} : {bad option "-nosuchoption": should be one of -blocking, -buffering, -buffersize, -encoding, -eofchar, -translation, -peername, -sockname, -error, -connecting, -maxpendingreads, -maxpendingwrites, -maxpendingaccepts, -sosndbuf, -sorcvbuf, -keepalive, or -nagle}}] -returnCodes error
 
     test bt-socket-configure-blocking "socket configure -blocking" -setup {
         set port [::iocp::bt::device port $TARGET OBEXObjectPush]

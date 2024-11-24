@@ -59,9 +59,9 @@ typedef struct WinsockClient {
         } bt;                         /* AF_BTH */
 #endif
     } addresses;
-    int flags;                        /* Miscellaneous flags */
-#define IOCP_WINSOCK_CONNECT_ASYNC 0x1 /* Async connect */
-#define IOCP_WINSOCK_HALF_CLOSABLE 0x2 /* socket support unidirectional close */
+    int flags;                         /* Miscellaneous flags */
+#define IOCP_WINSOCK_HALF_CLOSABLE 0x1 /* Socket support unidirectional close */
+#define IOCP_WINSOCK_AUTHENTICATE  0x2 /* Authenticated connection */
 
 #define IOCP_WINSOCK_MAX_RECEIVES 3
 #define IOCP_WINSOCK_MAX_SENDS    3

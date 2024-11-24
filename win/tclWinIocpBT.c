@@ -1025,6 +1025,17 @@ BtClientBlockingConnect(
     /* Note socket call, unlike WSASocket is overlapped by default */
     so = socket(AF_BTH, SOCK_STREAM, BTHPROTO_RFCOMM);
     if (so != INVALID_SOCKET) {
+        if (btPtr->flags & IOCP_WINSOCK_AUTHENTICATE) {
+            ULONG ul = 1;
+            if (setsockopt(so,
+                           SOL_RFCOMM,
+                           SO_BTH_AUTHENTICATE,
+                           (const char *)&ul,
+                           sizeof(ul))
+                == SOCKET_ERROR) {
+                goto error_handler;
+            }
+        }
         if (connect(so, (SOCKADDR *)&btPtr->addresses.bt.remote, sizeof(SOCKADDR_BTH)) == 0) {
             /* Sockets should not be inherited by children */
             SetHandleInformation((HANDLE)so, HANDLE_FLAG_INHERIT, 0);
@@ -1043,6 +1054,7 @@ BtClientBlockingConnect(
         }
     }
 
+error_handler:
     if (winError == 0)
         winError = WSAGetLastError(); /* Before calling closesocket */
 
@@ -1166,8 +1178,8 @@ BtClientPostConnect(
  */
 static IocpWinError
 BtClientInitiateConnection(
-    WinsockClient *btPtr)  /* Caller must ensure exclusivity either by locking
-                            * or ensuring no other thread can access */
+    WinsockClient *btPtr) /* Caller must ensure exclusivity either by locking
+                           * or ensuring no other thread can access */
 {
     DWORD  winError = 0; /* In case address lists are empty */
     SOCKET so = INVALID_SOCKET;
@@ -1180,25 +1192,32 @@ BtClientInitiateConnection(
 
     so = socket(AF_BTH, SOCK_STREAM, BTHPROTO_RFCOMM);
     if (so != INVALID_SOCKET) {
+        if (btPtr->flags & IOCP_WINSOCK_AUTHENTICATE) {
+            ULONG ul = 1;
+            if (setsockopt(so,
+                           SOL_RFCOMM,
+                           SO_BTH_AUTHENTICATE,
+                           (const char *)&ul,
+                           sizeof(ul))
+                == SOCKET_ERROR) {
+                goto error_handler;
+            }
+        }
         /* Sockets should not be inherited by children */
         SetHandleInformation((HANDLE)so, HANDLE_FLAG_INHERIT, 0);
         btPtr->so = so;
         winError  = BtClientPostConnect(btPtr);
         if (winError == ERROR_SUCCESS)
             return ERROR_SUCCESS;
-
-        /* Oomph, failed. */
-        closesocket(so);
-        btPtr->so = INVALID_SOCKET;
-    } else {
-        winError = WSAGetLastError();
-        /* No joy. Keep trying. */
     }
 
-    /*
-     * Failed. We report the stored error in preference to error in current call.
-     */
+error_handler:
+    winError = WSAGetLastError();
+    if (so != INVALID_SOCKET)
+        closesocket(so);
+    btPtr->so = INVALID_SOCKET;
     btPtr->base.state = IOCP_STATE_CONNECT_FAILED;
+    /* We report the stored error in preference to error in current call.  */
     if (btPtr->base.winError == 0)
         btPtr->base.winError = winError;
     return btPtr->base.winError;
@@ -1222,11 +1241,12 @@ BtClientInitiateConnection(
  *----------------------------------------------------------------------
  */
 
-Tcl_Channel
+static Tcl_Channel
 Iocp_OpenBTClient(
     Tcl_Interp *interp, /* Interpreter */
     int port, /* Port 1-30 */
     BLUETOOTH_ADDRESS *btAddress, /* Address of device */
+    int authenticate, /* Whether to authenticate connection */
     int async) /* Async connect or not */
 {
     WinsockClient *btPtr;
@@ -1248,6 +1268,8 @@ Iocp_OpenBTClient(
     btPtr->addresses.bt.remote.addressFamily = AF_BTH;
     btPtr->addresses.bt.remote.btAddr    = btAddress->ullLong;
     btPtr->addresses.bt.remote.port      = port;
+    if (authenticate)
+        btPtr->flags |= IOCP_WINSOCK_AUTHENTICATE;
     memset(&btPtr->addresses.bt.remote.serviceClassId,
            0,
            sizeof(btPtr->addresses.bt.remote.serviceClassId));
@@ -1261,7 +1283,7 @@ Iocp_OpenBTClient(
         }
     }
     else {
-        winError = BtClientBlockingConnect( WinsockClientToIocpChannel(btPtr) );
+        winError = BtClientBlockingConnect(WinsockClientToIocpChannel(btPtr));
         if (winError != ERROR_SUCCESS) {
             IocpSetInterpPosixErrorFromWin32(interp, winError, gSocketOpenErrorMessage);
             goto fail;
@@ -1471,7 +1493,7 @@ BT_SocketObjCmd(ClientData  notUsed,   /* Not used. */
             return TCL_ERROR;
         }
 
-        chan = Iocp_OpenBTClient(interp, port, &btAddress, async);
+        chan = Iocp_OpenBTClient(interp, port, &btAddress, authenticate, async);
         if (chan == NULL) {
             return TCL_ERROR;
         }
@@ -1555,7 +1577,7 @@ int BT_LookupServiceBeginObjCmd (
 #if TCL_MAJOR_VERSION < 9
     qs.lpszContext         = Tcl_GetUnicodeFromObj(objv[1], NULL);
 #else
-    utf8 = Tcl_GetStringFromObj(objv[3], &utf8len);
+    utf8 = Tcl_GetStringFromObj(objv[1], &utf8len);
     qs.lpszContext = Tcl_UtfToChar16DString(utf8, utf8len, &ds2);
 #endif
 

@@ -182,15 +182,19 @@ namespace eval iocp::bt {
         #   args - see below.
         # The command takes the form
         #
-        #     socket ?-async? device port
+        #     socket ?-async? ?-authenticate? device port
         #
         # where `device` is the Bluetooth hardware address of the
         # remote device and `port` is the RFCOMM port (channel).
+        #
         # The `-async` option has the same effect as in the Tcl
         # [socket](http://www.tcl-lang.org/man/tcl8.6/TclCmd/socket.htm)
         # command. It returns immediately without waiting for the
         # connection to complete.
-        # 
+        #
+        # The `-authenticate` option actively initiates authentication if
+        # the remote device was not previously authenticated.
+        #
         # Once the connection is established, Bluetooth channel operation
         # is identical to that of Tcl sockets except that half closes
         # are not supported.

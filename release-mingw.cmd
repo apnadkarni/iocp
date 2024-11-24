@@ -29,11 +29,6 @@
 @call :build 8.6.10 mingw64 --enable-64bit || goto abort
 @call :build 8.6.10 mingw32 || goto abort
 
-:: @xcopy /S /I /Y d:\Tcl\90\mingw64\lib\%package%%version% "%DISTRO%" || goto abort
-:: @xcopy /S /I /Y d:\Tcl\90\mingw32\lib\%package%%version% "%DISTRO%" || goto abort
-:: @xcopy /S /I /Y d:\Tcl\86\mingw64\lib\%package%%version% "%DISTRO%" || goto abort
-:: @xcopy /S /I /Y d:\Tcl\86\mingw32\lib\%package%%version% "%DISTRO%" || goto abort
-
 @endlocal
 @exit /b 0
 
