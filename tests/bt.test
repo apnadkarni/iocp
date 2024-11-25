@@ -419,7 +419,7 @@ namespace eval iocp::test {
         set settings [iocp::bt::radio configure $r]
     } -cleanup {
         iocp::bt::radio configure $r {*}$settings
-    } -constraints bt -body {
+    } -constraints {bt knownBug} -body {
         # This test will often fail - Windows bug - see google as
         # it does not reliable turn BT discoverability off
         list \
@@ -450,6 +450,36 @@ namespace eval iocp::test {
         vwait ::gate
         set ::gate
     } -result 0
+    test bt-socket-1 "Basic socket connect -async" -setup {
+        set port [::iocp::bt::device port $TARGET OBEXObjectPush]
+    } -constraints bt -body {
+        set so [::iocp::bt::socket -async [daddr $TARGET] $port]
+        fileevent $so writable [list apply {{so} {
+            fileevent $so writable ""
+            set ::gate [eof $so]
+            close $so
+        }} $so]
+        vwait ::gate
+        set ::gate
+    } -result 0
+    test bt-socket-2 "Basic socket connect -authenticate" -setup {
+        set port [::iocp::bt::device port $TARGET OBEXObjectPush]
+    } -constraints bt -body {
+        close [::iocp::bt::socket -authenticate [daddr $TARGET] $port]
+    } -result ""
+    test bt-socket-3 "Basic socket connect -async -authenticate" -setup {
+        set port [::iocp::bt::device port $TARGET OBEXObjectPush]
+    } -constraints bt -body {
+        set so [::iocp::bt::socket -async -authenticate [daddr $TARGET] $port]
+        fileevent $so writable [list apply {{so} {
+            fileevent $so writable ""
+            set ::gate [eof $so]
+            close $so
+        }} $so]
+        vwait ::gate
+        set ::gate
+    } -result 0
+
     test bt-socket-error-0 "Basic socket fail to connect" -constraints bt -body {
         ::iocp::bt::socket $UNKNOWNADDR 7
     } -result {couldn't open socket: connection timed out} -returnCodes error
