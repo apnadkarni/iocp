@@ -3,8 +3,8 @@
 ## Visual C++
 
 Run `release.cmd` in the top level directory after editing the paths at
-top of the file. This will create a distribution in the dist/VERSION directory
-with support for all combinations of Tcl 8/9 and x86/x64.
+top of the file. This will create a distribution in the dist/iocp-VERSION directory
+with support for all combinations of Tcl 8/9 and x86/x64 and a zip archive.
 
 ## MinGW64
 
