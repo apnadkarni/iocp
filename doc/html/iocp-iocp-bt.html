@@ -6,7 +6,7 @@
 <body>
 <div class='ruff-layout'>
 <header class='ruff-layout-header ruff-hd'>
-<a style='text-decoration:none;' href='iocp.html'>iocp (v2.0b1)</a>
+<a style='text-decoration:none;' href='iocp.html'>iocp (v2.0.2)</a>
 
 
             <div id="ruffButtonBar">
@@ -262,9 +262,11 @@ set so [iocp::bt::socket $addr $port]
 </table>
 <h5 class='ruff'>Description</h5><p class='ruff'>The command takes the form</p>
 <pre class='ruff'>
-socket ?-async? device port
+socket ?-async? ?-authenticate? device port
 </pre>
-<p class='ruff'>where <code>device</code> is the Bluetooth hardware address of the remote device and <code>port</code> is the RFCOMM port (channel). The <code>-async</code> option has the same effect as in the Tcl <a href="http://www.tcl-lang.org/man/tcl8.6/TclCmd/socket.htm" >socket</a> command. It returns immediately without waiting for the connection to complete.</p>
+<p class='ruff'>where <code>device</code> is the Bluetooth hardware address of the remote device and <code>port</code> is the RFCOMM port (channel).</p>
+<p class='ruff'>The <code>-async</code> option has the same effect as in the Tcl <a href="http://www.tcl-lang.org/man/tcl8.6/TclCmd/socket.htm" >socket</a> command. It returns immediately without waiting for the connection to complete.</p>
+<p class='ruff'>The <code>-authenticate</code> option actively initiates authentication if the remote device was not previously authenticated.</p>
 <p class='ruff'>Once the connection is established, Bluetooth channel operation is identical to that of Tcl sockets except that half closes are not supported.</p>
 <p class='ruff'>The returned channel must be closed with the Tcl <code>close</code> or <code>chan close</code> command.</p>
 <h5 class='ruff'>Return value</h5><p class='ruff'>Returns a client Bluetooth RFCOMM channel.</p>

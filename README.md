@@ -12,12 +12,12 @@ The single package supports all combinations of Tcl 8.6/9 and
 
 Documentation at https://iocp.magicsplat.com.
 
-## Changes in 2.0b1
+## Changes in 2.0.2
 
 - Support for Tcl 9
+- Added `-authenticate` option to `::iocp::bt::socket`
 
 No functional or API changes.
-
 
 ## Changes in 1.1.0
 
