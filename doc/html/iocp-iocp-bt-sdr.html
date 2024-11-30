@@ -32,10 +32,10 @@ set service_classes [iocp::bt::sdr::attribute get $sdr ServiceClassIDList]
 <div class='ruff_synopsis'><span class='ruff_cmd'>attribute</span> <span class='ruff_arg'>subcommand ...</span></div>
 <h5 class='ruff'>Description</h5><p class='ruff'>The ensemble supports the following subcommands:</p>
 <table class='ruff_deflist'>
-<tr><td><a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr::attribute exists" title="exists" class='ruff_cmd'>exists</a></td><td>Checks if an attribute exists in a service discovery record.</td></tr>
-<tr><td><a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr::attribute get" title="get" class='ruff_cmd'>get</a></td><td>Get the value of an universal attribute from a service discovery record.</td></tr>
-<tr><td><a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr::attribute raw" title="raw" class='ruff_cmd'>raw</a></td><td>Get an attribute value from an service discovery record.</td></tr>
-<tr><td><a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr::attribute text" title="text" class='ruff_cmd'>text</a></td><td>Get the value of an text attribute in the specified language from a service discovery record.</td></tr>
+<tr><td><nobr><a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr::attribute exists" title="exists" class='ruff_cmd'>exists</a></nobr></td><td>Checks if an attribute exists in a service discovery record.</td></tr>
+<tr><td><nobr><a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr::attribute get" title="get" class='ruff_cmd'>get</a></nobr></td><td>Get the value of an universal attribute from a service discovery record.</td></tr>
+<tr><td><nobr><a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr::attribute raw" title="raw" class='ruff_cmd'>raw</a></nobr></td><td>Get an attribute value from an service discovery record.</td></tr>
+<tr><td><nobr><a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr::attribute text" title="text" class='ruff_cmd'>text</a></nobr></td><td>Get the value of an text attribute in the specified language from a service discovery record.</td></tr>
 </table>
 <p class='ruff'>Refer to the documentation of each subcommand for details.</p>
 <h3 class='ruffproc'><a name='::iocp::bt::sdr::attribute exists'>attribute exists</a><span class='ns_scope'> [<a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr" title="::iocp::bt::sdr" class='ruff_cmd'>::iocp::bt::sdr</a>]</span><span class='ruff-uplink'><a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
@@ -43,9 +43,9 @@ set service_classes [iocp::bt::sdr::attribute get $sdr ServiceClassIDList]
 <p class='ruff'>Checks if an attribute exists in a service discovery record</p>
 <div class='ruff_synopsis'><span class='ruff_cmd'>attribute exists</span> <span class='ruff_arg'>sdr attr_id ?varname?</span></div>
 <h5 class='ruff'>Parameters</h5><table class='ruff_deflist'>
-<tr><td><code>sdr</code></td><td>A decoded service discovery record in the form returned by <a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr::decode" title="decode" class='ruff_cmd'>decode</a>.</td></tr>
-<tr><td><code>attr_id</code></td><td>Attribute integer id or Bluetooth universal attribute name.</td></tr>
-<tr><td><code>varname</code></td><td>If not the empty string, the attribute value is stored in a variable of this name in the caller's context. Optional, default <code>&quot;&quot;</code>.</td></tr>
+<tr><td><nobr><code>sdr</code></nobr></td><td>A decoded service discovery record in the form returned by <a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr::decode" title="decode" class='ruff_cmd'>decode</a>.</td></tr>
+<tr><td><nobr><code>attr_id</code></nobr></td><td>Attribute integer id or Bluetooth universal attribute name.</td></tr>
+<tr><td><nobr><code>varname</code></nobr></td><td>If not the empty string, the attribute value is stored in a variable of this name in the caller's context. Optional, default <code>&quot;&quot;</code>.</td></tr>
 </table>
 <h5 class='ruff'>Description</h5><p class='ruff'>The value returned in <code>$varname</code> is the attribute type-independent data value. To get the value formatted for the attribute type, use the <a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr::attribute get" title="attribute get" class='ruff_cmd'>attribute get</a> command.</p>
 <h5 class='ruff'>Return value</h5><p class='ruff'>Returns 1 if the attribute exists, and 0 otherwise.</p>
@@ -54,9 +54,9 @@ set service_classes [iocp::bt::sdr::attribute get $sdr ServiceClassIDList]
 <p class='ruff'>Get the value of an universal attribute from a service discovery record.</p>
 <div class='ruff_synopsis'><span class='ruff_cmd'>attribute get</span> <span class='ruff_arg'>sdr attr_id ?varname?</span></div>
 <h5 class='ruff'>Parameters</h5><table class='ruff_deflist'>
-<tr><td><code>sdr</code></td><td>Decoded service discovery record.</td></tr>
-<tr><td><code>attr_id</code></td><td>Universal attribute name or numeric identifier.</td></tr>
-<tr><td><code>varname</code></td><td>Optional name of variable in caller's context. Optional, default <code>&quot;&quot;</code>.</td></tr>
+<tr><td><nobr><code>sdr</code></nobr></td><td>Decoded service discovery record.</td></tr>
+<tr><td><nobr><code>attr_id</code></nobr></td><td>Universal attribute name or numeric identifier.</td></tr>
+<tr><td><nobr><code>varname</code></nobr></td><td>Optional name of variable in caller's context. Optional, default <code>&quot;&quot;</code>.</td></tr>
 </table>
 <h5 class='ruff'>Description</h5><p class='ruff'>If <code>$varname</code> is not the empty string, it should be the name of a variable in the caller's context.</p>
 <ul class='ruff'>
@@ -71,29 +71,29 @@ set service_classes [iocp::bt::sdr::attribute get $sdr ServiceClassIDList]
 <p class='ruff'>The attribute value is decoded into a attribute type-dependent format.</p>
 <p class='ruff'>The <code>$attr_id</code> argument must be one of those defined in the <em>Universal Attributes</em> section in the <a href="https://www.bluetooth.com/specifications/assigned-numbers/service-discovery/" >Bluetooth Assigned Numbers</a> specification. Otherwise an error is raised. The recognized attributes are listed below. Refer to the Bluetooth specification for their exact semantics.</p>
 <table class='ruff_deflist'>
-<tr><td>AdditionalProtocolDescriptorList</td><td>List of protocol stacks. This supplements the <code>ProtocolDescriptorList</code> attribute.</td></tr>
-<tr><td>BluetoothProfileDescriptorList</td><td>List of Bluetooth profile descriptors to which the service conforms. Each element is a dictionary with keys <code>Uuid</code>, <code>Name</code>, <code>MajorVersion</code> and <code>MinorVersion</code> corresponding to the referenced profile.</td></tr>
-<tr><td>BrowseGroupList</td><td>List of browse group descriptors representing the browse groups to which the service record belongs. Each descriptor is dictionary with keys <code>Uuid</code> and <code>Name</code> identifying the a browse group.</td></tr>
-<tr><td>ClientExecutableURL</td><td>URL pointing to the client application that may be used to utilize the service.</td></tr>
-<tr><td>DocumentationURL</td><td>URL for the service documentation.</td></tr>
-<tr><td>IconURL</td><td>URL for icon that may be used to represent the service.</td></tr>
-<tr><td>LanguageBaseAttributeIDList</td><td>Nested dictionary of language-specific attribute offsets (see below).</td></tr>
-<tr><td>ProtocolDescriptorList</td><td>List of protocol stacks (see below) that may be used to access the service described by the service record.</td></tr>
-<tr><td>ProviderName</td><td>Name of entity providing the service in the primary language of the service record.</td></tr>
-<tr><td>ServiceAvailability</td><td>A value in the range 0-255 that indicates relative availability of the service in terms of the number of clients it can accept. Note this is a scaled estimate.</td></tr>
-<tr><td>ServiceClassIDList</td><td>List with each element being a dictionary corresponding to a service class that the record conforms to. The keys of the dictionary are <code>Name</code> and <code>Uuid</code>.</td></tr>
-<tr><td>ServiceDescription</td><td>A description of the service in the primary language of the record.</td></tr>
-<tr><td>ServiceID</td><td>UUID that uniquely identifies a service instance.</td></tr>
-<tr><td>ServiceInfoTimeToLive</td><td>The number of seconds from the time it was generated that the service record information is expected to be valid.</td></tr>
-<tr><td>ServiceName</td><td>The human-readable name of the service in the primary language of the record.</td></tr>
-<tr><td>ServiceRecordHandle</td><td>A numeric value that uniquely identifies a service record within a SDP server.</td></tr>
-<tr><td>ServiceRecordState</td><td>Numeric value that is changed any time the service record is modified by the SDP server.</td></tr>
+<tr><td><nobr>AdditionalProtocolDescriptorList</nobr></td><td>List of protocol stacks. This supplements the <code>ProtocolDescriptorList</code> attribute.</td></tr>
+<tr><td><nobr>BluetoothProfileDescriptorList</nobr></td><td>List of Bluetooth profile descriptors to which the service conforms. Each element is a dictionary with keys <code>Uuid</code>, <code>Name</code>, <code>MajorVersion</code> and <code>MinorVersion</code> corresponding to the referenced profile.</td></tr>
+<tr><td><nobr>BrowseGroupList</nobr></td><td>List of browse group descriptors representing the browse groups to which the service record belongs. Each descriptor is dictionary with keys <code>Uuid</code> and <code>Name</code> identifying the a browse group.</td></tr>
+<tr><td><nobr>ClientExecutableURL</nobr></td><td>URL pointing to the client application that may be used to utilize the service.</td></tr>
+<tr><td><nobr>DocumentationURL</nobr></td><td>URL for the service documentation.</td></tr>
+<tr><td><nobr>IconURL</nobr></td><td>URL for icon that may be used to represent the service.</td></tr>
+<tr><td><nobr>LanguageBaseAttributeIDList</nobr></td><td>Nested dictionary of language-specific attribute offsets (see below).</td></tr>
+<tr><td><nobr>ProtocolDescriptorList</nobr></td><td>List of protocol stacks (see below) that may be used to access the service described by the service record.</td></tr>
+<tr><td><nobr>ProviderName</nobr></td><td>Name of entity providing the service in the primary language of the service record.</td></tr>
+<tr><td><nobr>ServiceAvailability</nobr></td><td>A value in the range 0-255 that indicates relative availability of the service in terms of the number of clients it can accept. Note this is a scaled estimate.</td></tr>
+<tr><td><nobr>ServiceClassIDList</nobr></td><td>List with each element being a dictionary corresponding to a service class that the record conforms to. The keys of the dictionary are <code>Name</code> and <code>Uuid</code>.</td></tr>
+<tr><td><nobr>ServiceDescription</nobr></td><td>A description of the service in the primary language of the record.</td></tr>
+<tr><td><nobr>ServiceID</nobr></td><td>UUID that uniquely identifies a service instance.</td></tr>
+<tr><td><nobr>ServiceInfoTimeToLive</nobr></td><td>The number of seconds from the time it was generated that the service record information is expected to be valid.</td></tr>
+<tr><td><nobr>ServiceName</nobr></td><td>The human-readable name of the service in the primary language of the record.</td></tr>
+<tr><td><nobr>ServiceRecordHandle</nobr></td><td>A numeric value that uniquely identifies a service record within a SDP server.</td></tr>
+<tr><td><nobr>ServiceRecordState</nobr></td><td>Numeric value that is changed any time the service record is modified by the SDP server.</td></tr>
 </table>
 <p class='ruff'>In the case of ProtocolDescriptorList and AdditionalProtocolDescriptorList, the attribute value is in the form of a list each element of which describes a protocol stack that may be used to access the service. Each such element is itself a list whose elements correspond to layers in that protocol stack starting with the lowest layer first. Each layer is described as a dictionary with the following keys:</p>
 <table class='ruff_deflist'>
-<tr><td>Uuid</td><td>The UUID of the protocol for the layer.</td></tr>
-<tr><td>Name</td><td>The name of the protocol.</td></tr>
-<tr><td>Params</td><td>The protocol parameters. This is a list of raw data elements of the form <code>{type value}</code> the interpretation of which is protocol dependent.</td></tr>
+<tr><td><nobr>Uuid</nobr></td><td>The UUID of the protocol for the layer.</td></tr>
+<tr><td><nobr>Name</nobr></td><td>The name of the protocol.</td></tr>
+<tr><td><nobr>Params</nobr></td><td>The protocol parameters. This is a list of raw data elements of the form <code>{type value}</code> the interpretation of which is protocol dependent.</td></tr>
 </table>
 <p class='ruff'>In the case of LanguageBaseAttributeIDList, the attribute value is a dictionary indexed by language identifiers as defined in ISO639, e.g. <code>en</code>, <code>fr</code> etc. The corresponding value is itself a dictionary with keys <code>BaseOffset</code> and <code>Encoding</code>. See the Bluetooth specification for the former. The latter is either a Tcl encoding name or in case the encoding is not supported by Tcl, an integer value that identifies an encoding as per the Bluetooth specification.</p>
 <h5 class='ruff'>Return value</h5><p class='ruff'>Returns a boolean or the decoded attribute value.</p>
@@ -102,8 +102,8 @@ set service_classes [iocp::bt::sdr::attribute get $sdr ServiceClassIDList]
 <p class='ruff'>Get an attribute value from an service discovery record.</p>
 <div class='ruff_synopsis'><span class='ruff_cmd'>attribute raw</span> <span class='ruff_arg'>sdr attr_id</span></div>
 <h5 class='ruff'>Parameters</h5><table class='ruff_deflist'>
-<tr><td><code>sdr</code></td><td>A decoded service discovery record in the form returned by sdr_decode.</td></tr>
-<tr><td><code>attr_id</code></td><td>Attribute integer id.</td></tr>
+<tr><td><nobr><code>sdr</code></nobr></td><td>A decoded service discovery record in the form returned by sdr_decode.</td></tr>
+<tr><td><nobr><code>attr_id</code></nobr></td><td>Attribute integer id.</td></tr>
 </table>
 <h5 class='ruff'>Description</h5><p class='ruff'>The command will raise an error if the attribute does not exist in the sdr.</p>
 <h5 class='ruff'>Return value</h5><p class='ruff'>Returns the attribute value as a pair consisting of the type and the raw data element value.</p>
@@ -112,10 +112,10 @@ set service_classes [iocp::bt::sdr::attribute get $sdr ServiceClassIDList]
 <p class='ruff'>Get the value of an text attribute in the specified language from a service discovery record.</p>
 <div class='ruff_synopsis'><span class='ruff_cmd'>attribute text</span> <span class='ruff_arg'>sdr attr_id lang ?varname?</span></div>
 <h5 class='ruff'>Parameters</h5><table class='ruff_deflist'>
-<tr><td><code>sdr</code></td><td>Decoded service discovery record.</td></tr>
-<tr><td><code>attr_id</code></td><td>Universal attribute name or numeric identifier.</td></tr>
-<tr><td><code>lang</code></td><td>Language identifier as specified in iso639, e.g. <code>en</code> for english, <code>fr</code> for french etc. or the keyword <code>primary</code>.</td></tr>
-<tr><td><code>varname</code></td><td>Name of variable in caller's context. Optional, default <code>&quot;&quot;</code>.</td></tr>
+<tr><td><nobr><code>sdr</code></nobr></td><td>Decoded service discovery record.</td></tr>
+<tr><td><nobr><code>attr_id</code></nobr></td><td>Universal attribute name or numeric identifier.</td></tr>
+<tr><td><nobr><code>lang</code></nobr></td><td>Language identifier as specified in iso639, e.g. <code>en</code> for english, <code>fr</code> for french etc. or the keyword <code>primary</code>.</td></tr>
+<tr><td><nobr><code>varname</code></nobr></td><td>Name of variable in caller's context. Optional, default <code>&quot;&quot;</code>.</td></tr>
 </table>
 <h5 class='ruff'>Description</h5><p class='ruff'>If <code>$varname</code> is not the empty string, it should be the name of a variable in the caller's context.</p>
 <ul class='ruff'>
@@ -134,7 +134,7 @@ set service_classes [iocp::bt::sdr::attribute get $sdr ServiceClassIDList]
 <p class='ruff'>Get the list of attributes in a service discovery record</p>
 <div class='ruff_synopsis'><span class='ruff_cmd'>attributes</span> <span class='ruff_arg'>sdr</span></div>
 <h5 class='ruff'>Parameters</h5><table class='ruff_deflist'>
-<tr><td><code>sdr</code></td><td>A decoded service discovery record in the form returned by <a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr::decode" title="decode" class='ruff_cmd'>decode</a>.</td></tr>
+<tr><td><nobr><code>sdr</code></nobr></td><td>A decoded service discovery record in the form returned by <a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr::decode" title="decode" class='ruff_cmd'>decode</a>.</td></tr>
 </table>
 <h5 class='ruff'>Return value</h5><p class='ruff'>Returns a list of numeric attribute ids.</p>
 <h3 class='ruffproc'><a name='::iocp::bt::sdr::decode'>decode</a><span class='ns_scope'> [<a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr" title="::iocp::bt::sdr" class='ruff_cmd'>::iocp::bt::sdr</a>]</span><span class='ruff-uplink'><a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
@@ -142,7 +142,7 @@ set service_classes [iocp::bt::sdr::attribute get $sdr ServiceClassIDList]
 <p class='ruff'>Decodes a binary service discovery record</p>
 <div class='ruff_synopsis'><span class='ruff_cmd'>decode</span> <span class='ruff_arg'>binsdr</span></div>
 <h5 class='ruff'>Parameters</h5><table class='ruff_deflist'>
-<tr><td><code>binsdr</code></td><td>A raw Bluetooth service discovery record in binary form.</td></tr>
+<tr><td><nobr><code>binsdr</code></nobr></td><td>A raw Bluetooth service discovery record in binary form.</td></tr>
 </table>
 <h5 class='ruff'>Description</h5><p class='ruff'>The returned value should be treated as opaque. The attributes stored in the record should be accessed with the commands in the <code>sdr</code> namespace.</p>
 <h5 class='ruff'>Return value</h5><p class='ruff'>Returns a container of attributes stored in the record.</p>
@@ -151,16 +151,16 @@ set service_classes [iocp::bt::sdr::attribute get $sdr ServiceClassIDList]
 <p class='ruff'>Prints a SDP record to a more human readable form.</p>
 <div class='ruff_synopsis'><span class='ruff_cmd'>print</span> <span class='ruff_arg'>rec ?attrfilter?</span></div>
 <h5 class='ruff'>Parameters</h5><table class='ruff_deflist'>
-<tr><td><code>rec</code></td><td>A binary SDP record in the form returned by <a href="iocp-iocp-bt.html#::iocp::bt::device services" title="::iocp::bt::device services" class='ruff_cmd'>::iocp::bt::device services</a> or <a href="iocp-iocp-bt.html#::iocp::bt::device service_references" title="::iocp::bt::device service_references" class='ruff_cmd'>::iocp::bt::device service_references</a>.</td></tr>
-<tr><td><code>attrfilter</code></td><td>If specified, only attribute names matching the filter using <code>string match</code> are printed. Optional, default <code>*</code>.</td></tr>
+<tr><td><nobr><code>rec</code></nobr></td><td>A binary SDP record in the form returned by <a href="iocp-iocp-bt.html#::iocp::bt::device services" title="::iocp::bt::device services" class='ruff_cmd'>::iocp::bt::device services</a> or <a href="iocp-iocp-bt.html#::iocp::bt::device service_references" title="::iocp::bt::device service_references" class='ruff_cmd'>::iocp::bt::device service_references</a>.</td></tr>
+<tr><td><nobr><code>attrfilter</code></nobr></td><td>If specified, only attribute names matching the filter using <code>string match</code> are printed. Optional, default <code>*</code>.</td></tr>
 </table>
 <h3 class='ruffproc'><a name='::iocp::bt::sdr::printn'>printn</a><span class='ns_scope'> [<a href="iocp-iocp-bt-sdr.html#::iocp::bt::sdr" title="::iocp::bt::sdr" class='ruff_cmd'>::iocp::bt::sdr</a>]</span><span class='ruff-uplink'><a href='#top'>Top</a>, <a href='iocp.html'>Main</a>, <a href='iocp-docindex.html#'>Index</a></span></h3>
 <div style='clear:both;'></div>
 <p class='ruff'>Prints a SDP record to a more human readable form.</p>
 <div class='ruff_synopsis'><span class='ruff_cmd'>printn</span> <span class='ruff_arg'>recs ?attrfilter?</span></div>
 <h5 class='ruff'>Parameters</h5><table class='ruff_deflist'>
-<tr><td><code>recs</code></td><td>A list of binary SDP records in the form returned by <a href="iocp-iocp-bt.html#::iocp::bt::device services" title="::iocp::bt::device services" class='ruff_cmd'>::iocp::bt::device services</a> or <a href="iocp-iocp-bt.html#::iocp::bt::device service_references" title="::iocp::bt::device service_references" class='ruff_cmd'>::iocp::bt::device service_references</a>.</td></tr>
-<tr><td><code>attrfilter</code></td><td>If specified, only attribute names matching the filter using <code>string match</code> are printed. Optional, default <code>*</code>.</td></tr>
+<tr><td><nobr><code>recs</code></nobr></td><td>A list of binary SDP records in the form returned by <a href="iocp-iocp-bt.html#::iocp::bt::device services" title="::iocp::bt::device services" class='ruff_cmd'>::iocp::bt::device services</a> or <a href="iocp-iocp-bt.html#::iocp::bt::device service_references" title="::iocp::bt::device service_references" class='ruff_cmd'>::iocp::bt::device service_references</a>.</td></tr>
+<tr><td><nobr><code>attrfilter</code></nobr></td><td>If specified, only attribute names matching the filter using <code>string match</code> are printed. Optional, default <code>*</code>.</td></tr>
 </table>
 </main><nav class='ruff-nav'><ul style='position: sticky; top: 0;'><li class='ruff-toc1'><a style='padding-top:2px;' href='iocp.html'>Start page</a></li>
 <li class='ruff-toc1'><a href='iocp-docindex.html' accesskey='i'>Index</a></li>

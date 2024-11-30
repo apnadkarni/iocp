@@ -27,19 +27,19 @@ package require iocp_inet
 <p class='ruff'>Returns a client or server TCP/IP channel.</p>
 <div class='ruff_synopsis'><span class='ruff_cmd'>socket</span> <span class='ruff_arg'>?args?</span></div>
 <h5 class='ruff'>Parameters</h5><table class='ruff_deflist'>
-<tr><td><code>args</code></td><td>See the Tcl core <code>socket</code> command.</td></tr>
+<tr><td><nobr><code>args</code></nobr></td><td>See the Tcl core <code>socket</code> command.</td></tr>
 </table>
 <h5 class='ruff'>Description</h5><p class='ruff'>The command provides the same interface as the Tcl core <a href="http://www.tcl-lang.org/man/tcl8.6/TclCmd/socket.htm" >socket</a> command except for the additional socket options listed below. Refer to the documentation of the Tcl <a href="http://www.tcl-lang.org/man/tcl8.6/TclCmd/socket.htm" >socket</a> command for details.</p>
 <p class='ruff'>The only functional enhancement offered by this command is significantly improved performance with reduced CPU load.</p>
 <p class='ruff'>In addition to the standard configuration options supported by the Tcl <code>socket</code> command, the following additional configuration options are supported through the Tcl <code>fconfigure</code> and <code>chan configure</code> commands. They can be read as well as set.</p>
 <table class='ruff_deflist'>
-<tr><td>-keepalive BOOL</td><td>Controls the socket <code>SO_KEEPALIVE</code> option.</td></tr>
-<tr><td>-maxpendingaccepts COUNT</td><td>Maximum number of pending accepts to post on the socket (listening socket only).</td></tr>
-<tr><td>-maxpendingreads COUNT</td><td>Maximum number of pending reads to post on the socket.</td></tr>
-<tr><td>-maxpendingwrites COUNT</td><td>Maximum number of pending writes to post on the socket.</td></tr>
-<tr><td>-nagle BOOL</td><td>Controls the socket <code>TCL_NODELAY</code> option.</td></tr>
-<tr><td>-sorcvbuf BUFSIZE</td><td>Size of Winsock socket receive buffer.</td></tr>
-<tr><td>-sosndbuf BUFSIZE</td><td>Size of Winsock socket send buffer.</td></tr>
+<tr><td><nobr>-keepalive BOOL</nobr></td><td>Controls the socket <code>SO_KEEPALIVE</code> option.</td></tr>
+<tr><td><nobr>-maxpendingaccepts COUNT</nobr></td><td>Maximum number of pending accepts to post on the socket (listening socket only).</td></tr>
+<tr><td><nobr>-maxpendingreads COUNT</nobr></td><td>Maximum number of pending reads to post on the socket.</td></tr>
+<tr><td><nobr>-maxpendingwrites COUNT</nobr></td><td>Maximum number of pending writes to post on the socket.</td></tr>
+<tr><td><nobr>-nagle BOOL</nobr></td><td>Controls the socket <code>TCL_NODELAY</code> option.</td></tr>
+<tr><td><nobr>-sorcvbuf BUFSIZE</nobr></td><td>Size of Winsock socket receive buffer.</td></tr>
+<tr><td><nobr>-sosndbuf BUFSIZE</nobr></td><td>Size of Winsock socket send buffer.</td></tr>
 </table>
 <p class='ruff'>It is recommended these be left at their default values except in cases where performance needs to be fine tuned for specific traffic patterns. The <code>netbench</code> utility may be used for the purpose.</p>
 <p class='ruff'>The returned channel must be closed with the Tcl <code>close</code> or <code>chan close</code> command.</p>
