@@ -19,7 +19,7 @@
  * Returns:
  * Pointer to a Tcl_Obj wrapping a generated UUID.
  */
-Tcl_Obj *Tclh_NewUuidObj ();
+Tcl_Obj *Tclh_NewUuidObj (Tcl_Interp *);
 
 /* Function: Tclh_WrapUuid
  * Wraps a Tclh_UUID as a Tcl_Obj.
